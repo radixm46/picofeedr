@@ -1,0 +1,133 @@
+// -*- mode:dbml; -*-
+// PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;
+
+Project cli_feed_index_v2 {
+    database_type: 'SQLite'
+    Note: '''
+    - Subscription source-of-truth is external config (yaml/toml/etc).
+    - DB stores feeds only to attribute entries (provenance), not to manage subscription.
+    - JSON1 is assumed (meta columns are JSON text).
+    '''
+}
+
+Table es_meta {
+    Note: '''
+    Single-row meta as JSON for application-owned schema control.
+    Keep it boring and reliable.
+    '''
+    id integer [pk] // always 1 (enforce in app)
+    meta_json text [not null] // JSON object (schema_version, created_at, app_id, migrations, etc)
+    indexes { (id) }
+}
+
+Table feeds {
+    Note: '''
+    Feed catalog for provenance/attribution.
+    Not a "subscription list".
+    '''
+    id integer [pk, increment]
+    feed_key text [not null, unique] // app-defined stable id (e.g., normalized URL or hash)
+    url text [not null]              // fetch/canonical URL you want to show as source
+    title text
+    author text
+    site_url text
+    meta_json text                   // JSON object (image, language, generator, raw headers, etc)
+
+    created_at integer [not null]    // unix epoch sec: first time seen via any entry
+    updated_at integer               // last time feed metadata changed (optional)
+
+    indexes {
+        (feed_key)
+        (url)
+    }
+}
+
+Table entries {
+    Note: '''
+    Entry index. entry_key is app-defined stable id.
+    Use GUID when available; fallback to link; last resort: content hash + date.
+    '''
+    id integer [pk, increment]
+    entry_key text [not null, unique]  // app-defined stable id
+    feed_id integer [not null]
+
+    guid text                          // feed-provided GUID (may be null)
+    link text                          // may be null in some feeds
+    title text                         // allow null: some items are sparse
+    author text
+
+    published_at integer [not null]    // unix epoch sec
+    updated_at integer                 // optional: Atom updated, etc
+
+    meta_json text                     // JSON object (categories, flags, source fields, etc)
+
+    indexes {
+        (entry_key)
+        (feed_id)
+        (feed_id, published_at)
+        (published_at)
+        (guid)
+        (link)
+    }
+}
+
+Table entry_contents {
+    Note: '''
+    1:1 content storage.
+    DB is not obligated to store full content; can store ref only.
+    '''
+    entry_id integer [pk]              // also FK to entries.id
+    storage text [not null]            // 'none' | 'db' | 'fs' | 'obj' ... (enforce in app)
+    ref text                           // filepath/object-key/etc (nullable)
+    content_type text                  // 'text/html', 'text/plain', ...
+    content text                       // only when storage='db'
+    content_hash text                  // sha256 etc (optional)
+
+    indexes { (content_hash) (ref) }
+}
+
+Table entry_enclosures {
+    Note: "enclosure table (member of entry)"
+    id integer [pk, increment]
+    entry_id integer [not null]
+    url text [not null]
+    mime_type text
+    length integer                     // was text -> integer
+
+    indexes {
+        (entry_id)
+        (entry_id, url) [unique]
+    }
+}
+
+Table tags {
+    Note: '''
+    Tag dictionary.
+    IMPORTANT: if tagging rules live in external config, this table is a cache.
+    You may rebuild it any time.
+    '''
+    id integer [pk, increment]
+    name text [unique, not null]
+    meta_json text
+
+    indexes { (name) }
+}
+
+Table entry_tags {
+    Note: '''
+    Junction table. Consider WITHOUT ROWID in actual SQL for size/perf.
+    origin is optional: 'rule'/'user' etc. Keep it as cache semantics.
+    '''
+    entry_id integer [not null]
+    tag_id integer [not null]
+    origin text                         // nullable
+
+    primary key (entry_id, tag_id)
+    indexes { (tag_id, entry_id) (entry_id) (tag_id) }
+}
+
+Ref: feeds.id > entries.feed_id [delete: restrict]
+Ref: entries.id > entry_contents.entry_id [delete: cascade]
+Ref: entries.id > entry_enclosures.entry_id [delete: cascade]
+Ref: entries.id > entry_tags.entry_id [delete: cascade]
+Ref: tags.id > entry_tags.tag_id [delete: cascade]
