@@ -99,16 +99,15 @@ Table entry_enclosures {
 Table entry_contents {
     Note: '''
     1:1 content storage.
-    DB is not obligated to store full content; can store ref only.
+    DB is not obligated to store full content; it may store content in SQLite or refer to a hash-addressed file store.
     '''
     entry_id integer [pk]              // also FK to entries.id
-    storage text [not null]            // 'none' | 'db' | 'fs' | 'obj' ... (enforce in app)
-    ref text                           // filepath/object-key/etc (nullable)
+    storage text [not null]            // 'none' | 'db' | 'fs' (enforce in app)
+    ref text                           // hash key (e.g. sha256 hex) when storage='fs' (nullable)
     content_type text                  // 'text/html', 'text/plain', ...
     content text                       // only when storage='db'
-    content_hash text                  // sha256 etc (optional)
 
-    indexes { (content_hash) (ref) }
+    indexes { (ref) }
 }
 
 Table entry_tags {

@@ -78,10 +78,22 @@
 
 ### 4.4 `entry_contents`
 
-* 1:1 の本文管理（参照または格納）
-* `storage`：`fs`/`db`/`none` など
-* `ref`：ファイルパスやオブジェクトキー（`storage='fs'` 等）
-* `content_hash`：sha256 等（推奨）
+* 1:1 の本文管理（**DB内保存** or **ハッシュFS参照**）
+
+* `storage` は **3値**：
+  * `db`：SQLite に本文を格納
+  * `fs`：ハッシュ（例：sha256 hex）を鍵に、保存パスをアプリ側で導出して参照
+    * 例：`ref=b5bb...` → `./data/b5/b5bb...`（`./data` は CLI 設定）
+  * `none`：このエントリには **本文が無い**（エントリに content/summary が無い等）
+
+* カラム設計の意図（最小・明快）：
+  * `ref`：`storage='fs'` のときの **鍵（=hash hex）**（※パスそのものは入れない）
+  * `content`：`storage='db'` のときの本文
+  * `content_type`：`text/html` / `text/plain` など（任意：レンダリング用）
+
+> 注：`fs` の置き場所（rootディレクトリ）やパス導出ルールはレコードに持たず、CLI本体設定で与える。
+
+> 注：`storage` と `ref/content` の整合はアプリ側または CHECK 制約で担保する（例：`fs` なら `ref` 必須・`content` は空、`db` なら逆）。
 
 ### 4.5 `tags` / `entry_tags`
 

@@ -42,6 +42,8 @@ file = "~/.local/share/feeder/feeder.log"
 
 `content_store` は `entry_contents.storage` の値として扱うのだ。
 
+`content_store = "fs"` の場合、`entry_contents.ref` は hash key（例：sha256 hex）で、実際の保存パスは `storage.data_dir` と導出ルールから決めるのだ（レコードにはパスを持たない）。
+
 ### A3.2 feeds.yaml（フィード一覧・自動タグ）
 
 **データの内容**を定義（変更頻度：高）

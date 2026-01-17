@@ -30,8 +30,9 @@
 * **購読（subscription）の真実**は外部設定（`feeds.yaml` 等）であり、DBは「索引＋状態（タグ）＋帰属（provenance）」を保持する
 * **状態はタグ**で表現する（`unread`/`star` など）
 * 拡張フィールドは **`*_meta_json`（JSON text）** に逃がす（SQLite JSON1前提）
-* **時刻は2種類**：
-  - `published_at`：ソースが主張する時刻（欠損/嘘を許容）
+* **時刻は3種類**：
+  - `published_at`：ソースが主張する公開時刻（欠損/嘘を許容）
+  - `updated_at`：ソースが主張する更新時刻（欠損/嘘を許容）
   - `first_seen_at`：ローカルが初めて観測した時刻（安定基準、NOT NULL）
 
 ### A5.2 基本テーブル（`db.dbml` の要点）
@@ -69,11 +70,10 @@
 #### `entry_contents`
 
 * 1:1 本文（`entry_id` がPKかつ `entries.id` へのFK）
-* `storage`（NOT NULL）：`none`/`db`/`fs`/`obj` 等（値の妥当性はアプリ側で保証）
-* `ref`：ファイルパス/オブジェクトキー等（nullable）
+* `storage`（NOT NULL）：`none`/`db`/`fs`（値の妥当性はアプリ側で保証）
+* `ref`：`storage='fs'` のときの鍵（例：sha256 hex）。パスそのものは持たない（nullable）
 * `content_type`：`text/html`/`text/plain` 等（nullable）
 * `content`：`storage='db'` の場合に本文を格納（nullable）
-* `content_hash`：sha256等（任意）
 
 #### `entry_enclosures`
 
@@ -87,7 +87,7 @@
 1. `entry_contents` 行が無ければ `content=null`
 2. `storage='none'` → `content=null`
 3. `storage='db'` → `entry_contents.content` を返す（`content_type` も同様）
-4. `storage!='db'` → `entry_contents.ref` を解釈して外部ストアから取得（実装依存）
+4. `storage='fs'` → `entry_contents.ref`（hash key）から保存パスを導出し、ファイルシステムから取得（導出ルール/ルートはCLI設定）
 
 ### A5.4 JSON meta の活用（例）
 
