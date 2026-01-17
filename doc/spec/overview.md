@@ -9,13 +9,13 @@
 * **UI差し替え可能**：Emacs/TUI/GUI等、任意のフロントがCLIを叩けば同じ機能を使える
 * **タグ中心設計**：unread/starred含むすべての状態をタグで管理
 * **設定ファイル駆動**：取得対象・タグ継承・自動タグルールは **feeds.yaml が唯一の真実**
-* **DBの役割を限定**：SQLiteは「取得結果（entries/tags/content）」と、必要なら「条件付きGETのキャッシュ（ETag/Last-Modified等）」を `feeds.meta_json` に保持する（YAMLの内容・ルール自体は保存しない）
+* **DBの役割を限定**：SQLiteは「取得結果（entries/tags/content）」のみを保持する（YAMLの内容・ルール自体は保存しない）
 
 ## A1. 目的 / 非目的
 
 ### 目的
 
-* RSS/Atomの取得（ETag/Last-Modified対応）
+* RSS/Atomの取得
 * 正規化データをSQLiteへ保存（単一writer）
 * 検索・ソート・ページングをバックエンド側で完結
 * タグベースの状態管理：unread/starred/カスタムタグ
@@ -77,4 +77,3 @@ feeder feeds --config-check      # 設定ファイルとDB差分表示
 * `sync.progress(current, total, feed)`
 * `entries.updated(entry_ids)`
 * `log(level, message)`
-

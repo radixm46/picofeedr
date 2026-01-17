@@ -43,7 +43,6 @@ feeder sync
 2. `feeds` カタログを upsert（`feed_key` を算出し、`url`/`title`/`site_url`/`author`/`meta_json` を更新）
    - YAMLから削除されたURL → **何もしない**（履歴保持。同期対象から外れるだけ）
 3. **YAMLに列挙されたURLのみ** を並列fetch（`sync.parallel` 設定）
-   - 条件付きGET（ETag/Last-Modified等）を使う場合は `feeds.meta_json` にキャッシュする（例：`http.etag`）
 4. 新規エントリに自動タグ付与
    - フィード階層から継承されたタグ
    - `auto_tags` ルールにマッチしたタグ

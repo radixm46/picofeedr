@@ -26,7 +26,7 @@
 
 ### Phase 3：同期処理（Week 2後半）
 
-14. RSS/Atom fetch実装（ETag/Last-Modified対応）
+14. RSS/Atom fetch実装
 15. Entry正規化・保存
 16. 自動タグルール適用
 17. 並列fetch実装（worker pool）
