@@ -453,9 +453,9 @@ func (em *EntryManager) GetContent(entryID int64) (string, error) {
 
 ### A5.4 Elfeed互換性（オプション、Phase 2）
 
-``** の生成方法：**
+**IDの生成方法：**
 
-```
+```go
 // feeds.id_elfeed の生成
 func GenerateFeedIDElfeed(url string) string {
     // Phase 1: URLをそのまま使う（シンプル）
@@ -470,10 +470,9 @@ func GenerateEntryIDElfeed(feedIDElfeed, guid string) string {
     // Elfeed形式: "feed-id\nentry-guid"
     return fmt.Sprintf("%s\n%s", feedIDElfeed, guid)
 }
-
 ```
 
-**Phase 1では ********``******** をNULLのままでOK**（Elfeed移行が不要なら）
+Phase 1では  id_elfeed をNULLのままでOK（Elfeed移行が不要なら）
 
 ### A5.5 JSON meta の活用
 
@@ -1033,21 +1032,22 @@ feeder/ ├── cmd/ │   └── feeder/ │       └── main.go ├�
 
 ## D3. 依存ライブラリ（Go）
 
-```
-
-// go.mod module github.com/yourusername/feeder
+```go
+// go.mod
+module github.com/yourusername/feeder
 
 go 1.21
 
-require ( github.com/BurntSushi/toml v1.3.2 github.com/mattn/go-sqlite3 v1.14.18 github.com/mmcdole/gofeed v1.2.1 github.com/urfave/cli/v2 v2.27.0 gopkg.in/yaml.v3 v3.0.1
+require (
+    github.com/BurntSushi/toml v1.3.2
+    github.com/mattn/go-sqlite3 v1.14.18
+    github.com/mmcdole/gofeed v1.2.1
+    github.com/urfave/cli/v2 v2.27.0
+    gopkg.in/yaml.v3 v3.0.1
 
-```
-// RPC Mode用（Phase 7）
-github.com/sourcegraph/jsonrpc2 v0.2.0
-```
-
+    // RPC Mode用（Phase 6）
+    // github.com/sourcegraph/jsonrpc2 v0.2.0
 )
-
 ```
 
 ## D4. テスト戦略
