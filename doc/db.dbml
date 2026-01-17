@@ -45,29 +45,54 @@ Table feeds {
 Table entries {
     Note: '''
     Entry index. entry_key is app-defined stable id.
-    Use GUID when available; fallback to link; last resort: content hash + date.
+    - source_id: Atom <id> / RSS <guid> / fallback identifier (e.g. link).
+    - source_id_type clarifies provenance of source_id: atom_id | rss_guid | link | hash | ...
+    - published_at can be NULL; use first_seen_at as a stable timeline fallback.
     '''
     id integer [pk, increment]
-    entry_key text [not null, unique]  // app-defined stable id
+    entry_key text [not null, unique]  // app-defined stable id (e.g., feed_key + source_id; or hash-based)
     feed_id integer [not null]
 
-    guid text                          // feed-provided GUID (may be null)
+    source_id text                     // Atom <id> / RSS <guid> / fallback (nullable)
+
     link text                          // may be null in some feeds
     title text                         // allow null: some items are sparse
     author text
 
-    published_at integer [not null]    // unix epoch sec
-    updated_at integer                 // optional: Atom updated, etc
+    published_at integer               // unix epoch sec (nullable)
+    updated_at integer                 // unix epoch sec (nullable; Atom updated, etc)
+
+    first_seen_at integer [not null]   // unix epoch sec: when inserted/first observed locally
 
     meta_json text                     // JSON object (categories, flags, source fields, etc)
 
     indexes {
         (entry_key)
         (feed_id)
+
         (feed_id, published_at)
+        (feed_id, first_seen_at)
+
         (published_at)
-        (guid)
+        (first_seen_at)
+
+        (feed_id, source_id)
+
         (link)
+    }
+}
+
+Table entry_enclosures {
+    Note: "enclosure table (member of entry)"
+    id integer [pk, increment]
+    entry_id integer [not null]
+    url text [not null]
+    mime_type text
+    length integer                     // was text -> integer
+
+    indexes {
+        (entry_id)
+        (entry_id, url) [unique]
     }
 }
 
@@ -86,17 +111,19 @@ Table entry_contents {
     indexes { (content_hash) (ref) }
 }
 
-Table entry_enclosures {
-    Note: "enclosure table (member of entry)"
-    id integer [pk, increment]
+Table entry_tags {
+    Note: '''
+    Junction table. Consider WITHOUT ROWID in actual SQL for size/perf.
+    origin is optional: "rule"/"user" etc. Keep it as cache semantics.
+    '''
     entry_id integer [not null]
-    url text [not null]
-    mime_type text
-    length integer                     // was text -> integer
+    tag_id integer [not null]
 
+    primary key (entry_id, tag_id)
     indexes {
+        (tag_id, entry_id)
         (entry_id)
-        (entry_id, url) [unique]
+        (tag_id)
     }
 }
 
@@ -108,22 +135,8 @@ Table tags {
     '''
     id integer [pk, increment]
     name text [unique, not null]
-    meta_json text
 
     indexes { (name) }
-}
-
-Table entry_tags {
-    Note: '''
-    Junction table. Consider WITHOUT ROWID in actual SQL for size/perf.
-    origin is optional: 'rule'/'user' etc. Keep it as cache semantics.
-    '''
-    entry_id integer [not null]
-    tag_id integer [not null]
-    origin text                         // nullable
-
-    primary key (entry_id, tag_id)
-    indexes { (tag_id, entry_id) (entry_id) (tag_id) }
 }
 
 Ref: feeds.id > entries.feed_id [delete: restrict]
