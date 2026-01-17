@@ -1,4 +1,27 @@
-# Feeder 仕様 v0.4
+# Feeder 仕様 v0.5
+
+## ドキュメント分割（整理）計画
+
+`spec.md` が肥大してきたので、内容を以下に分割して見通しを良くする（作業計画）：
+
+- `spec/overview.md`：ゴール/非ゴール、実行形態（CLI/RPC）
+- `spec/config.md`：`config.toml` / `feeds.yaml`（自動タグ含む）
+- `spec/db.md`：SQLiteデータモデル（`db.dbml` を正として要点・規約を記載）
+- `spec/cli.md`：CLIコマンドとJSON入出力
+- `spec/query.md`：検索クエリ言語とSQL生成の考え方
+- `spec/pagination.md`：カーソルページング仕様
+- `spec/errors.md`：エラー仕様
+- `spec/roadmap.md`：実装フェーズ（MVP順）
+- `spec/ui-notes.md`：UI/クライアント設計ノート（非規約）
+- `spec/workflows.md`：ユーザーワークフロー
+- `spec/impl-guide.md`：実装ガイド（言語/依存/テスト）
+- `spec/references.md`：比較・参考リンク
+
+移行手順（最小の安全策）：
+
+1. まず `spec.md` の本文をそれぞれの新ファイルへ移動し、`spec.md` は目次＋リンク＋変更履歴のみにする
+2. 既存の見出しアンカーに依存している箇所がある場合は、旧アンカーのリンクを `spec.md` 側に残す（リダイレクト的に）
+3. 移行後に `rg` で旧テーブル名（`tag_ids` など）や旧仕様（Elfeed互換）を検索し、取りこぼしを潰す
 
 このドキュメントは **Backend/CLI（規約）** と **UI/クライアント（設計ノート）** を分離して記述する。
 
@@ -18,7 +41,7 @@
 * **UI差し替え可能**：Emacs/TUI/GUI等、任意のフロントがCLIを叩けば同じ機能を使える
 * **タグ中心設計**：unread/starred含むすべての状態をタグで管理
 * **設定ファイル駆動**：取得対象・タグ継承・自動タグルールは **feeds.yaml が唯一の真実**
-* **DBの役割を限定**：SQLiteは「取得結果（entries/tags/content）」と「最小の取得状態（etag/last_modified等）」のみを保持（YAMLの内容・ルール自体は保存しない）
+* **DBの役割を限定**：SQLiteは「取得結果（entries/tags/content）」と、必要なら「条件付きGETのキャッシュ（ETag/Last-Modified等）」を `feeds.meta_json` に保持する（YAMLの内容・ルール自体は保存しない）
 
 ## A1. 目的 / 非目的
 
@@ -199,338 +222,90 @@ auto_tags:
 
 ## A5. SQLite データモデル
 
-### A5.1 方針
+### A5.1 方針（正本とする設計）
 
-* Elfeed系スキーマをベースにタグ中心設計
-* **Elfeed互換性**：`id_elfeed` フィールドでElfeedとの相互運用性を確保（オプション）
-* **unread/starred は基本タグ**で表現
-* 本文（entry content）はストア方式を選べる：`content_store = sqlite | fs | none`
-* **JSON形式のmeta**：`feeds.meta` と `entries.meta` はJSON形式で統一
+* SQLiteのテーブル定義の正本は `db.dbml` とする（この仕様書は規約・運用上の意味を補う）
+* **購読（subscription）の真実**は外部設定（`feeds.yaml` 等）であり、DBは「索引＋状態（タグ）＋帰属（provenance）」を保持する
+* **状態はタグ**で表現する（`unread`/`star` など）
+* 拡張フィールドは **`*_meta_json`（JSON text）** に逃がす（SQLite JSON1前提）
+* **時刻は2種類**：
+  - `published_at`：ソースが主張する時刻（欠損/嘘を許容）
+  - `first_seen_at`：ローカルが初めて観測した時刻（安定基準、NOT NULL）
 
-### A5.2 完全なテーブル定義
+### A5.2 基本テーブル（`db.dbml` の要点）
 
-```
--- ============================================================
--- Meta Table (DB全体のメタ情報)
--- ============================================================
-CREATE TABLE es_meta (
-  key TEXT PRIMARY KEY,
-  value TEXT NOT NULL,
-  updated_at INTEGER NOT NULL
-);
+#### `es_meta`
 
--- スキーマバージョン管理
-INSERT INTO es_meta (key, value, updated_at)
-VALUES ('schema_version', '1', strftime('%s', 'now'));
+* 単一行テーブル（`id=1` をアプリ側で保証）
+* `meta_json` は JSON object（例：`schema_version`、作成日時、マイグレーション履歴等）
 
--- ============================================================
--- Feeds Table
--- ============================================================
-CREATE TABLE feeds (
-  id INTEGER PRIMARY KEY,
+#### `feeds`
 
-  -- Elfeed互換性（オプション、Phase 2で実装）
-  id_elfeed TEXT UNIQUE,           -- Elfeed互換ID（例：URLの正規化版）
+* フィードの「購読管理」ではなく **帰属/表示のためのカタログ**
+* `feed_key`（UNIQUE, NOT NULL）：アプリ定義の安定ID（例：正規化URL、ハッシュ）
+* `url`（NOT NULL）：取得/表示の基準URL
+* `title`/`author`/`site_url`/`meta_json` は任意
+* 取得状態（ETag/Last-Modified等）を永続化したい場合は **`feeds.meta_json` の予約キー**に格納する（例：`{"http":{"etag":"...","last_modified":"...","last_fetch_at":1700000000}}`）
 
-  -- 基本情報
-  url TEXT NOT NULL UNIQUE,
-  title TEXT,
-  site_url TEXT,
-  author TEXT,                     -- フィードレベルのauthor
-  meta TEXT,                       -- JSON形式（※YAML由来のタグ/ルールは保存しない。キャッシュ用途のみ）
+#### `entries`
 
-  -- HTTP fetch関連（取得状態）
-  etag TEXT,
-  last_modified TEXT,              -- RFC 7231形式
-  last_fetch_at INTEGER,
-  fetch_error TEXT,
-  fetch_error_count INTEGER DEFAULT 0,
-  -- NOTE: 自動スケジューラ/バックオフを導入する場合は `next_fetch_at` を追加する（Phase拡張）
-  -- NOTE: 取得対象の真実は feeds.yaml。DBに enabled を持つ場合は互換/運用都合のキャッシュであり、同期対象の判断には使わない。
+* エントリ索引の中核
+* `entry_key`（UNIQUE, NOT NULL）：アプリ定義の安定ID
+* `feed_id`（NOT NULL）：`feeds.id` 参照（削除は RESTRICT）
+* `source_id`：Atom `<id>` / RSS `<guid>` / フォールバック（nullable）
+* `link`/`title`：欠損を許容（nullable）
+* `published_at`/`updated_at`：欠損を許容（nullable）
+* `first_seen_at`（NOT NULL）：安定したタイムライン用
+* `meta_json`：カテゴリ、rawフィールド等（JSON）
 
-  -- タイムスタンプ
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
-);
+#### `tags` / `entry_tags`
 
--- Indexes
-CREATE INDEX idx_feeds_id_elfeed ON feeds(id_elfeed);
-CREATE INDEX idx_feeds_url ON feeds(url);
+* `tags`：タグ辞書（`name` UNIQUE）
+* `entry_tags`：中間（`PRIMARY KEY(entry_id, tag_id)`）
+* `entries` 削除時：`entry_tags` は CASCADE
 
--- ============================================================
--- Entries Table
--- ============================================================
-CREATE TABLE entries (
-  id INTEGER PRIMARY KEY,
+#### `entry_contents`
 
-  -- Elfeed互換性（オプション、Phase 2で実装）
-  id_elfeed TEXT UNIQUE,           -- Elfeed互換ID（例："feed_id\nguid"）
+* 1:1 本文（`entry_id` がPKかつ `entries.id` へのFK）
+* `storage`（NOT NULL）：`none`/`db`/`fs`/`obj` 等（値の妥当性はアプリ側で保証）
+* `ref`：ファイルパス/オブジェクトキー等（nullable）
+* `content_type`：`text/html`/`text/plain` 等（nullable）
+* `content`：`storage='db'` の場合に本文を格納（nullable）
+* `content_hash`：sha256等（任意）
 
-  -- 関連
-  feed_id INTEGER NOT NULL,
-  guid TEXT NOT NULL,              -- フィード内でユニークなID
+#### `entry_enclosures`
 
-  -- 基本情報
-  title TEXT NOT NULL,
-  link TEXT NOT NULL,
-  published_at INTEGER NOT NULL,   -- Unix timestamp (UTC)
-  updated_at INTEGER,               -- エントリの更新日時
-  author TEXT,
+* 添付（`UNIQUE(entry_id, url)`）
+* `length` は INTEGER（バイト数、nullable）
 
-  -- 拡張情報
-  meta TEXT,                       -- JSON形式
-  content_ref TEXT,                -- content store参照
-  content_type TEXT,               -- text/html, text/plain
-
-  -- タイムスタンプ
-  created_at INTEGER NOT NULL,     -- DB登録日時
-
-  -- 制約
-  FOREIGN KEY(feed_id) REFERENCES feeds(id) ON DELETE CASCADE,
-  UNIQUE(feed_id, guid)
-);
-
--- Indexes
-CREATE INDEX idx_entries_id_elfeed ON entries(id_elfeed);
-CREATE INDEX idx_entries_feed ON entries(feed_id);
-CREATE INDEX idx_entries_feed_date ON entries(feed_id, published_at);
-CREATE INDEX idx_entries_published ON entries(published_at DESC, id DESC);
-CREATE INDEX idx_entries_link ON entries(link);
-
--- ============================================================
--- Tags Tables (タグ管理)
--- ============================================================
-CREATE TABLE tag_ids (
-  id INTEGER PRIMARY KEY,
-  name TEXT NOT NULL UNIQUE        -- タグ名（例："unread", "star", "tech"）
-);
-
--- NOTE: tag_ids は辞書テーブル。MVPでは作成時刻は保持しない（必要なら後で追加可能）。
-
-CREATE INDEX idx_tag_ids_name ON tag_ids(name);
-
-CREATE TABLE entry_tags (
-  entry_id INTEGER NOT NULL,
-  tag_id INTEGER NOT NULL,
-
-  PRIMARY KEY(entry_id, tag_id),
-  FOREIGN KEY(entry_id) REFERENCES entries(id) ON DELETE CASCADE,
-  FOREIGN KEY(tag_id) REFERENCES tag_ids(id) ON DELETE CASCADE
-);
-
--- Indexes
-CREATE INDEX idx_entry_tags_entry ON entry_tags(entry_id);
-CREATE INDEX idx_entry_tags_tag ON entry_tags(tag_id);
-CREATE INDEX idx_entry_tags_tag_entry ON entry_tags(tag_id, entry_id);
-
--- ============================================================
--- Content Tables (本文・添付ファイル)
--- ============================================================
-CREATE TABLE entry_contents (
-  id INTEGER PRIMARY KEY,
-  entry_id INTEGER NOT NULL UNIQUE,
-  ref TEXT UNIQUE,                 -- 参照キー（fs時のファイル名等）
-  content TEXT NOT NULL,
-  created_at INTEGER NOT NULL,
-
-  FOREIGN KEY(entry_id) REFERENCES entries(id) ON DELETE CASCADE
-);
-
-CREATE INDEX idx_entry_contents_entry ON entry_contents(entry_id);
-CREATE INDEX idx_entry_contents_ref ON entry_contents(ref);
-
-CREATE TABLE entry_enclosures (
-  id INTEGER PRIMARY KEY,
-  entry_id INTEGER NOT NULL,
-  url TEXT NOT NULL,
-  mime_type TEXT,
-  length INTEGER,                  -- バイト数
-  created_at INTEGER NOT NULL,
-
-  FOREIGN KEY(entry_id) REFERENCES entries(id) ON DELETE CASCADE,
-  UNIQUE(entry_id, url)
-);
-
-CREATE INDEX idx_entry_enclosures_entry ON entry_enclosures(entry_id);
-
--- ============================================================
--- Sync Jobs (削除)
--- ============================================================
--- NOTE: syncの進捗/結果ログはDBに永続化しない。
---       CLI/RPCのレスポンスやstderrの進捗表示で返す（必要ならUI側で保持）。
-
--- ============================================================
--- FTS5 Table (全文検索、Phase 6)
--- ============================================================
-CREATE VIRTUAL TABLE entries_fts USING fts5(
-  title,
-  content,
-  content=entries,
-  content_rowid=id
-);
-
--- FTS5自動更新トリガー
-CREATE TRIGGER entries_fts_ai AFTER INSERT ON entries BEGIN
-  INSERT INTO entries_fts(rowid, title, content)
-  VALUES (
-    new.id,
-    new.title,
-    COALESCE((SELECT content FROM entry_contents WHERE entry_id = new.id), '')
-  );
-END;
-
-CREATE TRIGGER entries_fts_ad AFTER DELETE ON entries BEGIN
-  DELETE FROM entries_fts WHERE rowid = old.id;
-END;
-
-CREATE TRIGGER entries_fts_au AFTER UPDATE ON entries BEGIN
-  UPDATE entries_fts SET title = new.title WHERE rowid = new.id;
-END;
-
-CREATE TRIGGER entry_contents_au AFTER UPDATE ON entry_contents BEGIN
-  UPDATE entries_fts SET content = new.content WHERE rowid = new.entry_id;
-END;
-
-```
-
-### A5.3 本文ストア（content_store）
+### A5.3 本文ストア（`entry_contents`）
 
 **解決優先順位（固定）：**
 
-1. `entry_contents` テーブルに該当があればそれを返す
-2. なければ `content_ref` を fs として解釈し `data-dir/<content_ref>` を読み込み
-3. どちらも無ければ `content=null`
+1. `entry_contents` 行が無ければ `content=null`
+2. `storage='none'` → `content=null`
+3. `storage='db'` → `entry_contents.content` を返す（`content_type` も同様）
+4. `storage!='db'` → `entry_contents.ref` を解釈して外部ストアから取得（実装依存）
 
-**content_ref の形式：**
+### A5.4 JSON meta の活用（例）
 
-* `sqlite` モード：`entry_contents.ref` に保存（NULLも可）
-* `fs` モード：SHA256ハッシュ等の安全なファイル名（例：`a1b2c3d4.html`）
-* `none` モード：常に NULL
-
-**実装例（Go）：**
-
-```
-func (em *EntryManager) GetContent(entryID int64) (string, error) {
-    // 1. entry_contents テーブルを確認
-    var content string
-    err := em.db.QueryRow(`
-        SELECT content FROM entry_contents WHERE entry_id = ?
-    `, entryID).Scan(&content)
-
-    if err == nil {
-        return content, nil
-    }
-
-    if err != sql.ErrNoRows {
-        return "", err
-    }
-
-    // 2. entries.content_ref を確認
-    var contentRef sql.NullString
-    err = em.db.QueryRow(`
-        SELECT content_ref FROM entries WHERE id = ?
-    `, entryID).Scan(&contentRef)
-
-    if err != nil {
-        return "", err
-    }
-
-    if !contentRef.Valid || contentRef.String == "" {
-        return "", nil // content なし
-    }
-
-    // 3. fs から読み込み
-    path := filepath.Join(em.config.Storage.DataDir, contentRef.String)
-    data, err := os.ReadFile(path)
-    if err != nil {
-        return "", err
-    }
-
-    return string(data), nil
-}
-
-```
-
-### A5.4 Elfeed互換性（オプション、Phase 2）
-
-**IDの生成方法：**
-
-```go
-// feeds.id_elfeed の生成
-func GenerateFeedIDElfeed(url string) string {
-    // Phase 1: URLをそのまま使う（シンプル）
-    return url
-
-    // Phase 2: Elfeed完全互換（要elfeed-db.el解析）
-    // return elfeedCanonicalID(url)
-}
-
-// entries.id_elfeed の生成
-func GenerateEntryIDElfeed(feedIDElfeed, guid string) string {
-    // Elfeed形式: "feed-id\nentry-guid"
-    return fmt.Sprintf("%s\n%s", feedIDElfeed, guid)
-}
-```
-
-Phase 1では  id_elfeed をNULLのままでOK（Elfeed移行が不要なら）
-
-### A5.5 JSON meta の活用
-
-**feeds.meta の例：**
+**`feeds.meta_json` の例：**
 
 ```
 {
   "subtitle": "...",
   "language": "en",
   "generator": "...",
-  "custom": {"key": "value"}
+  "http": {"etag": "...", "last_modified": "...", "last_fetch_at": 1700000000}
 }
-
 ```
 
-**SQLite JSON1拡張での検索（Phase 6）：**
+**SQLite JSON1拡張での検索例：**
 
 ```
--- tagsにrustを含むフィード
+-- http.etag が一致する feed を探す
 SELECT * FROM feeds
-WHERE json_extract(meta, '$.tags') LIKE '%rust%';
-
--- カスタムフィールドで検索
-SELECT * FROM feeds
-WHERE json_extract(meta, '$.custom_field') = 'value';
-
-```
-
-**Go実装例：**
-
-```
-type FeedMeta struct {
-    Tags           []string               `json:"tags"`
-    UpdateInterval int                    `json:"update_interval,omitempty"`
-    Custom         map[string]interface{} `json:",inline"`
-}
-
-func (f *Feed) GetMeta() (*FeedMeta, error) {
-    if f.Meta == "" {
-        return &FeedMeta{Tags: []string{}}, nil
-    }
-
-    var meta FeedMeta
-    if err := json.Unmarshal([]byte(f.Meta), &meta); err != nil {
-        return nil, err
-    }
-    return &meta, nil
-}
-
-func (f *Feed) SetMeta(meta *FeedMeta) error {
-    data, err := json.Marshal(meta)
-    if err != nil {
-        return err
-    }
-    f.Meta = string(data)
-    return nil
-}
-
+WHERE json_extract(meta_json, '$.http.etag') = '...';
 ```
 
 ## A6. CLI API（JSON出力）
@@ -539,7 +314,7 @@ func (f *Feed) SetMeta(meta *FeedMeta) error {
 
 ```
 feeder version
-# → {"api_version": "0.3.0", "schema_version": 1, "build": "abc123"}
+# → {"api_version": "0.5.0", "schema_version": 1, "build": "abc123"}
 
 feeder ping
 # → {"ok": true}
@@ -550,7 +325,7 @@ feeder ping
 
 ```
 feeder feeds
-# → {"feeds": [{id, url, title, enabled, tags}]}
+# → {"feeds": [{id, feed_key, url, title, site_url, author, tags}]}
 
 feeder feeds --config-check
 # → {"new_in_config": [...], "removed_from_config": [...], "tag_changes": [...]}
@@ -561,6 +336,7 @@ feeder feeds --config-check
 
 * フィードの追加/削除は `feeds.yaml` を直接編集
 * `sync` 実行時に自動的にDBと同期される
+* `feeds` の `tags` は `feeds.yaml` 由来の情報であり、DBの正本ではない（DBは購読の真実を保持しない）
 
 ### A6.3 同期（取得）
 
@@ -572,10 +348,10 @@ feeder sync
 **sync の動作フロー：**
 
 1. `feeds.yaml` を読み込み、階層をフラット化（タグ継承・auto_tags をコンパイル）
-2. DB内のfeeds状態（etag/last_modified等）を照合
-   - 新規URL → INSERT（状態行を作る。取得対象の真実はあくまでYAML）
+2. `feeds` カタログを upsert（`feed_key` を算出し、`url`/`title`/`site_url`/`author`/`meta_json` を更新）
    - YAMLから削除されたURL → **何もしない**（履歴保持。同期対象から外れるだけ）
-3. **YAMLに列挙されたURLのみ** を並列fetch（`sync.parallel` 設定）し、etag/last_modified/last_fetch_at/error等を更新
+3. **YAMLに列挙されたURLのみ** を並列fetch（`sync.parallel` 設定）
+   - 条件付きGET（ETag/Last-Modified等）を使う場合は `feeds.meta_json` にキャッシュする（例：`http.etag`）
 4. 新規エントリに自動タグ付与
    - フィード階層から継承されたタグ
    - `auto_tags` ルールにマッチしたタグ
@@ -585,7 +361,7 @@ feeder sync
 
 ```
 
-feeder list --query  --sort <published_desc|published_asc> --limit  [--cursor ]
+feeder list --query <q> --sort <first_seen_desc|first_seen_asc|published_desc|published_asc> --limit <n> [--cursor <cursor>]
 
 # → {"total_hits": 342, "items": [EntrySummary...], "next_cursor": "eyJ..."}
 
@@ -595,7 +371,7 @@ feeder list --query  --sort <published_desc|published_asc> --limit  [--cursor ]
 
 ```
 
-{ "id": 123, "published_at": 1705420800, "feed_id": 5, "title": "Example Article", "tags": ["unread", "tech", "rust"], "link": "[https://example.com/article](https://example.com/article)" }
+{ "id": 123, "feed_id": 5, "title": "Example Article", "link": "https://example.com/article", "published_at": 1705420800, "first_seen_at": 1705420900, "tags": ["unread", "tech", "rust"] }
 
 ```
 
@@ -603,7 +379,7 @@ feeder list --query  --sort <published_desc|published_asc> --limit  [--cursor ]
 
 ```
 
-feeder view
+feeder view <id>
 
 # → EntryDetail
 
@@ -613,7 +389,7 @@ feeder view
 
 ```
 
-{ "id": 123, "feed_id": 5, "feed_title": "Rust Blog", "title": "Example Article", "link": "[https://example.com/article](https://example.com/article)", "published_at": 1705420800, "author": "John Doe", "content": "...", "content_type": "text/html", "tags": ["unread", "tech", "rust"], "enclosures": [ {"url": "...", "mime_type": "audio/mpeg", "length": 12345} ] }
+{ "id": 123, "feed_id": 5, "feed_title": "Rust Blog", "title": "Example Article", "link": "https://example.com/article", "author": "John Doe", "published_at": 1705420800, "first_seen_at": 1705420900, "content": "...", "content_type": "text/html", "tags": ["unread", "tech", "rust"], "enclosures": [ {"url": "...", "mime_type": "audio/mpeg", "length": 12345} ] }
 
 ```
 
@@ -697,9 +473,9 @@ feeder list --query 'unread text:"rust" after:2026-01-01'
 
 ```
 
--- tag:security EXISTS ( SELECT 1 FROM entry_tags et JOIN tag_ids t ON et.tag_id = t.id WHERE et.entry_id = entries.id AND t.name = 'security' )
+-- tag:security EXISTS ( SELECT 1 FROM entry_tags et JOIN tags t ON et.tag_id = t.id WHERE et.entry_id = entries.id AND t.name = 'security' )
 
--- -tag:misc NOT EXISTS ( SELECT 1 FROM entry_tags et JOIN tag_ids t ON et.tag_id = t.id WHERE et.entry_id = entries.id AND t.name = 'misc' )
+-- -tag:misc NOT EXISTS ( SELECT 1 FROM entry_tags et JOIN tags t ON et.tag_id = t.id WHERE et.entry_id = entries.id AND t.name = 'misc' )
 
 ```
 
@@ -709,13 +485,13 @@ feeder list --query 'unread text:"rust" after:2026-01-01'
 
 - `OFFSET` は使わず、カーソル（keyset pagination）を基本とする
 - `sort` に依存してカーソルを生成
-- `next_cursor` は不透明文字列（内部は `published_at,id` 等の順序キー）
+- `next_cursor` は不透明文字列（内部は `first_seen_at,id` 等の順序キー）
 
-### A8.2 published\_desc（推奨）
+### A8.2 first_seen\_desc（推奨）
 
-- 並び順：`ORDER BY published_at DESC, id DESC`
-- カーソル内部：`{"k": <published_at>, "id": <entry_id>}` を JSON→base64url
-- 次ページ条件：`WHERE (published_at, id) < (k, id)`
+- 並び順：`ORDER BY first_seen_at DESC, id DESC`
+- カーソル内部：`{"k": <first_seen_at>, "id": <entry_id>}` を JSON→base64url
+- 次ページ条件：`WHERE (first_seen_at, id) < (k, id)`
 
 ### A8.3 使用例
 
@@ -723,13 +499,13 @@ feeder list --query 'unread text:"rust" after:2026-01-01'
 
 # 初回
 
-feeder list --query unread --sort published_desc --limit 100
+feeder list --query unread --sort first_seen_desc --limit 100
 
 # → {"items": [...], "next_cursor": "eyJrIjoxNzA1NDIwODAwLCJpZCI6MTIzfQ"}
 
 # 2ページ目
 
-feeder list --query unread --sort published_desc --limit 100
+feeder list --query unread --sort first_seen_desc --limit 100
 --cursor "eyJrIjoxNzA1NDIwODAwLCJpZCI6MTIzfQ"
 
 ```
@@ -792,7 +568,7 @@ auto_tags:
 
 ### Phase 1：タグシステム（Week 1後半）
 
-6. `tag_ids` / `entry_tags` テーブル操作
+6. `tags` / `entry_tags` テーブル操作
 7. TagManager実装
 8. CLI: `feeder tags`
 9. テスト
@@ -1003,7 +779,7 @@ feeder sync
 
 # 30日以上前の既読エントリを削除
 
-sqlite3 ~/.local/share/feeder/db.sqlite <<EOF DELETE FROM entries WHERE id IN ( SELECT e.id FROM entries e WHERE e.published_at < strftime('%s', 'now', '-30 days') AND NOT EXISTS ( SELECT 1 FROM entry_tags et JOIN tag_ids t ON et.tag_id = t.id WHERE et.entry_id = e.id AND t.name IN ('unread', 'star') ) ); EOF
+sqlite3 ~/.local/share/feeder/db.sqlite <<EOF DELETE FROM entries WHERE id IN ( SELECT e.id FROM entries e WHERE e.published_at < strftime('%s', 'now', '-30 days') AND NOT EXISTS ( SELECT 1 FROM entry_tags et JOIN tags t ON et.tag_id = t.id WHERE et.entry_id = e.id AND t.name IN ('unread', 'star') ) ); EOF
 
 ```
 
@@ -1106,25 +882,29 @@ feeder --config test.toml --db :memory: sync
 
 # 変更履歴
 
+## v0.5（2026-01-17）
+
+- **DB設計の正本を `db.dbml` / `db-note.md` に寄せる**
+  - `id_elfeed` 前提の記述を仕様から除去
+  - テーブル/カラム名を `meta_json`/`tags`/`first_seen_at` 等に統一
+  - 本文ストアを `entry_contents` 中心の規約に再整理
+- **ページングの推奨ソートを `first_seen_desc` に変更**
+  - `published_at` 欠損を許容する設計に合わせ、安定基準を明確化
+
 ## v0.4（2026-01-17）
 
+- （この版の内容は v0.5 で設計変更のため一部撤回）
 - **SQLiteスキーマを統合版に更新**
-  - Elfeed互換性：`id_elfeed` フィールド追加（feeds/entries、オプション）
   - インデックス最適化：複合インデックス `(feed_id, published_at)` 等を追加
   - `feeds.author` フィールド追加
   - `entry_contents.ref` フィールド追加（fs/sqlite統一的な扱い）
   - `entry_enclosures.length` を INTEGER に変更
   - `entries.date` → `entries.published_at` に変更（明確化）
-  - `tag_ids.txt` → `tag_ids.name` に変更
   - `es_meta` テーブル追加（`config` テーブルから改名）
   - FTS5テーブルとトリガーの追加（Phase 6）
   - タイムスタンプフィールドの統一
 - **JSON meta の明確化**
-  - `feeds.meta` と `entries.meta` はJSON形式で統一
   - SQLite JSON1拡張での検索例を追加
-- **content\_store 実装の詳細化**
-  - 解決優先順位の実装例（Go）を追加
-  - `entry_contents.ref` の活用方法を明記
 
 ## v0.3（2026-01-16）
 
