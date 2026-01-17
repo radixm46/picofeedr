@@ -114,7 +114,6 @@ Table entry_contents {
 Table entry_tags {
     Note: '''
     Junction table. Consider WITHOUT ROWID in actual SQL for size/perf.
-    origin is optional: "rule"/"user" etc. Keep it as cache semantics.
     '''
     entry_id integer [not null]
     tag_id integer [not null]
@@ -130,8 +129,8 @@ Table entry_tags {
 Table tags {
     Note: '''
     Tag dictionary.
-    IMPORTANT: if tagging rules live in external config, this table is a cache.
-    You may rebuild it any time.
+    Tagging is treated as entry state (user tags + auto tags applied at ingest time).
+    This table may be derived/rebuilt from entry_tags, but entry_tags is the source of truth for assignments.
     '''
     id integer [pk, increment]
     name text [unique, not null]
