@@ -1,0 +1,88 @@
+# C. ユーザーワークフロー
+
+## C1. 初期セットアップ
+
+```
+
+# 1. 設定ファイル作成
+
+mkdir -p ~/.config/feeder cp /usr/share/feeder/config.example.toml ~/.config/feeder/config.toml cp /usr/share/feeder/feeds.example.yaml ~/.config/feeder/feeds.yaml
+
+# 2. feeds.yaml 編集
+
+vim ~/.config/feeder/feeds.yaml
+
+# 3. 初回同期
+
+feeder sync
+
+# 4. エントリ確認
+
+feeder list --query unread
+
+```
+
+## C2. 日常利用
+
+```
+
+# 朝：同期
+
+feeder sync
+
+# Emacsで閲覧
+
+emacs -f feeder
+
+# または CLI で確認
+
+feeder list --query "unread tag:security" | jq '.items[] | {id, title}' feeder view 123 feeder mark read 123
+
+```
+
+## C3. フィード追加
+
+```
+
+# 1. feeds.yaml を編集
+
+vim ~/.config/feeder/feeds.yaml
+
+# 新規追加:
+
+# feeds:
+
+# tech:
+
+# programming:
+
+# rust:
+
+# feeds:
+
+# - url: [https://new-blog.example.com/feed.xml](https://new-blog.example.com/feed.xml)
+
+# tags: [new]
+
+# 2. 差分確認
+
+feeder feeds --config-check
+
+# 3. 同期（自動的に新規フィードが追加される）
+
+feeder sync
+
+```
+
+## C4. 古いエントリの削除（直接SQL）
+
+```
+
+# 30日以上前の既読エントリを削除
+
+sqlite3 ~/.local/share/feeder/db.sqlite <<EOF DELETE FROM entries WHERE id IN ( SELECT e.id FROM entries e WHERE e.published_at < strftime('%s', 'now', '-30 days') AND NOT EXISTS ( SELECT 1 FROM entry_tags et JOIN tags t ON et.tag_id = t.id WHERE et.entry_id = e.id AND t.name IN ('unread', 'star') ) ); EOF
+
+```
+
+---
+
