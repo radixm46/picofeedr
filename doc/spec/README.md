@@ -5,7 +5,7 @@
 ## Source of Truth
 
 - DBスキーマ（テーブル/カラム/制約/参照/インデックス）：`doc/db.dbml`
-- DB設計意図・運用想定：`doc/db-note.md`
+- DB設計意図・運用想定：`doc/spec/db.md`
 
 `doc/spec/*.md` は上記の正本と矛盾しない範囲で、CLI規約や運用上の不変条件を説明するのだ。
 

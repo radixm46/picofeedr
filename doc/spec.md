@@ -21,5 +21,5 @@
 
 ## 方針メモ
 
-- DBスキーマの正本は `doc/db.dbml`、設計意図は `doc/db-note.md` なのだ。
+- DBスキーマの正本は `doc/db.dbml`、設計意図は `doc/spec/db.md` なのだ。
 - 一覧の「日付」ソートは `date = COALESCE(published_at, updated_at, first_seen_at)` を使うのだ（詳細は `doc/spec/pagination.md`）。
