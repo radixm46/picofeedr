@@ -9,6 +9,8 @@
 ```
 # ~/.config/feeder/config.toml
 
+unread_tag = "unread"       # 未読タグ名（新規取り込み時に付与）
+
 [database]
 path = "~/.local/share/feeder/db.sqlite"
 
@@ -22,10 +24,6 @@ retry_delay = 5
 [storage]
 content_store = "db"      # db | fs | none
 data_dir = "~/.local/share/feeder/data"
-
-[tags]
-unread = "unread"         # 未読タグ名
-starred = "star"          # スタータグ名
 
 [query]
 default_limit = 100
@@ -43,6 +41,8 @@ file = "~/.local/share/feeder/feeder.log"
 `content_store` は `entry_contents.storage` の値として扱うのだ。
 
 `content_store = "fs"` の場合、`entry_contents.ref` は hash key（例：sha256 hex）で、実際の保存パスは `storage.data_dir` と導出ルールから決めるのだ（レコードにはパスを持たない）。
+
+`unread_tag` は新規取り込み時に付与する未読タグ名なのだ（既読化はこのタグを外す）。
 
 ### A3.2 feeds.yaml（フィード一覧・自動タグ）
 
@@ -109,4 +109,4 @@ auto_tags:
 
 1. フィード階層から継承されたタグ
 2. `auto_tags` ルール（優先度順）
-3. `tags.unread` タグ（常に最後）
+3. `unread_tag`（常に最後）

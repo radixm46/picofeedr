@@ -2,7 +2,7 @@
 
 ## v0.5（2026-01-17）
 
-- **DB設計の正本を `db.dbml` / `spec/db.md` に寄せる**
+ - **DB設計の正本を `doc/db.dbml` / `doc/spec/db.md` に寄せる**
   - `id_elfeed` 前提の記述を仕様から除去
   - テーブル/カラム名を `meta_json`/`tags`/`first_seen_at` 等に統一
   - 本文ストアを `entry_contents` 中心の規約に再整理

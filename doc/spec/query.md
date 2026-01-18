@@ -6,7 +6,7 @@
 
 **サポート構文：**
 
-- `unread` - `tag:unread` のショートカット
+- `unread` - `tag:<unread_tag>` のショートカット（`unread_tag` は設定。デフォルト `unread`）
 - `star` または `starred` - `tag:star` のショートカット
 - `tag:security` - 指定タグを持つエントリ
 - `-tag:misc` - 指定タグを持たないエントリ
