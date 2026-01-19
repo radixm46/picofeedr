@@ -22,6 +22,7 @@
 - `doc/spec/ui-notes.md`：UI/クライアント設計ノート（非規約）
 - `doc/spec/workflows.md`：ユーザーワークフロー
 - `doc/spec/impl-guide.md`：実装ガイド
+- `doc/spec/tech-selection.md`：技術選定（Rust前提・ドラフト）
 - `doc/spec/references.md`：比較・参考リンク
 - `doc/spec/changelog.md`：変更履歴
 

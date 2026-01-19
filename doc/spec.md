@@ -16,6 +16,7 @@
 - `doc/spec/ui-notes.md`（非規約）
 - `doc/spec/workflows.md`
 - `doc/spec/impl-guide.md`
+- `doc/spec/tech-selection.md`
 - `doc/spec/references.md`
 - `doc/spec/changelog.md`
 
