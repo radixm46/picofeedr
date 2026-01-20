@@ -46,7 +46,6 @@ Table entries {
     Note: '''
     Entry index. entry_key is app-defined stable id.
     - source_id: Atom <id> / RSS <guid> / fallback identifier (e.g. link).
-    - source_id_type clarifies provenance of source_id: atom_id | rss_guid | link | hash | ...
     - published_at can be NULL; use first_seen_at as a stable timeline fallback.
     '''
     id integer [pk, increment]

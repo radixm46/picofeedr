@@ -22,7 +22,7 @@ feeder list --query "unread tag:security -tag:misc"
 
 ```
 
-### A7.2 Phase 6（拡張クエリ）
+### A7.2 Phase 5（拡張クエリ）
 
 **追加構文：**
 

@@ -34,11 +34,13 @@ feeder sync
 
 emacs -f feeder
 
-# または CLI で確認
-
-feeder list --query "unread tag:security" | jq '.items[] | {id, title}' feeder view 123 feeder mark read 123
-
-```
+	# または CLI で確認
+	
+	feeder list --query "unread tag:security" | jq '.items[] | {id, title}' feeder view 123 feeder mark read 123
+	
+	# 注：本文（content）が無い/取得しない運用の場合は、EntryDetail の `link` を外部ブラウザ等で開くのだ。
+	
+	```
 
 ## C3. フィード追加
 
@@ -85,4 +87,3 @@ sqlite3 ~/.local/share/feeder/db.sqlite <<EOF DELETE FROM entries WHERE id IN ( 
 ```
 
 ---
-

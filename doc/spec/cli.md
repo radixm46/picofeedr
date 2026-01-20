@@ -52,7 +52,7 @@ feeder sync
 
 ```
 
-feeder list --query <q> --sort <date_desc|date_asc|first_seen_desc|first_seen_asc|published_desc|published_asc> --limit <n> [--cursor <cursor>]
+feeder list --query <q> --sort <date_desc|date_asc|first_seen_desc|first_seen_asc> --limit <n> [--cursor <cursor>]
 
 # → {"total_hits": 342, "items": [EntrySummary...], "next_cursor": "eyJ..."}
 
@@ -62,7 +62,6 @@ feeder list --query <q> --sort <date_desc|date_asc|first_seen_desc|first_seen_as
 
 - `date_*`：`date = COALESCE(published_at, updated_at, first_seen_at)` をキーにソート
 - `first_seen_*`：取り込み順（安定・推奨）
-- `published_*`：フィードが主張する公開時刻（欠損がありうる）
 
 **EntrySummary（最小）：**
 
@@ -89,6 +88,11 @@ feeder view <id>
 { "id": 123, "feed_id": 5, "feed_title": "Rust Blog", "title": "Example Article", "link": "https://example.com/article", "author": "John Doe", "published_at": 1705420800, "first_seen_at": 1705420900, "content": "...", "content_type": "text/html", "tags": ["unread", "tech", "rust"], "enclosures": [ {"url": "...", "mime_type": "audio/mpeg", "length": 12345} ] }
 
 ```
+
+**content の扱い：**
+
+- `entry_contents.storage` が `none` の場合、本文は存在しないのだ（`content`/`content_type` は `null` または省略されうる）。
+- `entry_contents.storage` が `fs` の場合、本文取得に失敗したら `content` は返さない（UIは `link` を外部ブラウザ等で開く方針なのだ）。
 
 ### A6.6 状態更新
 

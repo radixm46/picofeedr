@@ -19,7 +19,7 @@
   - `entry_enclosures.length` を INTEGER に変更
   - `entries.date` → `entries.published_at` に変更（明確化）
   - `es_meta` テーブル追加（`config` テーブルから改名）
-  - FTS5テーブルとトリガーの追加（Phase 6）
+  - FTS5テーブルとトリガーの追加（Phase 5）
   - タイムスタンプフィールドの統一
 - **JSON meta の明確化**
   - （削除済み）SQLite JSON1拡張での検索例を追加

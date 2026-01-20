@@ -15,6 +15,12 @@
 - カーソル内部：`{"k": <first_seen_at>, "id": <entry_id>}`
 - 次ページ条件：`WHERE (first_seen_at, id) < (k, id)`
 
+### A8.2b first_seen_asc
+
+- 並び順：`ORDER BY first_seen_at ASC, id ASC`
+- カーソル内部：`{"k": <first_seen_at>, "id": <entry_id>}`
+- 次ページ条件：`WHERE (first_seen_at, id) > (k, id)`
+
 ### A8.3 date_desc（推奨：人間が見る日付）
 
 `published_at` / `updated_at` は欠損しうるので、一覧用の「実効日付」を定義するのだ。
@@ -23,6 +29,12 @@
 - 並び順：`ORDER BY date DESC, id DESC`
 - カーソル内部：`{"k": <date>, "id": <entry_id>}`
 - 次ページ条件：`WHERE (date, id) < (k, id)`
+
+### A8.3b date_asc
+
+- 並び順：`ORDER BY date ASC, id ASC`
+- カーソル内部：`{"k": <date>, "id": <entry_id>}`
+- 次ページ条件：`WHERE (date, id) > (k, id)`
 
 ### A8.4 使用例（first_seen_desc）
 
