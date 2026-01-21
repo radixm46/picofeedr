@@ -7,6 +7,7 @@ mod error;
 mod feed;
 mod sync;
 mod tag;
+mod time;
 
 use crate::cli::{Cli, Command};
 use crate::error::{AppError, ErrorResponse};

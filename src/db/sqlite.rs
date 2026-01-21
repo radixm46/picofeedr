@@ -2,7 +2,8 @@
 
 use crate::db::{EntryContentInput, EntryInput, EntryInsertResult, FeedInput, FeedRow};
 use crate::error::AppError;
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, params, params_from_iter};
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 /// SQLite store wrapper.
@@ -161,13 +162,38 @@ impl SqliteStore {
 
     /// Inserts tags for an entry.
     pub fn insert_entry_tags(&self, entry_id: i64, tags: &[String]) -> Result<(), AppError> {
+        if tags.is_empty() {
+            return Ok(());
+        }
+        let mut unique = Vec::new();
+        let mut seen = HashSet::new();
         for tag in tags {
-            self.ensure_tag(tag)?;
-            let tag_id: i64 = self.conn.query_row(
-                "SELECT id FROM tags WHERE name = ?1",
+            if seen.insert(tag.clone()) {
+                unique.push(tag.clone());
+            }
+        }
+        for tag in &unique {
+            self.conn.execute(
+                "INSERT OR IGNORE INTO tags (name) VALUES (?1)",
                 params![tag],
-                |row| row.get(0),
             )?;
+        }
+        let placeholders = std::iter::repeat_n("?", unique.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let query = format!("SELECT id, name FROM tags WHERE name IN ({placeholders})");
+        let mut stmt = self.conn.prepare(&query)?;
+        let mut rows = stmt.query(params_from_iter(unique.iter()))?;
+        let mut tag_ids = HashMap::new();
+        while let Some(row) = rows.next()? {
+            let id: i64 = row.get(0)?;
+            let name: String = row.get(1)?;
+            tag_ids.insert(name, id);
+        }
+        for tag in &unique {
+            let tag_id = tag_ids
+                .get(tag)
+                .ok_or_else(|| AppError::db(format!("Missing tag id for {tag}")))?;
             self.conn.execute(
                 "INSERT OR IGNORE INTO entry_tags (entry_id, tag_id) VALUES (?1, ?2)",
                 params![entry_id, tag_id],

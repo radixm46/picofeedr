@@ -6,6 +6,7 @@ use crate::db::sqlite::SqliteStore;
 use crate::db::{EntryContentInput, EntryInput};
 use crate::error::AppError;
 use crate::feed::feed_key_from_url;
+use crate::time::current_epoch;
 use regex::Regex;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -491,15 +492,6 @@ fn dedupe_tags(tags: Vec<String>) -> Vec<String> {
         }
     }
     out
-}
-
-/// Returns current epoch seconds.
-fn current_epoch() -> i64 {
-    let now = std::time::SystemTime::now();
-    let duration = now
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_else(|_| std::time::Duration::from_secs(0));
-    duration.as_secs() as i64
 }
 
 impl SyncError {

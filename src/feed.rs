@@ -5,6 +5,7 @@ use crate::db::sqlite::SqliteStore;
 use crate::db::{FeedInput, FeedRow};
 use crate::error::AppError;
 use crate::tag::TagManager;
+use crate::time::current_epoch;
 use hex::ToHex;
 use serde::Serialize;
 use serde_json::json;
@@ -241,14 +242,4 @@ fn normalize_tags(tags: &[String]) -> Vec<String> {
     sorted.sort();
     sorted.dedup();
     sorted
-}
-
-/// Returns the current epoch time in seconds.
-/// Returns the current epoch time in seconds.
-fn current_epoch() -> i64 {
-    let now = std::time::SystemTime::now();
-    let duration = now
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_else(|_| std::time::Duration::from_secs(0));
-    duration.as_secs() as i64
 }
