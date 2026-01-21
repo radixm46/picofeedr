@@ -5,6 +5,7 @@ use crate::error::AppError;
 use rusqlite::{Connection, params, params_from_iter};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use std::time::Duration;
 
 /// SQLite store wrapper.
 pub struct SqliteStore {
@@ -16,6 +17,8 @@ impl SqliteStore {
     pub fn open(path: &Path) -> Result<Self, AppError> {
         let conn = Connection::open(path)?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
+        conn.busy_timeout(Duration::from_secs(5))?;
+        // NOTE: Consider making busy_timeout configurable once needed.
         Ok(Self { conn })
     }
 
