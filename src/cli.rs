@@ -38,4 +38,7 @@ pub enum Command {
         #[arg(long, action = clap::ArgAction::SetTrue)]
         config_check: bool,
     },
+
+    /// Sync feeds and ingest new entries.
+    Sync,
 }

@@ -1,6 +1,7 @@
 //! CLI integration tests.
 
 use assert_cmd::cargo::cargo_bin_cmd;
+use rusqlite::Connection;
 use serde_json::Value;
 use std::fs;
 use tempfile::TempDir;
@@ -104,6 +105,63 @@ fn tags_command_returns_tag_dictionary() {
     assert_eq!(tag_values, vec!["rust", "tech", "unread"]);
 }
 
+/// Ensures sync ingests entries, applies tags, and reports counts.
+#[test]
+fn sync_ingests_entries_and_tags() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+
+    let output = cargo_bin_cmd!("feeder")
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("sync")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let value: Value = serde_json::from_slice(&output).expect("json");
+    assert_eq!(value["status"], "completed");
+    assert_eq!(value["fetched"], 1);
+    assert_eq!(value["new_entries"], 2);
+
+    let conn = Connection::open(&paths.db_path).expect("open db");
+    let entry_count: i64 = conn
+        .query_row("SELECT COUNT(1) FROM entries", [], |row| row.get(0))
+        .expect("entries count");
+    assert_eq!(entry_count, 2);
+
+    let unread_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(1) FROM entry_tags et JOIN tags t ON et.tag_id = t.id WHERE t.name = 'unread'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("unread count");
+    assert_eq!(unread_count, 2);
+
+    let tech_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(1) FROM entry_tags et JOIN tags t ON et.tag_id = t.id WHERE t.name = 'tech'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("tech count");
+    assert_eq!(tech_count, 2);
+
+    let hot_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(1) FROM entry_tags et JOIN tags t ON et.tag_id = t.id WHERE t.name = 'hot'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("hot count");
+    assert_eq!(hot_count, 1);
+}
+
 /// Fixture file paths for CLI tests.
 struct FixturePaths {
     config_path: String,
@@ -143,6 +201,91 @@ source = "{}"
     fs::write(&feeds_path, feeds).expect("write feeds");
 
     FixturePaths {
+        config_path: config_path.display().to_string(),
+        db_path: db_path.display().to_string(),
+    }
+}
+
+/// Fixture file paths for sync tests.
+struct SyncFixturePaths {
+    config_path: String,
+    db_path: String,
+}
+
+/// Writes config, feeds, and feed XML for sync tests.
+fn write_sync_fixture_files(temp: &TempDir) -> SyncFixturePaths {
+    let config_path = temp.path().join("config.toml");
+    let feeds_path = temp.path().join("feeds.yaml");
+    let db_path = temp.path().join("db.sqlite");
+    let feed_path = temp.path().join("feed.xml");
+
+    let feed_xml = r#"<?xml version="1.0"?>
+<rss version="2.0">
+  <channel>
+    <title>Example Feed</title>
+    <link>https://example.com</link>
+    <description>Example Feed</description>
+    <item>
+      <title>First Entry</title>
+      <link>https://example.com/1</link>
+      <guid>entry-1</guid>
+      <pubDate>Mon, 01 Jan 2024 00:00:00 GMT</pubDate>
+      <description>Hello world</description>
+    </item>
+    <item>
+      <title>Second Entry</title>
+      <link>https://example.com/2</link>
+      <guid>entry-2</guid>
+      <pubDate>Tue, 02 Jan 2024 00:00:00 GMT</pubDate>
+      <description>Another entry</description>
+    </item>
+  </channel>
+</rss>
+"#;
+
+    let config = format!(
+        r#"unread_tag = "unread"
+
+[database]
+path = "{}"
+
+[feeds]
+source = "{}"
+
+[sync]
+parallel = 1
+timeout = 5
+user_agent = "feeder-test/0.1.0"
+retry_count = 0
+retry_delay = 0
+
+[storage]
+content_store = "db"
+"#,
+        db_path.display(),
+        feeds_path.display()
+    );
+
+    let feed_url = format!("file://{}", feed_path.display());
+    let feeds = format!(
+        r#"feeds:
+  tech:
+    tags: [tech]
+    feeds:
+      - url: {feed_url}
+        title: Example Feed
+auto_tags:
+  - title_contains: [First]
+    add_tags: [hot]
+    priority: 1
+"#
+    );
+
+    fs::write(&config_path, config).expect("write config");
+    fs::write(&feeds_path, feeds).expect("write feeds");
+    fs::write(&feed_path, feed_xml).expect("write feed");
+
+    SyncFixturePaths {
         config_path: config_path.display().to_string(),
         db_path: db_path.display().to_string(),
     }

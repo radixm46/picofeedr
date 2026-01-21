@@ -1,6 +1,6 @@
 //! SQLite adapter for the store.
 
-use crate::db::{FeedInput, FeedRow};
+use crate::db::{EntryContentInput, EntryInput, EntryInsertResult, FeedInput, FeedRow};
 use crate::error::AppError;
 use rusqlite::{Connection, params};
 use std::path::Path;
@@ -88,5 +88,91 @@ impl SqliteStore {
             .query_map([], |row| row.get(0))?
             .collect::<Result<Vec<String>, _>>()?;
         Ok(tags)
+    }
+
+    /// Fetches a feed ID by feed_key.
+    pub fn find_feed_id(&self, feed_key: &str) -> Result<Option<i64>, AppError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id FROM feeds WHERE feed_key = ?1")?;
+        let mut rows = stmt.query(params![feed_key])?;
+        if let Some(row) = rows.next()? {
+            let id: i64 = row.get(0)?;
+            return Ok(Some(id));
+        }
+        Ok(None)
+    }
+
+    /// Inserts an entry and returns its ID and insertion status.
+    pub fn insert_entry(&self, entry: &EntryInput) -> Result<EntryInsertResult, AppError> {
+        let inserted = self.conn.execute(
+            "INSERT OR IGNORE INTO entries (
+                entry_key,
+                feed_id,
+                source_id,
+                link,
+                title,
+                author,
+                published_at,
+                updated_at,
+                first_seen_at,
+                meta_json
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                entry.entry_key,
+                entry.feed_id,
+                entry.source_id,
+                entry.link,
+                entry.title,
+                entry.author,
+                entry.published_at,
+                entry.updated_at,
+                entry.first_seen_at,
+                entry.meta_json
+            ],
+        )? > 0;
+        let entry_id: i64 = self.conn.query_row(
+            "SELECT id FROM entries WHERE entry_key = ?1",
+            params![entry.entry_key],
+            |row| row.get(0),
+        )?;
+        Ok(EntryInsertResult { entry_id, inserted })
+    }
+
+    /// Inserts entry content for a newly inserted entry.
+    pub fn insert_entry_content(
+        &self,
+        entry_id: i64,
+        content: &EntryContentInput,
+    ) -> Result<(), AppError> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO entry_contents (entry_id, storage, ref, content_type, content)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                entry_id,
+                content.storage,
+                content.reference,
+                content.content_type,
+                content.content
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Inserts tags for an entry.
+    pub fn insert_entry_tags(&self, entry_id: i64, tags: &[String]) -> Result<(), AppError> {
+        for tag in tags {
+            self.ensure_tag(tag)?;
+            let tag_id: i64 = self.conn.query_row(
+                "SELECT id FROM tags WHERE name = ?1",
+                params![tag],
+                |row| row.get(0),
+            )?;
+            self.conn.execute(
+                "INSERT OR IGNORE INTO entry_tags (entry_id, tag_id) VALUES (?1, ?2)",
+                params![entry_id, tag_id],
+            )?;
+        }
+        Ok(())
     }
 }

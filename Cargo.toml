@@ -6,7 +6,9 @@ edition = "2024"
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
+feed-rs = "1"
 hex = "0.4"
+regex = "1"
 rusqlite = { version = "0.31", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -15,6 +17,7 @@ sha2 = "0.10"
 shellexpand = "3"
 thiserror = "2"
 toml = "0.8"
+ureq = { version = "2", features = ["tls"] }
 
 [dev-dependencies]
 assert_cmd = "2"

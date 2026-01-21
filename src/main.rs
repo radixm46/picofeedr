@@ -5,6 +5,7 @@ mod config;
 mod db;
 mod error;
 mod feed;
+mod sync;
 mod tag;
 
 use crate::cli::{Cli, Command};
@@ -75,6 +76,11 @@ fn run() -> Result<(), AppError> {
                 let feeds = feed::render_feed_list(&feeds_config, &db_feeds);
                 println!("{}", serde_json::to_string(&feeds)?);
             }
+        }
+        Command::Sync => {
+            let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
+            let summary = sync::run_sync(&store, &config, &feeds_config)?;
+            println!("{}", serde_json::to_string(&summary)?);
         }
         Command::Ping | Command::Version => {}
     }

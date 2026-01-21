@@ -95,6 +95,9 @@ pub fn reconcile_feeds(
 ) -> Result<(), AppError> {
     let now = current_epoch();
     let mut all_tags = config.all_tags();
+    for rule in &config.auto_tags {
+        all_tags.extend(rule.add_tags.iter().cloned());
+    }
     all_tags.push(unread_tag.to_string());
     let tag_manager = TagManager::new(store);
     tag_manager.ensure_tags(&all_tags)?;
@@ -202,7 +205,7 @@ fn feed_input(feed: &FeedConfig) -> FeedInput {
 }
 
 /// Generates a stable feed key from the feed URL.
-fn feed_key_from_url(url: &str) -> String {
+pub fn feed_key_from_url(url: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(url.as_bytes());
     let digest = hasher.finalize();
