@@ -1,0 +1,123 @@
+//! Sync data structures.
+
+use crate::db::EntryContentInput;
+use crate::error::AppError;
+use serde::Serialize;
+
+/// Sync result summary.
+#[derive(Debug, Serialize)]
+pub struct SyncSummary {
+    /// Sync status string.
+    pub status: String,
+    /// Number of feeds fetched.
+    pub fetched: usize,
+    /// Number of failed feeds.
+    pub failed: usize,
+    /// Number of new entries ingested.
+    pub new_entries: usize,
+    /// Elapsed time in seconds.
+    pub elapsed: f64,
+    /// Sync errors for failed feeds.
+    pub errors: Vec<SyncError>,
+}
+
+/// Sync error entry for failed feeds.
+#[derive(Debug, Serialize, Clone)]
+pub struct SyncError {
+    /// Feed URL that failed.
+    pub feed_url: String,
+    /// Error code string.
+    pub code: String,
+    /// Error message.
+    pub message: String,
+    /// Whether the caller should retry.
+    pub retry: bool,
+}
+
+impl SyncError {
+    /// Builds a fetch error entry.
+    pub(crate) fn fetch(feed_url: &str, message: String) -> Self {
+        Self {
+            feed_url: feed_url.to_string(),
+            code: "FETCH_FAILED".to_string(),
+            message,
+            retry: !feed_url.starts_with("file://"),
+        }
+    }
+
+    /// Builds a parse error entry.
+    pub(crate) fn parse(feed_url: &str, message: String) -> Self {
+        Self {
+            feed_url: feed_url.to_string(),
+            code: "PARSE_FAILED".to_string(),
+            message,
+            retry: false,
+        }
+    }
+}
+
+/// Sync target with feed metadata and tags.
+#[derive(Debug, Clone)]
+pub(crate) struct SyncTarget {
+    pub(crate) feed_key: String,
+    pub(crate) url: String,
+    pub(crate) tags: Vec<String>,
+}
+
+/// Parsed feed result from fetch workers.
+#[derive(Debug)]
+pub(crate) struct SyncResult {
+    pub(crate) entries: Vec<SyncEntry>,
+}
+
+/// Normalized entry with tags and content payload.
+#[derive(Debug)]
+pub(crate) struct SyncEntry {
+    pub(crate) feed_key: String,
+    pub(crate) entry: PendingEntry,
+    pub(crate) content: Option<EntryContentInput>,
+    pub(crate) tags: Vec<String>,
+}
+
+/// Pending entry data before feed_id resolution.
+#[derive(Debug)]
+pub(crate) struct PendingEntry {
+    pub(crate) entry_key: String,
+    pub(crate) source_id: Option<String>,
+    pub(crate) link: Option<String>,
+    pub(crate) title: Option<String>,
+    pub(crate) author: Option<String>,
+    pub(crate) published_at: Option<i64>,
+    pub(crate) updated_at: Option<i64>,
+    pub(crate) first_seen_at: i64,
+    pub(crate) meta_json: Option<String>,
+}
+
+impl PendingEntry {
+    /// Builds an EntryInput by attaching feed_id.
+    pub(crate) fn with_feed_id(self, feed_id: i64) -> crate::db::EntryInput {
+        crate::db::EntryInput {
+            entry_key: self.entry_key,
+            feed_id,
+            source_id: self.source_id,
+            link: self.link,
+            title: self.title,
+            author: self.author,
+            published_at: self.published_at,
+            updated_at: self.updated_at,
+            first_seen_at: self.first_seen_at,
+            meta_json: self.meta_json,
+        }
+    }
+}
+
+/// Worker result returned from fetch threads.
+#[derive(Debug)]
+pub(crate) enum WorkerResult {
+    /// Parsed feed result.
+    Ok(SyncResult),
+    /// Non-fatal sync error for a feed.
+    Error(SyncError),
+    /// Fatal error that should abort sync.
+    Fatal(AppError),
+}

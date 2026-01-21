@@ -1,16 +1,11 @@
-//! Feed reconciliation and CLI rendering.
+//! Feed response rendering for CLI output.
 
 use crate::config::feeds::{FeedConfig, FeedsConfig};
-use crate::db::sqlite::{SqliteStore, ensure_tag_with_conn, upsert_feed_with_conn};
-use crate::db::{FeedInput, FeedRow};
-use crate::error::AppError;
-use crate::time::current_epoch;
-use hex::ToHex;
-use rusqlite::Connection;
+use crate::db::FeedRow;
 use serde::Serialize;
-use serde_json::json;
-use sha2::{Digest, Sha256};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+
+use super::identity::feed_key_from_url;
 
 /// Feed list JSON response.
 #[derive(Debug, Serialize)]
@@ -86,40 +81,6 @@ pub struct TagChange {
     pub old_tags: Vec<String>,
     /// Tags from feeds.yaml.
     pub new_tags: Vec<String>,
-}
-
-/// Reconciles feeds.yaml with the database and ensures tag dictionary.
-pub fn reconcile_feeds(
-    store: &SqliteStore,
-    config: &FeedsConfig,
-    unread_tag: &str,
-) -> Result<(), AppError> {
-    reconcile_feeds_with_conn(store.connection(), config, unread_tag)
-}
-
-/// Reconciles feeds using a connection reference.
-pub fn reconcile_feeds_with_conn(
-    conn: &Connection,
-    config: &FeedsConfig,
-    unread_tag: &str,
-) -> Result<(), AppError> {
-    let now = current_epoch();
-    let mut all_tags = config.all_tags();
-    for rule in &config.auto_tags {
-        all_tags.extend(rule.add_tags.iter().cloned());
-    }
-    all_tags.push(unread_tag.to_string());
-    let mut seen = HashSet::new();
-    for tag in all_tags {
-        if seen.insert(tag.clone()) {
-            ensure_tag_with_conn(conn, &tag)?;
-        }
-    }
-    for feed in &config.feeds {
-        let input = feed_input(feed);
-        upsert_feed_with_conn(conn, &input, now)?;
-    }
-    Ok(())
 }
 
 /// Builds the feed list response with config-derived tags.
@@ -204,26 +165,6 @@ fn build_config_map(config: &FeedsConfig) -> HashMap<String, FeedConfig> {
         map.insert(feed_key, feed.clone());
     }
     map
-}
-
-/// Builds a FeedInput payload from a FeedConfig entry.
-fn feed_input(feed: &FeedConfig) -> FeedInput {
-    FeedInput {
-        feed_key: feed_key_from_url(&feed.url),
-        url: feed.url.clone(),
-        title: feed.title.clone(),
-        author: None,
-        site_url: None,
-        meta_json: Some(json!({"tags": feed.tags}).to_string()),
-    }
-}
-
-/// Generates a stable feed key from the feed URL.
-pub fn feed_key_from_url(url: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(url.as_bytes());
-    let digest = hasher.finalize();
-    digest.encode_hex::<String>()
 }
 
 /// Extracts tags from feed metadata JSON.
