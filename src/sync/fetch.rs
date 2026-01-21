@@ -32,7 +32,15 @@ pub(crate) fn fetch_parallel(
         let handle = thread::spawn(move || {
             loop {
                 let job = {
-                    let guard = rx.lock().expect("lock job rx");
+                    let guard = match rx.lock() {
+                        Ok(guard) => guard,
+                        Err(_) => {
+                            let _ = tx.send(WorkerResult::Fatal(AppError::io(
+                                "Worker queue lock poisoned",
+                            )));
+                            break;
+                        }
+                    };
                     guard.recv()
                 };
                 match job {
@@ -58,19 +66,26 @@ pub(crate) fn fetch_parallel(
     let mut results = Vec::new();
     let mut errors = Vec::new();
     let mut fatal: Option<AppError> = None;
-    for _ in 0..targets.len() {
+    let mut received = 0usize;
+    while received < targets.len() {
         let result = result_rx
             .recv()
             .map_err(|error| AppError::io(format!("Failed to receive result: {error}")))?;
+        received += 1;
         match result {
             WorkerResult::Ok(parsed) => results.push(parsed),
             WorkerResult::Error(error) => errors.push(error),
-            WorkerResult::Fatal(error) => fatal = Some(error),
+            WorkerResult::Fatal(error) => {
+                fatal = Some(error);
+                break;
+            }
         }
     }
 
     for handle in handles {
-        let _ = handle.join();
+        if handle.join().is_err() {
+            fatal = Some(AppError::io("Worker panicked"));
+        }
     }
 
     if let Some(error) = fatal {
