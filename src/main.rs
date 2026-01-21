@@ -5,6 +5,7 @@ mod config;
 mod db;
 mod error;
 mod feed;
+mod identity;
 mod sync;
 mod tag;
 mod time;

@@ -9,6 +9,7 @@ use crate::db::sqlite::{
 };
 use crate::error::AppError;
 use crate::feed::feed_key_from_url;
+use crate::identity::EntryIdentity;
 use crate::time::current_epoch;
 use regex::Regex;
 use serde::Serialize;
@@ -290,11 +291,6 @@ fn normalize_entry(
     rules: &[CompiledRule],
     config: &AppConfig,
 ) -> Result<SyncEntry, AppError> {
-    let source_id = if entry.id.is_empty() {
-        None
-    } else {
-        Some(entry.id.clone())
-    };
     let link = entry.links.first().map(|link| link.href.clone());
     let title = entry.title.as_ref().map(|title| title.content.clone());
     let author = entry.authors.first().map(|author| author.name.clone());
@@ -302,14 +298,9 @@ fn normalize_entry(
     let updated_at = entry.updated.map(|value| value.timestamp());
     let first_seen_at = current_epoch();
 
-    let entry_key = build_entry_key(
-        &target.feed_key,
-        source_id.as_ref(),
-        link.as_ref(),
-        title.as_ref(),
-    );
-
     let (content, content_type) = select_content(entry);
+    let identity = EntryIdentity::from_entry(&target.feed_key, entry, content.as_deref());
+    let entry_key = identity.entry_key;
     let content_input = build_entry_content(config, content, content_type)?;
 
     let mut tags = Vec::new();
@@ -323,7 +314,7 @@ fn normalize_entry(
         feed_key: target.feed_key.clone(),
         entry: PendingEntry {
             entry_key,
-            source_id,
+            source_id: Some(identity.source_id),
             link,
             title,
             author,
@@ -440,31 +431,6 @@ fn store_content_fs(root: &std::path::Path, content: &str) -> Result<String, App
     fs::write(&path, content.as_bytes())
         .map_err(|error| AppError::io(format!("Failed to write content: {error}")))?;
     Ok(hex)
-}
-
-/// Builds a stable entry key from feed key and identifiers.
-fn build_entry_key(
-    feed_key: &str,
-    source_id: Option<&String>,
-    link: Option<&String>,
-    title: Option<&String>,
-) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(feed_key.as_bytes());
-    if let Some(source_id) = source_id {
-        hasher.update(b":id:");
-        hasher.update(source_id.as_bytes());
-    } else if let Some(link) = link {
-        hasher.update(b":link:");
-        hasher.update(link.as_bytes());
-    } else if let Some(title) = title {
-        hasher.update(b":title:");
-        hasher.update(title.as_bytes());
-    } else {
-        hasher.update(b":fallback:");
-        hasher.update(current_epoch().to_string().as_bytes());
-    }
-    hex::encode(hasher.finalize())
 }
 
 /// Compiles auto-tag rules into matchable structures.

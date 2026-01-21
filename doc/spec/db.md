@@ -66,12 +66,17 @@
 
 * 本DBの中核：エントリ索引
 * `id`：DB内部参照用の整数PK（JOIN最適化、外部キーのサイズ削減）
-* `entry_key`：アプリ定義の安定ID（ユニーク）
-
-  * 生成材料は実装で決める（例：feed_key + source_id / link / hash の優先順位）
-* `source_id`：フィード由来の識別子（Atom `<id>` / RSS `<guid>` / フォールバック）
-
-  * 型カラム（source_id_type）は持たず、必要なら `source_id` を自己記述（`atom:...` 等）にする方針
+* `entry_key`: Stable app-defined ID (unique)
+  * `entry_key = sha256("{feed_key}:{source_id}")`
+* `source_id`: Canonical identifier string in the form `{namespace}|{cleaned_id}`
+  * `namespace` uses `feed_key` (sha256 of feed URL)
+  * `cleaned_id` is selected in order:
+    1. feed-provided id/guid
+    2. link
+    3. `urn:sha1:<sha1(content)>`
+    4. `urn:sha1:<sha1(title|published_at|updated_at|author)>`
+    5. last resort `urn:sha1:<sha1(now)>`
+  * `cleaned_id` trims and collapses whitespace
 * `published_at` / `updated_at`：ソースが主張する時刻（欠損・嘘を許容）
 * `first_seen_at`：ローカルが初めて観測した時刻（NOT NULL）
 
