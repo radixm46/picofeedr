@@ -34,8 +34,30 @@ feeder feeds --config-check
 
 ```
 feeder sync
-# → {"status": "completed", "fetched": 120, "new_entries": 42, "elapsed": 245.3}
+# → {"status": "completed", "fetched": 120, "failed": 0, "new_entries": 42, "elapsed": 245.3, "errors": []}
+
+# 一部失敗時の例
+# → {"status": "partial_failed", "fetched": 120, "failed": 3, "new_entries": 42, "elapsed": 245.3, "errors": [{"feed_url": "...", "code": "FETCH_FAILED", "message": "...", "retry": true}]}
 ```
+
+**SyncResult：**
+
+```
+{ "status": "completed|partial_failed", "fetched": <int>, "failed": <int>, "new_entries": <int>, "elapsed": <float>, "errors": [SyncError...] }
+```
+
+**SyncError：**
+
+```
+{ "feed_url": "<url>", "code": "FETCH_FAILED|PARSE_FAILED", "message": "<string>", "retry": <bool> }
+```
+
+**挙動：**
+
+* 取得失敗が一部に留まる場合は **exit code 0** とし、`status=partial_failed` + `errors` に詳細を載せる
+* DB書き込み失敗など **永続化に影響する失敗** は **致命** とする（A10のエラーJSONで終了、exit code != 0）
+* 設定エラーなど **致命的な失敗** は A10 のエラーJSONで終了する（exit code != 0）
+* `failed` は `errors` の件数と一致する
 
 **sync の動作フロー：**
 
