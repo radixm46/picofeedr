@@ -1,16 +1,16 @@
 //! Feed reconciliation and CLI rendering.
 
 use crate::config::feeds::{FeedConfig, FeedsConfig};
-use crate::db::sqlite::SqliteStore;
+use crate::db::sqlite::{SqliteStore, ensure_tag_with_conn, upsert_feed_with_conn};
 use crate::db::{FeedInput, FeedRow};
 use crate::error::AppError;
-use crate::tag::TagManager;
 use crate::time::current_epoch;
 use hex::ToHex;
+use rusqlite::Connection;
 use serde::Serialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Feed list JSON response.
 #[derive(Debug, Serialize)]
@@ -94,17 +94,30 @@ pub fn reconcile_feeds(
     config: &FeedsConfig,
     unread_tag: &str,
 ) -> Result<(), AppError> {
+    reconcile_feeds_with_conn(store.connection(), config, unread_tag)
+}
+
+/// Reconciles feeds using a connection reference.
+pub fn reconcile_feeds_with_conn(
+    conn: &Connection,
+    config: &FeedsConfig,
+    unread_tag: &str,
+) -> Result<(), AppError> {
     let now = current_epoch();
     let mut all_tags = config.all_tags();
     for rule in &config.auto_tags {
         all_tags.extend(rule.add_tags.iter().cloned());
     }
     all_tags.push(unread_tag.to_string());
-    let tag_manager = TagManager::new(store);
-    tag_manager.ensure_tags(&all_tags)?;
+    let mut seen = HashSet::new();
+    for tag in all_tags {
+        if seen.insert(tag.clone()) {
+            ensure_tag_with_conn(conn, &tag)?;
+        }
+    }
     for feed in &config.feeds {
         let input = feed_input(feed);
-        store.upsert_feed(&input, now)?;
+        upsert_feed_with_conn(conn, &input, now)?;
     }
     Ok(())
 }

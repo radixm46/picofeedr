@@ -2,8 +2,11 @@
 
 use crate::config::feeds::{AutoTagRule, FeedsConfig};
 use crate::config::{AppConfig, ContentStore};
-use crate::db::sqlite::SqliteStore;
-use crate::db::{EntryContentInput, EntryInput};
+use crate::db::EntryContentInput;
+use crate::db::sqlite::{
+    SqliteStore, find_feed_id_with_conn, insert_entry_content_with_conn,
+    insert_entry_tags_with_conn, insert_entry_with_conn,
+};
 use crate::error::AppError;
 use crate::feed::feed_key_from_url;
 use crate::time::current_epoch;
@@ -36,30 +39,35 @@ pub struct SyncSummary {
 
 /// Runs a sync for all feeds in config.
 pub fn run_sync(
-    store: &SqliteStore,
+    store: &mut SqliteStore,
     config: &AppConfig,
     feeds_config: &FeedsConfig,
 ) -> Result<SyncSummary, AppError> {
     let start = Instant::now();
-    crate::feed::reconcile_feeds(store, feeds_config, &config.unread_tag)?;
-
     let compiled_rules = Arc::new(compile_auto_tags(&feeds_config.auto_tags)?);
-    let targets = build_sync_targets(store, feeds_config)?;
+    let targets = build_sync_targets(feeds_config)?;
     let (results, errors) = fetch_parallel(&targets, config, Arc::clone(&compiled_rules))?;
+
+    let tx = store.transaction()?;
+    crate::feed::reconcile_feeds_with_conn(&tx, feeds_config, &config.unread_tag)?;
 
     let mut new_entries = 0;
     for result in results {
         for entry in result.entries {
-            let insert = store.insert_entry(&entry.entry)?;
+            let feed_id = find_feed_id_with_conn(&tx, &entry.feed_key)?
+                .ok_or_else(|| AppError::db(format!("Missing feed for {}", entry.feed_key)))?;
+            let input = entry.entry.with_feed_id(feed_id);
+            let insert = insert_entry_with_conn(&tx, &input)?;
             if insert.inserted {
                 if let Some(content) = entry.content {
-                    store.insert_entry_content(insert.entry_id, &content)?;
+                    insert_entry_content_with_conn(&tx, insert.entry_id, &content)?;
                 }
-                store.insert_entry_tags(insert.entry_id, &entry.tags)?;
+                insert_entry_tags_with_conn(&tx, insert.entry_id, &entry.tags)?;
                 new_entries += 1;
             }
         }
     }
+    tx.commit()?;
 
     let elapsed = start.elapsed().as_secs_f64();
     let failed = errors.len();
@@ -83,7 +91,6 @@ pub fn run_sync(
 /// Sync target with feed metadata and tags.
 #[derive(Debug, Clone)]
 struct SyncTarget {
-    feed_id: i64,
     feed_key: String,
     url: String,
     tags: Vec<String>,
@@ -98,9 +105,42 @@ struct SyncResult {
 /// Normalized entry with tags and content payload.
 #[derive(Debug)]
 struct SyncEntry {
-    entry: EntryInput,
+    feed_key: String,
+    entry: PendingEntry,
     content: Option<EntryContentInput>,
     tags: Vec<String>,
+}
+
+/// Pending entry data before feed_id resolution.
+#[derive(Debug)]
+struct PendingEntry {
+    entry_key: String,
+    source_id: Option<String>,
+    link: Option<String>,
+    title: Option<String>,
+    author: Option<String>,
+    published_at: Option<i64>,
+    updated_at: Option<i64>,
+    first_seen_at: i64,
+    meta_json: Option<String>,
+}
+
+impl PendingEntry {
+    /// Builds an EntryInput by attaching feed_id.
+    fn with_feed_id(self, feed_id: i64) -> crate::db::EntryInput {
+        crate::db::EntryInput {
+            entry_key: self.entry_key,
+            feed_id,
+            source_id: self.source_id,
+            link: self.link,
+            title: self.title,
+            author: self.author,
+            published_at: self.published_at,
+            updated_at: self.updated_at,
+            first_seen_at: self.first_seen_at,
+            meta_json: self.meta_json,
+        }
+    }
 }
 
 /// Worker result returned from fetch threads.
@@ -137,18 +177,11 @@ struct CompiledRule {
 }
 
 /// Builds sync targets from feeds configuration.
-fn build_sync_targets(
-    store: &SqliteStore,
-    feeds_config: &FeedsConfig,
-) -> Result<Vec<SyncTarget>, AppError> {
+fn build_sync_targets(feeds_config: &FeedsConfig) -> Result<Vec<SyncTarget>, AppError> {
     let mut targets = Vec::new();
     for feed in &feeds_config.feeds {
         let feed_key = feed_key_from_url(&feed.url);
-        let feed_id = store
-            .find_feed_id(&feed_key)?
-            .ok_or_else(|| AppError::db(format!("Feed missing for key {feed_key}")))?;
         targets.push(SyncTarget {
-            feed_id,
             feed_key,
             url: feed.url.clone(),
             tags: feed.tags.clone(),
@@ -287,9 +320,9 @@ fn normalize_entry(
     let tags = dedupe_tags(tags);
 
     Ok(SyncEntry {
-        entry: EntryInput {
+        feed_key: target.feed_key.clone(),
+        entry: PendingEntry {
             entry_key,
-            feed_id: target.feed_id,
             source_id,
             link,
             title,

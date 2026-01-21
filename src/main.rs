@@ -56,7 +56,7 @@ fn run() -> Result<(), AppError> {
         config.override_db_path(db_path)?;
     }
 
-    let store = db::sqlite::SqliteStore::open(&config.database.path)?;
+    let mut store = db::sqlite::SqliteStore::open(&config.database.path)?;
     store.migrate()?;
 
     match &cli.command {
@@ -80,7 +80,7 @@ fn run() -> Result<(), AppError> {
         }
         Command::Sync => {
             let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
-            let summary = sync::run_sync(&store, &config, &feeds_config)?;
+            let summary = sync::run_sync(&mut store, &config, &feeds_config)?;
             println!("{}", serde_json::to_string(&summary)?);
         }
         Command::Ping | Command::Version => {}
