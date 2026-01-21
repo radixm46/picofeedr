@@ -191,6 +191,30 @@ fn sync_reports_partial_failed() {
     assert_eq!(errors[0]["code"], "PARSE_FAILED");
 }
 
+/// Ensures sync reports failed when all feeds fail.
+#[test]
+fn sync_reports_failed_when_all_feeds_fail() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_all_failed_fixture_files(&temp);
+
+    let output = cargo_bin_cmd!("feeder")
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("sync")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let value: Value = serde_json::from_slice(&output).expect("json");
+    assert_eq!(value["status"], "failed");
+    assert_eq!(value["fetched"], 1);
+    assert_eq!(value["failed"], 1);
+}
+
 /// Fixture file paths for CLI tests.
 struct FixturePaths {
     config_path: String,
@@ -385,6 +409,57 @@ content_store = "db"
     fs::write(&config_path, config).expect("write config");
     fs::write(&feeds_path, feeds).expect("write feeds");
     fs::write(&feed_ok_path, feed_ok_xml).expect("write ok feed");
+    fs::write(&feed_bad_path, "not xml").expect("write bad feed");
+
+    SyncFixturePaths {
+        config_path: config_path.display().to_string(),
+        db_path: db_path.display().to_string(),
+    }
+}
+
+/// Writes config and invalid feeds for all-failure tests.
+fn write_sync_all_failed_fixture_files(temp: &TempDir) -> SyncFixturePaths {
+    let config_path = temp.path().join("config.toml");
+    let feeds_path = temp.path().join("feeds.yaml");
+    let db_path = temp.path().join("db.sqlite");
+    let feed_bad_path = temp.path().join("feed_bad.xml");
+
+    let config = format!(
+        r#"unread_tag = "unread"
+
+[database]
+path = "{}"
+
+[feeds]
+source = "{}"
+
+[sync]
+parallel = 1
+timeout = 5
+user_agent = "feeder-test/0.1.0"
+retry_count = 0
+retry_delay = 0
+
+[storage]
+content_store = "db"
+"#,
+        db_path.display(),
+        feeds_path.display()
+    );
+
+    let feed_bad_url = format!("file://{}", feed_bad_path.display());
+    let feeds = format!(
+        r#"feeds:
+  tech:
+    tags: [tech]
+    feeds:
+      - url: {feed_bad_url}
+        title: Bad Feed
+"#
+    );
+
+    fs::write(&config_path, config).expect("write config");
+    fs::write(&feeds_path, feeds).expect("write feeds");
     fs::write(&feed_bad_path, "not xml").expect("write bad feed");
 
     SyncFixturePaths {

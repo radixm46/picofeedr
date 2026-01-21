@@ -43,7 +43,7 @@ feeder sync
 **SyncResult：**
 
 ```
-{ "status": "completed|partial_failed", "fetched": <int>, "failed": <int>, "new_entries": <int>, "elapsed": <float>, "errors": [SyncError...] }
+{ "status": "completed|partial_failed|failed", "fetched": <int>, "failed": <int>, "new_entries": <int>, "elapsed": <float>, "errors": [SyncError...] }
 ```
 
 **SyncError：**
@@ -55,6 +55,7 @@ feeder sync
 **挙動：**
 
 * 取得失敗が一部に留まる場合は **exit code 0** とし、`status=partial_failed` + `errors` に詳細を載せる
+* 取得失敗が **全件** の場合は **exit code 0** のまま `status=failed` とする
 * DB書き込み失敗など **永続化に影響する失敗** は **致命** とする（A10のエラーJSONで終了、exit code != 0）
 * 設定エラーなど **致命的な失敗** は A10 のエラーJSONで終了する（exit code != 0）
 * `failed` は `errors` の件数と一致する

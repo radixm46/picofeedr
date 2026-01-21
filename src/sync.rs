@@ -62,7 +62,9 @@ pub fn run_sync(
 
     let elapsed = start.elapsed().as_secs_f64();
     let failed = errors.len();
-    let status = if failed > 0 {
+    let status = if failed > 0 && failed == targets.len() {
+        "failed".to_string()
+    } else if failed > 0 {
         "partial_failed".to_string()
     } else {
         "completed".to_string()
