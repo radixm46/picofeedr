@@ -23,10 +23,14 @@ pub struct SyncSummary {
     pub status: String,
     /// Number of feeds fetched.
     pub fetched: usize,
+    /// Number of failed feeds.
+    pub failed: usize,
     /// Number of new entries ingested.
     pub new_entries: usize,
     /// Elapsed time in seconds.
     pub elapsed: f64,
+    /// Sync errors for failed feeds.
+    pub errors: Vec<SyncError>,
 }
 
 /// Runs a sync for all feeds in config.
@@ -40,7 +44,7 @@ pub fn run_sync(
 
     let compiled_rules = Arc::new(compile_auto_tags(&feeds_config.auto_tags)?);
     let targets = build_sync_targets(store, feeds_config)?;
-    let results = fetch_parallel(&targets, config, Arc::clone(&compiled_rules))?;
+    let (results, errors) = fetch_parallel(&targets, config, Arc::clone(&compiled_rules))?;
 
     let mut new_entries = 0;
     for result in results {
@@ -57,11 +61,19 @@ pub fn run_sync(
     }
 
     let elapsed = start.elapsed().as_secs_f64();
+    let failed = errors.len();
+    let status = if failed > 0 {
+        "partial_failed".to_string()
+    } else {
+        "completed".to_string()
+    };
     Ok(SyncSummary {
-        status: "completed".to_string(),
+        status,
         fetched: targets.len(),
+        failed,
         new_entries,
         elapsed,
+        errors,
     })
 }
 
@@ -86,6 +98,30 @@ struct SyncEntry {
     entry: EntryInput,
     content: Option<EntryContentInput>,
     tags: Vec<String>,
+}
+
+/// Worker result returned from fetch threads.
+#[derive(Debug)]
+enum WorkerResult {
+    /// Parsed feed result.
+    Ok(SyncResult),
+    /// Non-fatal sync error for a feed.
+    Error(SyncError),
+    /// Fatal error that should abort sync.
+    Fatal(AppError),
+}
+
+/// Sync error entry for failed feeds.
+#[derive(Debug, Serialize, Clone)]
+pub struct SyncError {
+    /// Feed URL that failed.
+    pub feed_url: String,
+    /// Error code string.
+    pub code: String,
+    /// Error message.
+    pub message: String,
+    /// Whether the caller should retry.
+    pub retry: bool,
 }
 
 /// Auto-tag rule compiled for matching.
@@ -123,10 +159,10 @@ fn fetch_parallel(
     targets: &[SyncTarget],
     config: &AppConfig,
     rules: Arc<Vec<CompiledRule>>,
-) -> Result<Vec<SyncResult>, AppError> {
+) -> Result<(Vec<SyncResult>, Vec<SyncError>), AppError> {
     let workers = config.sync.parallel.max(1);
     let (job_tx, job_rx) = mpsc::channel::<SyncTarget>();
-    let (result_tx, result_rx) = mpsc::channel::<Result<SyncResult, AppError>>();
+    let (result_tx, result_rx) = mpsc::channel::<WorkerResult>();
     let shared_rx = Arc::new(Mutex::new(job_rx));
 
     let mut handles = Vec::new();
@@ -162,12 +198,16 @@ fn fetch_parallel(
     drop(result_tx);
 
     let mut results = Vec::new();
+    let mut errors = Vec::new();
+    let mut fatal: Option<AppError> = None;
     for _ in 0..targets.len() {
         let result = result_rx
             .recv()
             .map_err(|error| AppError::io(format!("Failed to receive result: {error}")))?;
-        if let Ok(parsed) = result {
-            results.push(parsed);
+        match result {
+            WorkerResult::Ok(parsed) => results.push(parsed),
+            WorkerResult::Error(error) => errors.push(error),
+            WorkerResult::Fatal(error) => fatal = Some(error),
         }
     }
 
@@ -175,7 +215,10 @@ fn fetch_parallel(
         let _ = handle.join();
     }
 
-    Ok(results)
+    if let Some(error) = fatal {
+        return Err(error);
+    }
+    Ok((results, errors))
 }
 
 /// Fetches a single feed and parses entries.
@@ -183,16 +226,25 @@ fn fetch_and_parse(
     target: &SyncTarget,
     config: &AppConfig,
     rules: &[CompiledRule],
-) -> Result<SyncResult, AppError> {
-    let bytes = fetch_feed_bytes(&target.url, &config.sync)?;
-    let feed = feed_rs::parser::parse(Cursor::new(bytes))
-        .map_err(|error| AppError::io(format!("Failed to parse feed {}: {error}", target.url)))?;
-    let entries = feed
+) -> WorkerResult {
+    let bytes = match fetch_feed_bytes(&target.url, &config.sync) {
+        Ok(bytes) => bytes,
+        Err(error) => return WorkerResult::Error(SyncError::fetch(&target.url, error.to_string())),
+    };
+    let feed = match feed_rs::parser::parse(Cursor::new(bytes)) {
+        Ok(feed) => feed,
+        Err(error) => return WorkerResult::Error(SyncError::parse(&target.url, error.to_string())),
+    };
+    let entries = match feed
         .entries
         .iter()
         .map(|entry| normalize_entry(entry, target, rules, config))
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(SyncResult { entries })
+        .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(entries) => entries,
+        Err(error) => return WorkerResult::Fatal(error),
+    };
+    WorkerResult::Ok(SyncResult { entries })
 }
 
 /// Normalizes a feed entry into database payloads.
@@ -446,4 +498,26 @@ fn current_epoch() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_else(|_| std::time::Duration::from_secs(0));
     duration.as_secs() as i64
+}
+
+impl SyncError {
+    /// Builds a fetch error entry.
+    fn fetch(feed_url: &str, message: String) -> Self {
+        Self {
+            feed_url: feed_url.to_string(),
+            code: "FETCH_FAILED".to_string(),
+            message,
+            retry: !feed_url.starts_with("file://"),
+        }
+    }
+
+    /// Builds a parse error entry.
+    fn parse(feed_url: &str, message: String) -> Self {
+        Self {
+            feed_url: feed_url.to_string(),
+            code: "PARSE_FAILED".to_string(),
+            message,
+            retry: false,
+        }
+    }
 }

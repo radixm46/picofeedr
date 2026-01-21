@@ -126,7 +126,9 @@ fn sync_ingests_entries_and_tags() {
     let value: Value = serde_json::from_slice(&output).expect("json");
     assert_eq!(value["status"], "completed");
     assert_eq!(value["fetched"], 1);
+    assert_eq!(value["failed"], 0);
     assert_eq!(value["new_entries"], 2);
+    assert!(value["errors"].as_array().expect("errors array").is_empty());
 
     let conn = Connection::open(&paths.db_path).expect("open db");
     let entry_count: i64 = conn
@@ -160,6 +162,33 @@ fn sync_ingests_entries_and_tags() {
         )
         .expect("hot count");
     assert_eq!(hot_count, 1);
+}
+
+/// Ensures sync reports partial failures without exiting.
+#[test]
+fn sync_reports_partial_failed() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_failure_fixture_files(&temp);
+
+    let output = cargo_bin_cmd!("feeder")
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("sync")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let value: Value = serde_json::from_slice(&output).expect("json");
+    assert_eq!(value["status"], "partial_failed");
+    assert_eq!(value["fetched"], 2);
+    assert_eq!(value["failed"], 1);
+    let errors = value["errors"].as_array().expect("errors array");
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0]["code"], "PARSE_FAILED");
 }
 
 /// Fixture file paths for CLI tests.
@@ -284,6 +313,79 @@ auto_tags:
     fs::write(&config_path, config).expect("write config");
     fs::write(&feeds_path, feeds).expect("write feeds");
     fs::write(&feed_path, feed_xml).expect("write feed");
+
+    SyncFixturePaths {
+        config_path: config_path.display().to_string(),
+        db_path: db_path.display().to_string(),
+    }
+}
+
+/// Writes config, feeds, and invalid feed XML for partial failure tests.
+fn write_sync_failure_fixture_files(temp: &TempDir) -> SyncFixturePaths {
+    let config_path = temp.path().join("config.toml");
+    let feeds_path = temp.path().join("feeds.yaml");
+    let db_path = temp.path().join("db.sqlite");
+    let feed_ok_path = temp.path().join("feed_ok.xml");
+    let feed_bad_path = temp.path().join("feed_bad.xml");
+
+    let feed_ok_xml = r#"<?xml version="1.0"?>
+<rss version="2.0">
+  <channel>
+    <title>OK Feed</title>
+    <link>https://example.com</link>
+    <description>OK Feed</description>
+    <item>
+      <title>OK Entry</title>
+      <link>https://example.com/ok</link>
+      <guid>ok-entry</guid>
+      <pubDate>Mon, 01 Jan 2024 00:00:00 GMT</pubDate>
+      <description>OK</description>
+    </item>
+  </channel>
+</rss>
+"#;
+
+    let config = format!(
+        r#"unread_tag = "unread"
+
+[database]
+path = "{}"
+
+[feeds]
+source = "{}"
+
+[sync]
+parallel = 1
+timeout = 5
+user_agent = "feeder-test/0.1.0"
+retry_count = 0
+retry_delay = 0
+
+[storage]
+content_store = "db"
+"#,
+        db_path.display(),
+        feeds_path.display()
+    );
+
+    let feed_ok_url = format!("file://{}", feed_ok_path.display());
+    let feed_bad_url = format!("file://{}", feed_bad_path.display());
+    let feeds = format!(
+        r#"feeds:
+  tech:
+    tags: [tech]
+    feeds:
+      - url: {feed_ok_url}
+        title: OK Feed
+      - url: {feed_bad_url}
+        title: Bad Feed
+"#
+    );
+
+    fs::write(&config_path, config).expect("write config");
+    fs::write(&feeds_path, feeds).expect("write feeds");
+    fs::write(&feed_ok_path, feed_ok_xml).expect("write ok feed");
+    fs::write(&feed_bad_path, "not xml").expect("write bad feed");
 
     SyncFixturePaths {
         config_path: config_path.display().to_string(),
