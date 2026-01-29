@@ -62,15 +62,14 @@
 
 ```
 
-(defun feeder-sync () "Run sync synchronously and refresh list." (interactive) (let ((result (feeder-cli-json "sync"))) (message "Sync completed: fetched=%s new_entries=%s" (alist-get 'fetched result) (alist-get 'new_entries result)) (feeder-refresh-list)))
+(defun feeder-sync () "Run sync synchronously and refresh list." (interactive) (let* ((resp (feeder-cli-json "sync")) (data (alist-get 'data resp))) (message "Sync completed: fetched=%s new_entries=%s" (alist-get 'fetched data) (alist-get 'new_entries data)) (feeder-refresh-list)))
 
-(defun feeder-cli-json (&rest args) "Run feeder command and parse JSON output." (with-temp-buffer (apply #'call-process "feeder" nil t nil args) (goto-char (point-min)) (json-parse-buffer :object-type 'alist)))
+(defun feeder-cli-json (&rest args) "Run feeder command and parse JSON output." (with-temp-buffer (apply #'call-process "feeder" nil t nil "--output" "json" args) (goto-char (point-min)) (json-parse-buffer :object-type 'alist)))
 
-(defun feeder-list () "Show entry list." (interactive) (let ((result (feeder-cli-json "list" "--query" "unread" "--limit" "100"))) ;; Display items... ))
+(defun feeder-list () "Show entry list." (interactive) (let* ((resp (feeder-cli-json "list" "--query" "unread" "--limit" "100")) (data (alist-get 'data resp))) ;; Display items... ))
 
 (defun feeder-mark-read (&rest ids) "Mark entries as read." (apply #'feeder-cli-json "mark" "read" (mapcar #'number-to-string ids)))
 
 ```
 
 ---
-

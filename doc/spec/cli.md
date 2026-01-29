@@ -1,15 +1,36 @@
-# CLI API（JSON出力）
+# CLI API（出力）
 
-## A6. CLI API（JSON出力）
+## A6. CLI API（出力）
 
 ### A6.1 共通
 
+CLI の主要な出力は stdout に出すのだ。`--output` で形式を切り替えるのだ。
+
+```
+--output json   # 機械可読（UI/自動化向け）
+--output plain  # 対話向け
+```
+
+#### A6.1.1 JSON モードの共通envelope
+
+`--output json` のとき、stdout は常にこの共通形式で包むのだ。
+
+```
+// success
+{ "ok": true,  "data": <payload>, "error": null }
+
+// fatal
+{ "ok": false, "data": null,      "error": { "code": "<CODE>", "message": "<string>", "retry": <bool> } }
+```
+
+`data` の中身（payload）はコマンドごとに定義するのだ。致命では `error` を埋め、exit code も !=0 にするのだ（詳細は `doc/spec/errors.md`）。
+
 ```
 feeder version
-# → {"api_version": "0.5.0", "schema_version": 1, "build": "abc123"}
+# → {"ok": true, "data": {"api_version": "0.5.0", "schema_version": 1, "build": "abc123"}, "error": null}
 
 feeder ping
-# → {"ok": true}
+# → {"ok": true, "data": {"ok": true}, "error": null}
 
 ```
 
@@ -17,10 +38,10 @@ feeder ping
 
 ```
 feeder feeds
-# → {"feeds": [{id, feed_key, url, title, site_url, author, tags}]}
+# → {"ok": true, "data": {"feeds": [{id, feed_key, url, title, site_url, author, tags}]}, "error": null}
 
 feeder feeds --config-check
-# → {"new_in_config": [...], "removed_from_config": [...], "tag_changes": [...]}
+# → {"ok": true, "data": {"new_in_config": [...], "removed_from_config": [...], "tag_changes": [...]}, "error": null}
 
 ```
 
@@ -34,10 +55,10 @@ feeder feeds --config-check
 
 ```
 feeder sync
-# → {"status": "completed", "fetched": 120, "failed": 0, "new_entries": 42, "elapsed": 245.3, "errors": []}
+# → {"ok": true, "data": {"status": "completed", "fetched": 120, "failed": 0, "new_entries": 42, "elapsed": 245.3, "errors": []}, "error": null}
 
 # 一部失敗時の例
-# → {"status": "partial_failed", "fetched": 120, "failed": 3, "new_entries": 42, "elapsed": 245.3, "errors": [{"feed_url": "...", "code": "FETCH_FAILED", "message": "...", "retry": true}]}
+# → {"ok": true, "data": {"status": "partial_failed", "fetched": 120, "failed": 3, "new_entries": 42, "elapsed": 245.3, "errors": [{"feed_url": "...", "code": "FETCH_FAILED", "message": "...", "retry": true}]}, "error": null}
 ```
 
 **SyncResult：**
@@ -77,7 +98,7 @@ feeder sync
 
 feeder list --query <q> --sort <date_desc|date_asc|first_seen_desc|first_seen_asc> --limit <n> [--cursor <cursor>]
 
-# → {"total_hits": 342, "items": [EntrySummary...], "next_cursor": "eyJ..."}
+# → {"ok": true, "data": {"total_hits": 342, "items": [EntrySummary...], "next_cursor": "eyJ..."}, "error": null}
 
 ```
 
@@ -100,7 +121,7 @@ feeder list --query <q> --sort <date_desc|date_asc|first_seen_desc|first_seen_as
 
 feeder view <id>
 
-# → EntryDetail
+# → {"ok": true, "data": EntryDetail, "error": null}
 
 ```
 
@@ -123,23 +144,23 @@ feeder view <id>
 
 feeder mark read   ...
 
-# → {"updated": 2}
+# → {"ok": true, "data": {"updated": 2}, "error": null}
 
 feeder mark unread   ...
 
-# → {"updated": 2}
+# → {"ok": true, "data": {"updated": 2}, "error": null}
 
 feeder mark star   ...
 
-# → {"updated": 2}
+# → {"ok": true, "data": {"updated": 2}, "error": null}
 
 feeder mark unstar   ...
 
-# → {"updated": 2}
+# → {"ok": true, "data": {"updated": 2}, "error": null}
 
 feeder mark tag   ... --add foo,bar --remove baz
 
-# → {"updated": 2}
+# → {"ok": true, "data": {"updated": 2}, "error": null}
 
 ```
 
@@ -149,6 +170,6 @@ feeder mark tag   ... --add foo,bar --remove baz
 
 feeder tags
 
-# → {"tags": ["unread", "star", "tech", "security", "rust", ...]}
+# → {"ok": true, "data": {"tags": ["unread", "star", "tech", "security", "rust", ...]}, "error": null}
 
 ```

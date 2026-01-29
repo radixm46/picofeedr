@@ -32,9 +32,11 @@ max_limit = 1000
 [feeds]
 source = "~/.config/feeder/feeds.yaml"
 
+[cli]
+output = "json"           # json | plain（CLIフラグがあればそちらを優先）
+
 [log]
-level = "info"
-file = "~/.local/share/feeder/feeder.log"
+level = "info"            # error | warn | info | debug | trace（主にstderr向け）
 
 ```
 
@@ -43,6 +45,10 @@ file = "~/.local/share/feeder/feeder.log"
 `content_store = "fs"` の場合、`entry_contents.ref` は hash key（例：sha256 hex）で、実際の保存パスは `storage.data_dir` と導出ルールから決めるのだ（レコードにはパスを持たない）。
 
 `unread_tag` は新規取り込み時に付与する未読タグ名なのだ（既読化はこのタグを外す）。
+
+`cli.output` は CLI の出力形式のデフォルト値なのだ。対話用途は `plain`、UI/自動化用途は `json` を推奨するのだ（詳細は `doc/spec/cli.md`）。
+
+`log.level` はデバッグ/トレース出力の粒度の目安なのだ。ログは stdout を汚さないため、原則 stderr に寄せるのだ（詳細は `doc/spec/overview.md`）。
 
 ### A3.2 feeds.yaml（フィード一覧・自動タグ）
 

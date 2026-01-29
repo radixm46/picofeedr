@@ -14,11 +14,11 @@ vim ~/.config/feeder/feeds.yaml
 
 # 3. 初回同期
 
-feeder sync
+feeder sync --output json
 
 # 4. エントリ確認
 
-feeder list --query unread
+feeder list --output json --query unread
 
 ```
 
@@ -36,7 +36,9 @@ emacs -f feeder
 
 	# または CLI で確認
 	
-	feeder list --query "unread tag:security" | jq '.items[] | {id, title}' feeder view 123 feeder mark read 123
+	feeder list --output json --query "unread tag:security" | jq '.data.items[] | {id, title}'
+	feeder view --output json 123
+	feeder mark --output json read 123
 	
 	# 注：本文（content）が無い/取得しない運用の場合は、EntryDetail の `link` を外部ブラウザ等で開くのだ。
 	
@@ -68,11 +70,11 @@ vim ~/.config/feeder/feeds.yaml
 
 # 2. 差分確認
 
-feeder feeds --config-check
+feeder feeds --output json --config-check
 
 # 3. 同期（自動的に新規フィードが追加される）
 
-feeder sync
+feeder sync --output json
 
 ```
 
