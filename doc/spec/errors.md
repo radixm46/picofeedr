@@ -15,6 +15,10 @@
 - 致命（fatal）は **exit code != 0** + 上記 JSON なのだ。
 - `sync` の fetch/parse 失敗は致命ではなく、exit code は 0 のまま `data.errors` に積むのだ（A10.3）。
 
+**TODO（将来拡張の候補）：**
+
+- 自動化（cron/CI）向けに、`sync status=failed`（全件失敗）のときだけ exit code を警告扱いで変えるモードを検討するのだ（例: `--strict` 等）。stdout の JSON 契約は維持するのだ。
+
 ### A10.2 error code 例
 
 - `FEED_NOT_FOUND` - 指定されたfeed\_idが存在しない

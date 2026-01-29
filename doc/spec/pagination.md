@@ -9,6 +9,11 @@
 - `next_cursor` は不透明文字列（内部は `{"k": <sort_key>, "id": <entry_id>}` を JSON→base64url）
 - タイブレークは常に `id` を使う（`ORDER BY ..., id ...`）
 
+**TODO（将来拡張の候補）：**
+
+- カーソルに `sort` / `query_hash` / `schema_version` 等を含めて混線（別query/sortの誤用）を検出するのだ。
+- 不一致時は `INVALID_CURSOR`（または `INVALID_QUERY`）等で明示的に失敗させるのだ（UIのバグ検知を早める）。
+
 ### A8.2 first_seen_desc（推奨：安定）
 
 - 並び順：`ORDER BY first_seen_at DESC, id DESC`

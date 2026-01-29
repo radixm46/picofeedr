@@ -25,6 +25,11 @@ CLI の主要な出力は stdout に出すのだ。`--output` で形式を切り
 
 `data` の中身（payload）はコマンドごとに定義するのだ。致命では `error` を埋め、exit code も !=0 にするのだ（詳細は `doc/spec/errors.md`）。
 
+**TODO（将来拡張の候補）：**
+
+- `meta` フィールド（例: `request_id`, `elapsed_ms`, `api_version`, `schema_version`）を追加して、UI/自動化側の観測性を上げるのだ。
+- `error.data`（機械可読な補助情報）と `error.causes`（エラーチェーン）を追加して、復旧/表示分岐を強化するのだ。
+
 ```
 feeder version
 # → {"ok": true, "data": {"api_version": "0.5.0", "schema_version": 1, "build": "abc123"}, "error": null}
@@ -137,6 +142,11 @@ feeder view <id>
 
 - `entry_contents.storage` が `none` の場合、本文は存在しないのだ（`content`/`content_type` は `null` または省略されうる）。
 - `entry_contents.storage` が `fs` の場合、本文取得に失敗したら `content` は返さない（UIは `link` を外部ブラウザ等で開く方針なのだ）。
+
+**TODO（将来拡張の候補）：**
+
+- `content`/`content_type` を「常にフィールドとして返し、無い場合は `null` に統一する」かどうかを確定するのだ（省略可否を揃える）。
+- `content_available: bool` または `content_ref` 等を返して、UI 側の分岐を安定化させるのだ。
 
 ### A6.6 状態更新
 
