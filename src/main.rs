@@ -23,7 +23,13 @@ fn main() {
         println!(
             "{}",
             serde_json::to_string(&response).unwrap_or_else(|_| {
-                "{\"error\":{\"code\":\"INTERNAL\",\"message\":\"Failed to serialize error\",\"retry\":false}}".to_string()
+                serde_json::to_string(&ErrorResponse::from_error(&AppError::internal(
+                    "Failed to serialize error",
+                )))
+                .unwrap_or_else(|_| {
+                    "{\"error\":{\"code\":\"INTERNAL\",\"message\":\"Failed to serialize error\",\"retry\":false}}"
+                        .to_string()
+                })
             })
         );
         std::process::exit(1);
