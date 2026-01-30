@@ -25,8 +25,16 @@ pub struct Cli {
     pub db: Option<PathBuf>,
 
     /// Output format for CLI responses.
-    #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
-    pub output: OutputFormat,
+    #[arg(long, value_enum)]
+    pub output: Option<OutputFormat>,
+
+    /// Enable debug diagnostics on stderr.
+    #[arg(long, action = clap::ArgAction::SetTrue)]
+    pub debug: bool,
+
+    /// Enable verbose trace diagnostics on stderr.
+    #[arg(long, action = clap::ArgAction::SetTrue)]
+    pub trace: bool,
 
     /// CLI command to execute.
     #[command(subcommand)]

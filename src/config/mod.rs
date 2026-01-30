@@ -20,6 +20,10 @@ pub struct AppConfig {
     pub sync: SyncConfig,
     /// Content storage configuration.
     pub storage: StorageConfig,
+    /// CLI configuration.
+    pub cli: CliConfig,
+    /// Logging configuration.
+    pub log: LogConfig,
 }
 
 /// Database configuration.
@@ -60,6 +64,30 @@ pub struct StorageConfig {
     pub data_dir: PathBuf,
 }
 
+/// CLI configuration.
+#[derive(Debug, Clone)]
+pub struct CliConfig {
+    /// Default output format.
+    pub output: crate::cli::OutputFormat,
+}
+
+/// Logging configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LogConfig {
+    /// Log level for stderr diagnostics.
+    pub level: LogLevel,
+}
+
+/// Log level definition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogLevel {
+    Error,
+    Warn,
+    Info,
+    Debug,
+    Trace,
+}
+
 /// Content storage mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContentStore {
@@ -79,6 +107,8 @@ struct AppConfigRaw {
     feeds: FeedsSourceConfigRaw,
     sync: Option<SyncConfigRaw>,
     storage: Option<StorageConfigRaw>,
+    cli: Option<CliConfigRaw>,
+    log: Option<LogConfigRaw>,
 }
 
 /// Raw database config representation.
@@ -110,6 +140,18 @@ struct StorageConfigRaw {
     data_dir: Option<String>,
 }
 
+/// Raw CLI config representation.
+#[derive(Debug, Deserialize)]
+struct CliConfigRaw {
+    output: Option<String>,
+}
+
+/// Raw log config representation.
+#[derive(Debug, Deserialize)]
+struct LogConfigRaw {
+    level: Option<String>,
+}
+
 impl AppConfig {
     /// Loads configuration from the default path or an override path.
     pub fn load(path_override: Option<PathBuf>) -> Result<Self, AppError> {
@@ -122,6 +164,8 @@ impl AppConfig {
         let feeds_path = expand_path(&raw.feeds.source)?;
         let sync = SyncConfig::from_raw(raw.sync)?;
         let storage = StorageConfig::from_raw(raw.storage)?;
+        let cli = CliConfig::from_raw(raw.cli)?;
+        let log = LogConfig::from_raw(raw.log)?;
         Ok(Self {
             unread_tag,
             database: DatabaseConfig {
@@ -130,6 +174,8 @@ impl AppConfig {
             feeds: FeedsSourceConfig { source: feeds_path },
             sync,
             storage,
+            cli,
+            log,
         })
     }
 
@@ -200,6 +246,24 @@ impl StorageConfig {
     }
 }
 
+impl CliConfig {
+    /// Builds a CliConfig from optional raw config.
+    fn from_raw(raw: Option<CliConfigRaw>) -> Result<Self, AppError> {
+        let raw = raw.unwrap_or(CliConfigRaw { output: None });
+        let output = parse_output_format(raw.output.as_deref())?;
+        Ok(Self { output })
+    }
+}
+
+impl LogConfig {
+    /// Builds a LogConfig from optional raw config.
+    fn from_raw(raw: Option<LogConfigRaw>) -> Result<Self, AppError> {
+        let raw = raw.unwrap_or(LogConfigRaw { level: None });
+        let level = parse_log_level(raw.level.as_deref())?;
+        Ok(Self { level })
+    }
+}
+
 /// Parses the content_store value into ContentStore.
 fn parse_content_store(value: Option<&str>) -> Result<ContentStore, AppError> {
     match value.unwrap_or("db") {
@@ -208,6 +272,31 @@ fn parse_content_store(value: Option<&str>) -> Result<ContentStore, AppError> {
         "none" => Ok(ContentStore::None),
         other => Err(AppError::config(format!(
             "Invalid storage.content_store value: {other}"
+        ))),
+    }
+}
+
+/// Parses the CLI output format value.
+fn parse_output_format(value: Option<&str>) -> Result<crate::cli::OutputFormat, AppError> {
+    match value.unwrap_or("json") {
+        "json" => Ok(crate::cli::OutputFormat::Json),
+        "plain" => Ok(crate::cli::OutputFormat::Plain),
+        other => Err(AppError::config(format!(
+            "Invalid cli.output value: {other}"
+        ))),
+    }
+}
+
+/// Parses the log level value.
+fn parse_log_level(value: Option<&str>) -> Result<LogLevel, AppError> {
+    match value.unwrap_or("info") {
+        "error" => Ok(LogLevel::Error),
+        "warn" => Ok(LogLevel::Warn),
+        "info" => Ok(LogLevel::Info),
+        "debug" => Ok(LogLevel::Debug),
+        "trace" => Ok(LogLevel::Trace),
+        other => Err(AppError::config(format!(
+            "Invalid log.level value: {other}"
         ))),
     }
 }

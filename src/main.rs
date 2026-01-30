@@ -17,32 +17,42 @@ use crate::response::Envelope;
 use crate::tag::TagManager;
 use clap::Parser;
 use serde_json::json;
+use std::env;
+use std::error::Error;
+use std::ffi::OsString;
+use std::process::ExitCode;
 
 /// Runs the CLI and prints JSON output or error to stdout.
-fn main() {
-    let cli = Cli::parse();
-    let output = cli.output;
-    if let Err(error) = run(cli) {
+fn main() -> ExitCode {
+    let args: Vec<OsString> = env::args_os().collect();
+    let cli = match Cli::try_parse_from(&args) {
+        Ok(cli) => cli,
+        Err(error) => return handle_cli_parse_error(&args, error),
+    };
+    let output = resolve_effective_output(&cli);
+    if let Err(error) = run(&cli, output) {
+        maybe_print_diagnostics(&cli, &error);
         match output {
             OutputFormat::Json => {
                 print_json_or_fallback(&Envelope::<serde_json::Value>::fatal(&error))
             }
             OutputFormat::Plain => eprintln!("{}", error),
         }
-        std::process::exit(1);
+        return ExitCode::from(1);
     }
+    ExitCode::SUCCESS
 }
 
 /// Executes the CLI command and prints a JSON response.
-fn run(cli: Cli) -> Result<(), AppError> {
-    match cli.output {
+fn run(cli: &Cli, output: OutputFormat) -> Result<(), AppError> {
+    match output {
         OutputFormat::Json => run_json(cli),
         OutputFormat::Plain => run_plain(cli),
     }
 }
 
 /// Executes the CLI command and prints a JSON envelope response.
-fn run_json(cli: Cli) -> Result<(), AppError> {
+fn run_json(cli: &Cli) -> Result<(), AppError> {
     let data = match &cli.command {
         Command::Ping => json!({"ok": true}),
         Command::Version => json!({
@@ -51,10 +61,7 @@ fn run_json(cli: Cli) -> Result<(), AppError> {
             "build": "dev"
         }),
         Command::Tags | Command::Feeds { .. } | Command::Sync => {
-            let mut config = config::AppConfig::load(cli.config.clone())?;
-            if let Some(db_path) = cli.db.clone() {
-                config.override_db_path(db_path)?;
-            }
+            let config = load_config(cli)?;
             let mut store = db::sqlite::SqliteStore::open(&config.database.path)?;
             store.migrate()?;
 
@@ -90,7 +97,7 @@ fn run_json(cli: Cli) -> Result<(), AppError> {
 }
 
 /// Executes the CLI command and prints human-readable output.
-fn run_plain(cli: Cli) -> Result<(), AppError> {
+fn run_plain(cli: &Cli) -> Result<(), AppError> {
     match &cli.command {
         Command::Ping => {
             println!("ok");
@@ -103,10 +110,7 @@ fn run_plain(cli: Cli) -> Result<(), AppError> {
         _ => {}
     }
 
-    let mut config = config::AppConfig::load(cli.config.clone())?;
-    if let Some(db_path) = cli.db.clone() {
-        config.override_db_path(db_path)?;
-    }
+    let config = load_config(cli)?;
 
     let mut store = db::sqlite::SqliteStore::open(&config.database.path)?;
     store.migrate()?;
@@ -153,3 +157,110 @@ fn print_json_or_fallback<T: serde::Serialize>(value: &T) {
 
 /// Fallback JSON printed when JSON serialization fails unexpectedly.
 const FALLBACK_INTERNAL_ERROR_JSON: &str = "{\"ok\":false,\"data\":null,\"error\":{\"code\":\"INTERNAL\",\"message\":\"Failed to serialize response\",\"retry\":false}}";
+
+/// Loads config and applies CLI overrides.
+fn load_config(cli: &Cli) -> Result<config::AppConfig, AppError> {
+    let mut config = config::AppConfig::load(cli.config.clone())?;
+    if let Some(db_path) = cli.db.clone() {
+        config.override_db_path(db_path)?;
+    }
+    Ok(config)
+}
+
+/// Resolves effective output format (CLI > config > default).
+fn resolve_output(cli: &Cli, config: Option<&config::AppConfig>) -> OutputFormat {
+    if let Some(output) = cli.output {
+        return output;
+    }
+    if let Some(config) = config {
+        return config.cli.output;
+    }
+    OutputFormat::Json
+}
+
+/// Resolves the effective output format using CLI or config when available.
+fn resolve_effective_output(cli: &Cli) -> OutputFormat {
+    if let Some(output) = cli.output {
+        return output;
+    }
+    match cli.command {
+        Command::Ping | Command::Version => OutputFormat::Json,
+        _ => match load_config(cli) {
+            Ok(config) => resolve_output(cli, Some(&config)),
+            Err(_) => OutputFormat::Json,
+        },
+    }
+}
+
+/// Handles CLI parse errors and prints appropriate output.
+fn handle_cli_parse_error(args: &[OsString], error: clap::Error) -> ExitCode {
+    use clap::error::ErrorKind;
+    let output = detect_output_from_args(args);
+    match error.kind() {
+        ErrorKind::DisplayHelp | ErrorKind::DisplayVersion => {
+            let _ = error.print();
+            ExitCode::SUCCESS
+        }
+        _ => {
+            match output {
+                OutputFormat::Json => {
+                    let app_error = AppError::config(error.to_string());
+                    print_json_or_fallback(&Envelope::<serde_json::Value>::fatal(&app_error));
+                }
+                OutputFormat::Plain => eprintln!("{error}"),
+            }
+            ExitCode::from(1)
+        }
+    }
+}
+
+/// Detects output format from raw CLI args.
+fn detect_output_from_args(args: &[OsString]) -> OutputFormat {
+    let mut iter = args.iter().peekable();
+    while let Some(arg) = iter.next() {
+        if arg == "--output" {
+            if let Some(value) = iter.peek() {
+                if value.to_string_lossy() == "plain" {
+                    return OutputFormat::Plain;
+                }
+            }
+            return OutputFormat::Json;
+        }
+    }
+    OutputFormat::Json
+}
+
+/// Prints error diagnostics to stderr when debug/trace is enabled.
+fn maybe_print_diagnostics(cli: &Cli, error: &AppError) {
+    let level = resolve_effective_log_level(cli);
+    if !should_emit_diagnostics(level) {
+        return;
+    }
+    eprintln!("error: {error}");
+    let mut current = error.source();
+    let mut depth = 0usize;
+    while let Some(source) = current {
+        depth += 1;
+        eprintln!("caused by[{depth}]: {source}");
+        current = source.source();
+    }
+}
+
+/// Resolves effective log level (CLI > config > default).
+fn resolve_effective_log_level(cli: &Cli) -> config::LogLevel {
+    if cli.trace {
+        return config::LogLevel::Trace;
+    }
+    if cli.debug {
+        return config::LogLevel::Debug;
+    }
+    match load_config(cli) {
+        Ok(config) => config.log.level,
+        Err(_) => config::LogLevel::Info,
+    }
+}
+
+/// Returns true if diagnostics should be emitted for the log level.
+fn should_emit_diagnostics(level: config::LogLevel) -> bool {
+    matches!(level, config::LogLevel::Debug | config::LogLevel::Trace)
+}
