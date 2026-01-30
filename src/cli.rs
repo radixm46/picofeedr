@@ -1,7 +1,16 @@
 //! CLI argument definitions.
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
+
+/// Output format for CLI responses.
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum OutputFormat {
+    /// Machine-readable JSON output.
+    Json,
+    /// Human-readable output.
+    Plain,
+}
 
 /// Feeder CLI arguments.
 #[derive(Debug, Parser)]
@@ -14,6 +23,10 @@ pub struct Cli {
     /// Override database path for testing.
     #[arg(long)]
     pub db: Option<PathBuf>,
+
+    /// Output format for CLI responses.
+    #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
+    pub output: OutputFormat,
 
     /// CLI command to execute.
     #[command(subcommand)]

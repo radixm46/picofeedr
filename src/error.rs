@@ -70,6 +70,7 @@ pub enum AppError {
         source: Option<BoxError>,
     },
     /// Internal unexpected error.
+    #[allow(dead_code)]
     #[error("{message}")]
     Internal {
         /// Human-readable message.
@@ -208,6 +209,7 @@ impl AppError {
     }
 
     /// Creates an internal error.
+    #[allow(dead_code)]
     pub fn internal(message: impl Into<String>) -> Self {
         Self::Internal {
             message: message.into(),
@@ -263,26 +265,6 @@ impl From<SqlError> for AppError {
     }
 }
 
-/// JSON error response payload.
-#[derive(Debug, Serialize)]
-pub struct ErrorResponse {
-    /// Error object.
-    pub error: ErrorPayload,
-}
-
-impl ErrorResponse {
-    /// Builds an ErrorResponse from an AppError.
-    pub fn from_error(error: &AppError) -> Self {
-        Self {
-            error: ErrorPayload {
-                code: error.code().as_str().to_string(),
-                message: error.message().to_string(),
-                retry: error.retry(),
-            },
-        }
-    }
-}
-
 /// JSON error payload fields.
 #[derive(Debug, Serialize)]
 pub struct ErrorPayload {
@@ -292,4 +274,15 @@ pub struct ErrorPayload {
     pub message: String,
     /// Whether the caller should retry.
     pub retry: bool,
+}
+
+impl ErrorPayload {
+    /// Builds an error payload from an [`AppError`].
+    pub fn from_error(error: &AppError) -> Self {
+        Self {
+            code: error.code().as_str().to_string(),
+            message: error.message().to_string(),
+            retry: error.retry(),
+        }
+    }
 }

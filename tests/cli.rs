@@ -6,6 +6,13 @@ use serde_json::Value;
 use std::fs;
 use tempfile::TempDir;
 
+/// Extracts the `data` object from a successful JSON envelope.
+fn extract_ok_data(output: &[u8]) -> Value {
+    let value: Value = serde_json::from_slice(output).expect("json");
+    assert_eq!(value["ok"], true, "expected ok=true envelope");
+    value.get("data").cloned().expect("data")
+}
+
 /// Ensures feeds --config-check reports config-only feeds.
 #[test]
 fn feeds_config_check_reports_new_feeds() {
@@ -25,8 +32,8 @@ fn feeds_config_check_reports_new_feeds() {
         .stdout
         .clone();
 
-    let value: Value = serde_json::from_slice(&output).expect("json");
-    let new_in_config = value
+    let data = extract_ok_data(&output);
+    let new_in_config = data
         .get("new_in_config")
         .and_then(|value| value.as_array())
         .expect("new_in_config array");
@@ -52,8 +59,8 @@ fn feeds_reconcile_returns_tags() {
         .stdout
         .clone();
 
-    let value: Value = serde_json::from_slice(&output).expect("json");
-    let feeds = value
+    let data = extract_ok_data(&output);
+    let feeds = data
         .get("feeds")
         .and_then(|value| value.as_array())
         .expect("feeds array");
@@ -93,8 +100,8 @@ fn tags_command_returns_tag_dictionary() {
         .stdout
         .clone();
 
-    let value: Value = serde_json::from_slice(&output).expect("json");
-    let tags = value
+    let data = extract_ok_data(&output);
+    let tags = data
         .get("tags")
         .and_then(|value| value.as_array())
         .expect("tags array");
@@ -123,12 +130,12 @@ fn sync_ingests_entries_and_tags() {
         .stdout
         .clone();
 
-    let value: Value = serde_json::from_slice(&output).expect("json");
-    assert_eq!(value["status"], "completed");
-    assert_eq!(value["fetched"], 1);
-    assert_eq!(value["failed"], 0);
-    assert_eq!(value["new_entries"], 2);
-    assert!(value["errors"].as_array().expect("errors array").is_empty());
+    let data = extract_ok_data(&output);
+    assert_eq!(data["status"], "completed");
+    assert_eq!(data["fetched"], 1);
+    assert_eq!(data["failed"], 0);
+    assert_eq!(data["new_entries"], 2);
+    assert!(data["errors"].as_array().expect("errors array").is_empty());
 
     let conn = Connection::open(&paths.db_path).expect("open db");
     let entry_count: i64 = conn
@@ -182,11 +189,11 @@ fn sync_reports_partial_failed() {
         .stdout
         .clone();
 
-    let value: Value = serde_json::from_slice(&output).expect("json");
-    assert_eq!(value["status"], "partial_failed");
-    assert_eq!(value["fetched"], 2);
-    assert_eq!(value["failed"], 1);
-    let errors = value["errors"].as_array().expect("errors array");
+    let data = extract_ok_data(&output);
+    assert_eq!(data["status"], "partial_failed");
+    assert_eq!(data["fetched"], 2);
+    assert_eq!(data["failed"], 1);
+    let errors = data["errors"].as_array().expect("errors array");
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0]["code"], "PARSE_FAILED");
 }
@@ -209,10 +216,10 @@ fn sync_reports_failed_when_all_feeds_fail() {
         .stdout
         .clone();
 
-    let value: Value = serde_json::from_slice(&output).expect("json");
-    assert_eq!(value["status"], "failed");
-    assert_eq!(value["fetched"], 1);
-    assert_eq!(value["failed"], 1);
+    let data = extract_ok_data(&output);
+    assert_eq!(data["status"], "failed");
+    assert_eq!(data["fetched"], 1);
+    assert_eq!(data["failed"], 1);
 }
 
 /// Fixture file paths for CLI tests.
