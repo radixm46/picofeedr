@@ -20,7 +20,9 @@ use serde_json::json;
 use std::env;
 use std::error::Error;
 use std::ffi::OsString;
+use std::io;
 use std::process::ExitCode;
+use tracing::{debug, trace};
 
 /// Runs the CLI and prints JSON output or error to stdout.
 fn main() -> ExitCode {
@@ -30,6 +32,8 @@ fn main() -> ExitCode {
         Err(error) => return handle_cli_parse_error(&args, error),
     };
     let output = resolve_effective_output(&cli);
+    init_logging(resolve_effective_log_level(&cli));
+    debug!(?output, ?cli.command, "resolved CLI output and command");
     if let Err(error) = run(&cli, output) {
         maybe_print_diagnostics(&cli, &error);
         match output {
@@ -53,6 +57,7 @@ fn run(cli: &Cli, output: OutputFormat) -> Result<(), AppError> {
 
 /// Executes the CLI command and prints a JSON envelope response.
 fn run_json(cli: &Cli) -> Result<(), AppError> {
+    trace!("run_json start");
     let data = match &cli.command {
         Command::Ping => json!({"ok": true}),
         Command::Version => json!({
@@ -62,6 +67,11 @@ fn run_json(cli: &Cli) -> Result<(), AppError> {
         }),
         Command::Tags | Command::Feeds { .. } | Command::Sync => {
             let config = load_config(cli)?;
+            debug!(
+                db_path = ?config.database.path,
+                feeds_path = ?config.feeds.source,
+                "loaded configuration"
+            );
             let mut store = db::sqlite::SqliteStore::open(&config.database.path)?;
             store.migrate()?;
 
@@ -98,6 +108,7 @@ fn run_json(cli: &Cli) -> Result<(), AppError> {
 
 /// Executes the CLI command and prints human-readable output.
 fn run_plain(cli: &Cli) -> Result<(), AppError> {
+    trace!("run_plain start");
     match &cli.command {
         Command::Ping => {
             println!("ok");
@@ -111,6 +122,11 @@ fn run_plain(cli: &Cli) -> Result<(), AppError> {
     }
 
     let config = load_config(cli)?;
+    debug!(
+        db_path = ?config.database.path,
+        feeds_path = ?config.feeds.source,
+        "loaded configuration"
+    );
 
     let mut store = db::sqlite::SqliteStore::open(&config.database.path)?;
     store.migrate()?;
@@ -263,4 +279,23 @@ fn resolve_effective_log_level(cli: &Cli) -> config::LogLevel {
 /// Returns true if diagnostics should be emitted for the log level.
 fn should_emit_diagnostics(level: config::LogLevel) -> bool {
     matches!(level, config::LogLevel::Debug | config::LogLevel::Trace)
+}
+
+/// Initializes stderr logging for diagnostics.
+fn init_logging(level: config::LogLevel) {
+    if !should_emit_diagnostics(level) {
+        return;
+    }
+    let level = match level {
+        config::LogLevel::Error => tracing::Level::ERROR,
+        config::LogLevel::Warn => tracing::Level::WARN,
+        config::LogLevel::Info => tracing::Level::INFO,
+        config::LogLevel::Debug => tracing::Level::DEBUG,
+        config::LogLevel::Trace => tracing::Level::TRACE,
+    };
+    let _ = tracing_subscriber::fmt()
+        .with_max_level(level)
+        .with_writer(io::stderr)
+        .with_ansi(false)
+        .try_init();
 }
