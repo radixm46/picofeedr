@@ -33,7 +33,7 @@ max_limit = 1000
 source = "~/.config/feeder/feeds.yaml"
 
 [cli]
-output = "json"           # json | plain（CLIフラグがあればそちらを優先）
+output = "plain"          # json | plain（CLIフラグがあればそちらを優先）
 
 [log]
 level = "info"            # error | warn | info | debug | trace（主にstderr向け）

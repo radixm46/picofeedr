@@ -61,7 +61,7 @@ feeder feeds --config-check      # 設定ファイルとDB差分表示
 ```
 --config <path>     # config.toml のパス（デフォルト: ~/.config/feeder/config.toml）
 --db <path>         # DB パスの上書き（テスト用）
---output <json|plain> # 出力形式（デフォルト: json）
+--output <json|plain> # 出力形式（デフォルト: plain）
 --debug             # デバッグ情報をstderrに出す（json出力を壊さない）
 --trace             # より詳細なトレースをstderrに出す（必要ならbacktraceも）
 

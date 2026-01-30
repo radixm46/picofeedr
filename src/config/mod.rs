@@ -278,7 +278,7 @@ fn parse_content_store(value: Option<&str>) -> Result<ContentStore, AppError> {
 
 /// Parses the CLI output format value.
 fn parse_output_format(value: Option<&str>) -> Result<crate::cli::OutputFormat, AppError> {
-    match value.unwrap_or("json") {
+    match value.unwrap_or("plain") {
         "json" => Ok(crate::cli::OutputFormat::Json),
         "plain" => Ok(crate::cli::OutputFormat::Plain),
         other => Err(AppError::config(format!(

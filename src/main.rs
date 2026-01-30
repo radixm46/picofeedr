@@ -191,7 +191,7 @@ fn resolve_output(cli: &Cli, config: Option<&config::AppConfig>) -> OutputFormat
     if let Some(config) = config {
         return config.cli.output;
     }
-    OutputFormat::Json
+    OutputFormat::Plain
 }
 
 /// Resolves the effective output format using CLI or config when available.
@@ -200,10 +200,10 @@ fn resolve_effective_output(cli: &Cli) -> OutputFormat {
         return output;
     }
     match cli.command {
-        Command::Ping | Command::Version => OutputFormat::Json,
+        Command::Ping | Command::Version => OutputFormat::Plain,
         _ => match load_config(cli) {
             Ok(config) => resolve_output(cli, Some(&config)),
-            Err(_) => OutputFormat::Json,
+            Err(_) => OutputFormat::Plain,
         },
     }
 }
@@ -243,7 +243,7 @@ fn detect_output_from_args(args: &[OsString]) -> OutputFormat {
             return OutputFormat::Json;
         }
     }
-    OutputFormat::Json
+    OutputFormat::Plain
 }
 
 /// Prints error diagnostics to stderr when debug/trace is enabled.

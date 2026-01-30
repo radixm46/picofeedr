@@ -6,6 +6,13 @@ use serde_json::Value;
 use std::fs;
 use tempfile::TempDir;
 
+/// Creates a feeder command configured for JSON output.
+fn feeder_cmd_json() -> assert_cmd::Command {
+    let mut cmd = cargo_bin_cmd!("feeder");
+    cmd.arg("--output").arg("json");
+    cmd
+}
+
 /// Extracts the `data` object from a successful JSON envelope.
 fn extract_ok_data(output: &[u8]) -> Value {
     let value: Value = serde_json::from_slice(output).expect("json");
@@ -19,7 +26,7 @@ fn feeds_config_check_reports_new_feeds() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_fixture_files(&temp);
 
-    let output = cargo_bin_cmd!("feeder")
+    let output = feeder_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -47,7 +54,7 @@ fn feeds_reconcile_returns_tags() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_fixture_files(&temp);
 
-    let output = cargo_bin_cmd!("feeder")
+    let output = feeder_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -79,7 +86,7 @@ fn tags_command_returns_tag_dictionary() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_fixture_files(&temp);
 
-    cargo_bin_cmd!("feeder")
+    feeder_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -88,7 +95,7 @@ fn tags_command_returns_tag_dictionary() {
         .assert()
         .success();
 
-    let output = cargo_bin_cmd!("feeder")
+    let output = feeder_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -118,7 +125,7 @@ fn sync_ingests_entries_and_tags() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
 
-    let output = cargo_bin_cmd!("feeder")
+    let output = feeder_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -177,7 +184,7 @@ fn sync_reports_partial_failed() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_failure_fixture_files(&temp);
 
-    let output = cargo_bin_cmd!("feeder")
+    let output = feeder_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -204,7 +211,7 @@ fn sync_reports_failed_when_all_feeds_fail() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_all_failed_fixture_files(&temp);
 
-    let output = cargo_bin_cmd!("feeder")
+    let output = feeder_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
