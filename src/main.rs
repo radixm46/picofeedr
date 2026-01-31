@@ -14,9 +14,12 @@ mod tag;
 mod time;
 
 use crate::cli::{Cli, Command, MarkCommand, OutputFormat, SortOrder};
+use crate::entry::{EntryDetail, EntryListResponse};
 use crate::error::AppError;
+use crate::feed::{FeedConfigDiffResponse, FeedListResponse};
 use crate::query::TagQuery;
 use crate::response::Envelope;
+use crate::sync::SyncSummary;
 use crate::tag::TagManager;
 use clap::Parser;
 use serde_json::json;
@@ -27,6 +30,37 @@ use std::ffi::OsString;
 use std::io;
 use std::process::ExitCode;
 use tracing::{debug, trace};
+
+/// Execution results for CLI commands.
+enum CommandOutput {
+    Ping,
+    Version {
+        api_version: &'static str,
+        schema_version: i64,
+        build: &'static str,
+    },
+    Tags {
+        tags: Vec<String>,
+    },
+    FeedsList {
+        feeds: FeedListResponse,
+    },
+    FeedsDiff {
+        diff: FeedConfigDiffResponse,
+    },
+    Sync {
+        summary: SyncSummary,
+    },
+    List {
+        list: EntryListResponse,
+    },
+    View {
+        detail: EntryDetail,
+    },
+    Mark {
+        updated: usize,
+    },
+}
 
 /// Runs the CLI and prints JSON output or error to stdout.
 fn main() -> ExitCode {
@@ -53,21 +87,23 @@ fn main() -> ExitCode {
 
 /// Executes the CLI command and prints a JSON response.
 fn run(cli: &Cli, output: OutputFormat) -> Result<(), AppError> {
+    let result = execute_command(cli)?;
     match output {
-        OutputFormat::Json => run_json(cli),
-        OutputFormat::Plain => run_plain(cli),
+        OutputFormat::Json => render_json(&result)?,
+        OutputFormat::Plain => render_plain(&result),
     }
+    Ok(())
 }
 
-/// Executes the CLI command and prints a JSON envelope response.
-fn run_json(cli: &Cli) -> Result<(), AppError> {
-    trace!("run_json start");
-    let data = match &cli.command {
-        Command::Ping => json!({"ok": true}),
-        Command::Version => json!({
-            "api_version": "0.5.0",
-            "schema_version": 1,
-            "build": "dev"
+/// Executes the CLI command and returns the result.
+fn execute_command(cli: &Cli) -> Result<CommandOutput, AppError> {
+    trace!("execute_command start");
+    match &cli.command {
+        Command::Ping => Ok(CommandOutput::Ping),
+        Command::Version => Ok(CommandOutput::Version {
+            api_version: "0.5.0",
+            schema_version: 1,
+            build: "dev",
         }),
         Command::Tags
         | Command::Feeds { .. }
@@ -88,23 +124,25 @@ fn run_json(cli: &Cli) -> Result<(), AppError> {
                 Command::Tags => {
                     let tag_manager = TagManager::new(&store);
                     let tags = tag_manager.list_tags()?;
-                    json!({ "tags": tags })
+                    Ok(CommandOutput::Tags { tags })
                 }
                 Command::Feeds { config_check } => {
                     let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
                     if *config_check {
                         let db_feeds = store.list_feeds()?;
-                        serde_json::to_value(feed::diff_config_vs_db(&feeds_config, &db_feeds))?
+                        let diff = feed::diff_config_vs_db(&feeds_config, &db_feeds);
+                        Ok(CommandOutput::FeedsDiff { diff })
                     } else {
                         feed::reconcile_feeds(&store, &feeds_config, &config.unread_tag)?;
                         let db_feeds = store.list_feeds()?;
-                        serde_json::to_value(feed::render_feed_list(&feeds_config, &db_feeds))?
+                        let feeds = feed::render_feed_list(&feeds_config, &db_feeds);
+                        Ok(CommandOutput::FeedsList { feeds })
                     }
                 }
                 Command::Sync => {
                     let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
                     let summary = sync::run_sync(&mut store, &config, &feeds_config)?;
-                    serde_json::to_value(summary)?
+                    Ok(CommandOutput::Sync { summary })
                 }
                 Command::List {
                     query,
@@ -116,100 +154,166 @@ fn run_json(cli: &Cli) -> Result<(), AppError> {
                     let sort = sort.unwrap_or(SortOrder::FirstSeenDesc);
                     let limit = limit.unwrap_or(100);
                     let list = entry::list_entries(&store, &query, sort, limit, cursor.as_deref())?;
-                    serde_json::to_value(list)?
+                    Ok(CommandOutput::List { list })
                 }
                 Command::View { id } => {
                     let detail = entry::view_entry(&store, &config, *id)?;
-                    serde_json::to_value(detail)?
+                    Ok(CommandOutput::View { detail })
                 }
                 Command::Mark { command } => {
                     let updated = execute_mark(&mut store, &config, command)?;
-                    json!({ "updated": updated })
+                    Ok(CommandOutput::Mark { updated })
                 }
                 Command::Ping | Command::Version => unreachable!("handled above"),
             }
         }
+    }
+}
+
+/// Renders JSON output for a command result.
+fn render_json(result: &CommandOutput) -> Result<(), AppError> {
+    let data = match result {
+        CommandOutput::Ping => json!({ "ok": true }),
+        CommandOutput::Version {
+            api_version,
+            schema_version,
+            build,
+        } => json!({
+            "api_version": api_version,
+            "schema_version": schema_version,
+            "build": build,
+        }),
+        CommandOutput::Tags { tags } => json!({ "tags": tags }),
+        CommandOutput::FeedsList { feeds } => serde_json::to_value(feeds)?,
+        CommandOutput::FeedsDiff { diff } => serde_json::to_value(diff)?,
+        CommandOutput::Sync { summary } => serde_json::to_value(summary)?,
+        CommandOutput::List { list } => serde_json::to_value(list)?,
+        CommandOutput::View { detail } => serde_json::to_value(detail)?,
+        CommandOutput::Mark { updated } => json!({ "updated": updated }),
     };
 
     print_json_or_fallback(&Envelope::ok(data));
     Ok(())
 }
 
-/// Executes the CLI command and prints human-readable output.
-fn run_plain(cli: &Cli) -> Result<(), AppError> {
-    trace!("run_plain start");
-    match &cli.command {
-        Command::Ping => {
-            println!("ok");
-            return Ok(());
-        }
-        Command::Version => {
-            println!("api_version=0.5.0 schema_version=1 build=dev");
-            return Ok(());
-        }
-        _ => {}
-    }
-
-    let config = load_config(cli)?;
-    debug!(
-        db_path = ?config.database.path,
-        feeds_path = ?config.feeds.source,
-        "loaded configuration"
-    );
-
-    let mut store = db::sqlite::SqliteStore::open(&config.database.path)?;
-    store.migrate()?;
-
-    match &cli.command {
-        Command::Tags => {
-            let tag_manager = TagManager::new(&store);
-            let tags = tag_manager.list_tags()?;
+/// Renders human-readable output for a command result.
+fn render_plain(result: &CommandOutput) {
+    match result {
+        CommandOutput::Ping => println!("ok"),
+        CommandOutput::Version {
+            api_version,
+            schema_version,
+            build,
+        } => println!("api_version={api_version} schema_version={schema_version} build={build}"),
+        CommandOutput::Tags { tags } => {
             for tag in tags {
                 println!("{tag}");
             }
         }
-        Command::Feeds { config_check } => {
-            let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
-            if *config_check {
-                let db_feeds = store.list_feeds()?;
-                let diff = feed::diff_config_vs_db(&feeds_config, &db_feeds);
-                println!("{}", serde_json::to_string(&diff)?);
-            } else {
-                feed::reconcile_feeds(&store, &feeds_config, &config.unread_tag)?;
-                let db_feeds = store.list_feeds()?;
-                let feeds = feed::render_feed_list(&feeds_config, &db_feeds);
-                println!("{}", serde_json::to_string(&feeds)?);
+        CommandOutput::FeedsList { feeds } => {
+            for feed in &feeds.feeds {
+                let title = feed.title.as_deref().unwrap_or("(untitled)");
+                let tags = format_tags(&feed.tags);
+                if tags.is_empty() {
+                    println!("[{}] {} ({})", feed.id, title, feed.feed_key);
+                } else {
+                    println!("[{}] {} ({}) [{}]", feed.id, title, feed.feed_key, tags);
+                }
+                println!("  url: {}", feed.url);
+                if let Some(site_url) = &feed.site_url {
+                    println!("  site: {site_url}");
+                }
+                if let Some(author) = &feed.author {
+                    println!("  author: {author}");
+                }
             }
         }
-        Command::Sync => {
-            let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
-            let summary = sync::run_sync(&mut store, &config, &feeds_config)?;
-            println!("{}", serde_json::to_string(&summary)?);
+        CommandOutput::FeedsDiff { diff } => {
+            println!("new_in_config: {}", diff.new_in_config.len());
+            for item in &diff.new_in_config {
+                let title = item.title.as_deref().unwrap_or("(untitled)");
+                println!("  {} {} {}", item.feed_key, title, item.url);
+                let tags = format_tags(&item.tags);
+                if !tags.is_empty() {
+                    println!("    tags: {tags}");
+                }
+            }
+            println!("removed_from_config: {}", diff.removed_from_config.len());
+            for item in &diff.removed_from_config {
+                let title = item.title.as_deref().unwrap_or("(untitled)");
+                println!("  {} {} {}", item.feed_key, title, item.url);
+            }
+            println!("tag_changes: {}", diff.tag_changes.len());
+            for change in &diff.tag_changes {
+                println!("  {} {}", change.feed_key, change.url);
+                println!("    old: {}", format_tags(&change.old_tags));
+                println!("    new: {}", format_tags(&change.new_tags));
+            }
         }
-        Command::List {
-            query,
-            sort,
-            limit,
-            cursor,
-        } => {
-            let query = TagQuery::parse(query.as_deref(), &config.unread_tag)?;
-            let sort = sort.unwrap_or(SortOrder::FirstSeenDesc);
-            let limit = limit.unwrap_or(100);
-            let list = entry::list_entries(&store, &query, sort, limit, cursor.as_deref())?;
-            println!("{}", serde_json::to_string(&list)?);
+        CommandOutput::Sync { summary } => {
+            println!("status: {}", summary.status);
+            println!(
+                "fetched: {} failed: {} new_entries: {} elapsed: {:.2}s",
+                summary.fetched, summary.failed, summary.new_entries, summary.elapsed
+            );
+            if !summary.errors.is_empty() {
+                println!("errors: {}", summary.errors.len());
+                for error in &summary.errors {
+                    println!(
+                        "  {} {} retry={}",
+                        error.feed_url, error.code, error.retry
+                    );
+                    println!("    {}", error.message);
+                }
+            }
         }
-        Command::View { id } => {
-            let detail = entry::view_entry(&store, &config, *id)?;
-            println!("{}", serde_json::to_string(&detail)?);
+        CommandOutput::List { list } => {
+            println!("total: {}", list.total_hits);
+            if let Some(cursor) = &list.next_cursor {
+                println!("next_cursor: {cursor}");
+            }
+            for entry in &list.items {
+                let title = entry.title.as_deref().unwrap_or("(untitled)");
+                let tags = format_tags(&entry.tags);
+                if tags.is_empty() {
+                    println!("[{}] {title}", entry.id);
+                } else {
+                    println!("[{}] {title} [{tags}]", entry.id);
+                }
+            }
         }
-        Command::Mark { command } => {
-            let updated = execute_mark(&mut store, &config, command)?;
-            println!("{}", serde_json::to_string(&json!({ "updated": updated }))?);
+        CommandOutput::View { detail } => {
+            let title = detail.title.as_deref().unwrap_or("(untitled)");
+            println!("[{}] {title}", detail.id);
+            if let Some(feed_title) = &detail.feed_title {
+                println!("feed: {feed_title} (id: {})", detail.feed_id);
+            } else {
+                println!("feed_id: {}", detail.feed_id);
+            }
+            if let Some(author) = &detail.author {
+                println!("author: {author}");
+            }
+            if let Some(link) = &detail.link {
+                println!("link: {link}");
+            }
+            if !detail.tags.is_empty() {
+                println!("tags: {}", format_tags(&detail.tags));
+            }
+            if let Some(published) = detail.published_at {
+                println!("published_at: {published}");
+            }
+            println!("first_seen_at: {}", detail.first_seen_at);
+            if let Some(content) = &detail.content {
+                println!();
+                println!("{content}");
+            }
         }
-        Command::Ping | Command::Version => {}
+        CommandOutput::Mark { updated } => println!("updated: {updated}"),
     }
+}
 
-    Ok(())
+fn format_tags(tags: &[String]) -> String {
+    tags.join(", ")
 }
 
 /// Prints JSON to stdout, falling back to a hard-coded INTERNAL error JSON on failure.

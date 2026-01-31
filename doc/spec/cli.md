@@ -152,6 +152,8 @@ feeder view <id>
 
 ```
 
+※ 以下の出力例は `--output json` の場合なのだ。plain は人間向けの整形出力になるのだ。
+
 feeder mark read   ...
 
 # → {"ok": true, "data": {"updated": 2}, "error": null}

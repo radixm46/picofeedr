@@ -13,11 +13,24 @@ fn feeder_cmd_json() -> assert_cmd::Command {
     cmd
 }
 
+/// Creates a feeder command configured for plain output.
+fn feeder_cmd_plain() -> assert_cmd::Command {
+    let mut cmd = cargo_bin_cmd!("feeder");
+    cmd.arg("--output").arg("plain");
+    cmd
+}
+
 /// Extracts the `data` object from a successful JSON envelope.
 fn extract_ok_data(output: &[u8]) -> Value {
     let value: Value = serde_json::from_slice(output).expect("json");
     assert_eq!(value["ok"], true, "expected ok=true envelope");
     value.get("data").cloned().expect("data")
+}
+
+/// Ensures plain output is not JSON.
+fn assert_plain_output(output: &[u8]) {
+    let parsed = serde_json::from_slice::<Value>(output);
+    assert!(parsed.is_err(), "expected plain (non-JSON) output");
 }
 
 /// Ensures feeds --config-check reports config-only feeds.
@@ -117,6 +130,86 @@ fn tags_command_returns_tag_dictionary() {
         .map(|tag| tag.as_str().unwrap().to_string())
         .collect();
     assert_eq!(tag_values, vec!["rust", "tech", "unread"]);
+}
+
+/// Ensures list command renders human-readable plain output.
+#[test]
+fn list_plain_is_human_readable() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+
+    feeder_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("sync")
+        .assert()
+        .success();
+
+    let output = feeder_cmd_plain()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("list")
+        .arg("--sort")
+        .arg("first_seen_desc")
+        .arg("--limit")
+        .arg("2")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    assert_plain_output(&output);
+    let output_str = String::from_utf8_lossy(&output);
+    assert!(output_str.contains("First Entry"));
+    assert!(output_str.contains("Second Entry"));
+}
+
+/// Ensures view command renders human-readable plain output.
+#[test]
+fn view_plain_is_human_readable() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+
+    feeder_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("sync")
+        .assert()
+        .success();
+
+    let conn = Connection::open(&paths.db_path).expect("open db");
+    let entry_id: i64 = conn
+        .query_row(
+            "SELECT id FROM entries WHERE title = 'First Entry'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("entry id");
+
+    let output = feeder_cmd_plain()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("view")
+        .arg(entry_id.to_string())
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    assert_plain_output(&output);
+    let output_str = String::from_utf8_lossy(&output);
+    assert!(output_str.contains("First Entry"));
+    assert!(output_str.contains("https://example.com/1"));
 }
 
 /// Ensures sync ingests entries, applies tags, and reports counts.
