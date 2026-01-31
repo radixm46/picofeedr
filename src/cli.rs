@@ -117,10 +117,6 @@ pub enum MarkCommand {
     Read { ids: Vec<i64> },
     /// Mark entries as unread (add unread tag).
     Unread { ids: Vec<i64> },
-    /// Mark entries as starred (add star tag).
-    Star { ids: Vec<i64> },
-    /// Mark entries as unstarred (remove star tag).
-    Unstar { ids: Vec<i64> },
     /// Add/remove custom tags.
     Tag {
         /// Entry ids.

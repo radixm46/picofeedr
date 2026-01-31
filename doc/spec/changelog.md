@@ -28,7 +28,7 @@
 
 - 設定ファイルを2層構造に分離（`config.toml` + `feeds.yaml`）
 - フィード管理を設定ファイル駆動に変更（CLIでのCRUD廃止）
-- タグ中心設計の明確化（unread/starred含む）
+- タグ中心設計の明確化（unread含む）
 - feeds.yamlの階層構造とタグ継承を追加
 - 自動タグルールを feeds.yaml に統合
 - CLI/RPC両対応を明記

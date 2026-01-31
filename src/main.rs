@@ -361,10 +361,6 @@ fn execute_mark(
         MarkCommand::Unread { ids } => {
             entry::mark_entries(store, ids, &[config.unread_tag.clone()], &[])
         }
-        MarkCommand::Star { ids } => entry::mark_entries(store, ids, &[String::from("star")], &[]),
-        MarkCommand::Unstar { ids } => {
-            entry::mark_entries(store, ids, &[], &[String::from("star")])
-        }
         MarkCommand::Tag { ids, add, remove } => {
             let add_tags = parse_tag_list(add.as_deref());
             let remove_tags = parse_tag_list(remove.as_deref());

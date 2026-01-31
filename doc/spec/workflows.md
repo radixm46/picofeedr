@@ -84,7 +84,7 @@ feeder sync --output json
 
 # 30日以上前の既読エントリを削除
 
-sqlite3 ~/.local/share/feeder/db.sqlite <<EOF DELETE FROM entries WHERE id IN ( SELECT e.id FROM entries e WHERE e.published_at < strftime('%s', 'now', '-30 days') AND NOT EXISTS ( SELECT 1 FROM entry_tags et JOIN tags t ON et.tag_id = t.id WHERE et.entry_id = e.id AND t.name IN ('unread', 'star') ) ); EOF
+sqlite3 ~/.local/share/feeder/db.sqlite <<EOF DELETE FROM entries WHERE id IN ( SELECT e.id FROM entries e WHERE e.published_at < strftime('%s', 'now', '-30 days') AND NOT EXISTS ( SELECT 1 FROM entry_tags et JOIN tags t ON et.tag_id = t.id WHERE et.entry_id = e.id AND t.name = 'unread' ) ); EOF
 
 ```
 

@@ -27,10 +27,6 @@ impl TagQuery {
                 query.include.push(unread_tag.to_string());
                 continue;
             }
-            if token == "star" || token == "starred" {
-                query.include.push("star".to_string());
-                continue;
-            }
             if let Some(tag) = token.strip_prefix("tag:") {
                 if tag.is_empty() {
                     return Err(AppError::invalid_query("tag: requires a value"));

@@ -7,7 +7,7 @@
 **サポート構文：**
 
 - `unread` - `tag:<unread_tag>` のショートカット（`unread_tag` は設定。デフォルト `unread`）
-- `star` または `starred` - `tag:star` のショートカット
+- 予約トークンは `unread` のみ。`star` は `tag:star` で表現するのだ
 - `tag:security` - 指定タグを持つエントリ
 - `-tag:misc` - 指定タグを持たないエントリ
 - スペース区切りは AND 条件

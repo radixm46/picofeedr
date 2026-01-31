@@ -160,15 +160,11 @@ feeder mark unread   ...
 
 # → {"ok": true, "data": {"updated": 2}, "error": null}
 
-feeder mark star   ...
-
-# → {"ok": true, "data": {"updated": 2}, "error": null}
-
-feeder mark unstar   ...
-
-# → {"ok": true, "data": {"updated": 2}, "error": null}
-
 feeder mark tag   ... --add foo,bar --remove baz
+
+# → {"ok": true, "data": {"updated": 2}, "error": null}
+
+feeder mark tag   ... --add star
 
 # → {"ok": true, "data": {"updated": 2}, "error": null}
 
@@ -180,6 +176,6 @@ feeder mark tag   ... --add foo,bar --remove baz
 
 feeder tags
 
-# → {"ok": true, "data": {"tags": ["unread", "star", "tech", "security", "rust", ...]}, "error": null}
+# → {"ok": true, "data": {"tags": ["unread", "tech", "security", "rust", ...]}, "error": null}
 
 ```
