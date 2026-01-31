@@ -6,10 +6,10 @@ use std::path::PathBuf;
 /// Output format for CLI responses.
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum OutputFormat {
-    /// Machine-readable JSON output.
-    Json,
     /// Human-readable output.
     Plain,
+    /// Machine-readable JSON output.
+    Json,
 }
 
 /// Feeder CLI arguments.
