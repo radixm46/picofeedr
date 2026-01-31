@@ -229,6 +229,238 @@ fn sync_reports_failed_when_all_feeds_fail() {
     assert_eq!(data["failed"], 1);
 }
 
+/// Ensures list returns paginated results with tag filters.
+#[test]
+fn list_returns_paginated_results() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+
+    feeder_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("sync")
+        .assert()
+        .success();
+
+    let conn = Connection::open(&paths.db_path).expect("open db");
+    let tech_entries: i64 = conn
+        .query_row(
+            "SELECT COUNT(1) FROM entry_tags et JOIN tags t ON et.tag_id = t.id WHERE t.name = 'tech'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("tech count");
+    assert_eq!(tech_entries, 2);
+
+    let unread_entries: i64 = conn
+        .query_row(
+            "SELECT COUNT(1) FROM entry_tags et JOIN tags t ON et.tag_id = t.id WHERE t.name = 'unread'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("unread count");
+    assert_eq!(unread_entries, 2);
+
+    let output = feeder_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("list")
+        .arg("--query")
+        .arg("unread tag:tech")
+        .arg("--sort")
+        .arg("first_seen_desc")
+        .arg("--limit")
+        .arg("1")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let data = extract_ok_data(&output);
+    assert_eq!(data["total_hits"], 2);
+    assert_eq!(data["items"].as_array().expect("items array").len(), 1);
+    let cursor = data["next_cursor"].as_str().expect("next_cursor");
+
+    let output = feeder_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("list")
+        .arg("--query")
+        .arg("unread tag:tech")
+        .arg("--sort")
+        .arg("first_seen_desc")
+        .arg("--limit")
+        .arg("1")
+        .arg("--cursor")
+        .arg(cursor)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let data = extract_ok_data(&output);
+    assert_eq!(data["total_hits"], 2);
+    assert_eq!(data["items"].as_array().expect("items array").len(), 1);
+    assert!(data["next_cursor"].is_null());
+}
+
+/// Ensures view returns entry details with tags.
+#[test]
+fn view_returns_entry_detail() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+
+    feeder_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("sync")
+        .assert()
+        .success();
+
+    let conn = Connection::open(&paths.db_path).expect("open db");
+    let entry_id: i64 = conn
+        .query_row(
+            "SELECT id FROM entries WHERE title = 'First Entry'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("entry id");
+
+    let output = feeder_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("view")
+        .arg(entry_id.to_string())
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let data = extract_ok_data(&output);
+    assert_eq!(data["id"], entry_id);
+    assert_eq!(data["feed_title"], "Example Feed");
+    let tags = data["tags"].as_array().expect("tags array");
+    let tag_values: Vec<String> = tags
+        .iter()
+        .map(|tag| tag.as_str().unwrap().to_string())
+        .collect();
+    assert!(tag_values.contains(&"unread".to_string()));
+    assert!(tag_values.contains(&"tech".to_string()));
+}
+
+/// Ensures mark commands update tags.
+#[test]
+fn mark_updates_tags() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+
+    feeder_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("sync")
+        .assert()
+        .success();
+
+    let conn = Connection::open(&paths.db_path).expect("open db");
+    let entry_ids: Vec<i64> = conn
+        .prepare("SELECT id FROM entries ORDER BY id")
+        .expect("prepare")
+        .query_map([], |row| row.get(0))
+        .expect("rows")
+        .map(|row| row.expect("row"))
+        .collect();
+    assert_eq!(entry_ids.len(), 2);
+
+    feeder_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("mark")
+        .arg("read")
+        .arg(entry_ids[0].to_string())
+        .arg(entry_ids[1].to_string())
+        .assert()
+        .success();
+
+    let unread_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(1) FROM entry_tags et JOIN tags t ON et.tag_id = t.id WHERE t.name = 'unread'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("unread count");
+    assert_eq!(unread_count, 0);
+
+    feeder_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("mark")
+        .arg("unread")
+        .arg(entry_ids[0].to_string())
+        .assert()
+        .success();
+
+    let unread_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(1) FROM entry_tags et JOIN tags t ON et.tag_id = t.id WHERE t.name = 'unread'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("unread count");
+    assert_eq!(unread_count, 1);
+
+    feeder_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("mark")
+        .arg("tag")
+        .arg(entry_ids[0].to_string())
+        .arg("--add")
+        .arg("foo,bar")
+        .arg("--remove")
+        .arg("tech")
+        .assert()
+        .success();
+
+    let foo_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(1) FROM entry_tags et JOIN tags t ON et.tag_id = t.id WHERE t.name = 'foo'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("foo count");
+    assert_eq!(foo_count, 1);
+
+    let tech_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(1) FROM entry_tags et JOIN tags t ON et.tag_id = t.id WHERE t.name = 'tech'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("tech count");
+    assert_eq!(tech_count, 1);
+}
+
 /// Fixture file paths for CLI tests.
 struct FixturePaths {
     config_path: String,

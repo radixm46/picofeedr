@@ -3,20 +3,24 @@
 mod cli;
 mod config;
 mod db;
+mod entry;
 mod error;
 mod feed;
 mod identity;
+mod query;
 mod response;
 mod sync;
 mod tag;
 mod time;
 
-use crate::cli::{Cli, Command, OutputFormat};
+use crate::cli::{Cli, Command, MarkCommand, OutputFormat, SortOrder};
 use crate::error::AppError;
+use crate::query::TagQuery;
 use crate::response::Envelope;
 use crate::tag::TagManager;
 use clap::Parser;
 use serde_json::json;
+use std::collections::HashSet;
 use std::env;
 use std::error::Error;
 use std::ffi::OsString;
@@ -40,7 +44,7 @@ fn main() -> ExitCode {
             OutputFormat::Json => {
                 print_json_or_fallback(&Envelope::<serde_json::Value>::fatal(&error))
             }
-            OutputFormat::Plain => eprintln!("{}", error),
+            OutputFormat::Plain => eprintln!("{error}"),
         }
         return ExitCode::from(1);
     }
@@ -65,7 +69,12 @@ fn run_json(cli: &Cli) -> Result<(), AppError> {
             "schema_version": 1,
             "build": "dev"
         }),
-        Command::Tags | Command::Feeds { .. } | Command::Sync => {
+        Command::Tags
+        | Command::Feeds { .. }
+        | Command::Sync
+        | Command::List { .. }
+        | Command::View { .. }
+        | Command::Mark { .. } => {
             let config = load_config(cli)?;
             debug!(
                 db_path = ?config.database.path,
@@ -96,6 +105,26 @@ fn run_json(cli: &Cli) -> Result<(), AppError> {
                     let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
                     let summary = sync::run_sync(&mut store, &config, &feeds_config)?;
                     serde_json::to_value(summary)?
+                }
+                Command::List {
+                    query,
+                    sort,
+                    limit,
+                    cursor,
+                } => {
+                    let query = TagQuery::parse(query.as_deref(), &config.unread_tag)?;
+                    let sort = sort.unwrap_or(SortOrder::FirstSeenDesc);
+                    let limit = limit.unwrap_or(100);
+                    let list = entry::list_entries(&store, &query, sort, limit, cursor.as_deref())?;
+                    serde_json::to_value(list)?
+                }
+                Command::View { id } => {
+                    let detail = entry::view_entry(&store, &config, *id)?;
+                    serde_json::to_value(detail)?
+                }
+                Command::Mark { command } => {
+                    let updated = execute_mark(&mut store, &config, command)?;
+                    json!({ "updated": updated })
                 }
                 Command::Ping | Command::Version => unreachable!("handled above"),
             }
@@ -156,6 +185,26 @@ fn run_plain(cli: &Cli) -> Result<(), AppError> {
             let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
             let summary = sync::run_sync(&mut store, &config, &feeds_config)?;
             println!("{}", serde_json::to_string(&summary)?);
+        }
+        Command::List {
+            query,
+            sort,
+            limit,
+            cursor,
+        } => {
+            let query = TagQuery::parse(query.as_deref(), &config.unread_tag)?;
+            let sort = sort.unwrap_or(SortOrder::FirstSeenDesc);
+            let limit = limit.unwrap_or(100);
+            let list = entry::list_entries(&store, &query, sort, limit, cursor.as_deref())?;
+            println!("{}", serde_json::to_string(&list)?);
+        }
+        Command::View { id } => {
+            let detail = entry::view_entry(&store, &config, *id)?;
+            println!("{}", serde_json::to_string(&detail)?);
+        }
+        Command::Mark { command } => {
+            let updated = execute_mark(&mut store, &config, command)?;
+            println!("{}", serde_json::to_string(&json!({ "updated": updated }))?);
         }
         Command::Ping | Command::Version => {}
     }
@@ -298,4 +347,46 @@ fn init_logging(level: config::LogLevel) {
         .with_writer(io::stderr)
         .with_ansi(false)
         .try_init();
+}
+
+fn execute_mark(
+    store: &mut db::sqlite::SqliteStore,
+    config: &config::AppConfig,
+    command: &MarkCommand,
+) -> Result<usize, AppError> {
+    match command {
+        MarkCommand::Read { ids } => {
+            entry::mark_entries(store, ids, &[], &[config.unread_tag.clone()])
+        }
+        MarkCommand::Unread { ids } => {
+            entry::mark_entries(store, ids, &[config.unread_tag.clone()], &[])
+        }
+        MarkCommand::Star { ids } => entry::mark_entries(store, ids, &[String::from("star")], &[]),
+        MarkCommand::Unstar { ids } => {
+            entry::mark_entries(store, ids, &[], &[String::from("star")])
+        }
+        MarkCommand::Tag { ids, add, remove } => {
+            let add_tags = parse_tag_list(add.as_deref());
+            let remove_tags = parse_tag_list(remove.as_deref());
+            entry::mark_entries(store, ids, &add_tags, &remove_tags)
+        }
+    }
+}
+
+fn parse_tag_list(raw: Option<&str>) -> Vec<String> {
+    let Some(raw) = raw else {
+        return Vec::new();
+    };
+    let mut seen = HashSet::new();
+    let mut tags = Vec::new();
+    for part in raw.split(',') {
+        let tag = part.trim();
+        if tag.is_empty() {
+            continue;
+        }
+        if seen.insert(tag.to_string()) {
+            tags.push(tag.to_string());
+        }
+    }
+    tags
 }

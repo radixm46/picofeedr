@@ -13,6 +13,10 @@ type BoxError = Box<dyn StdError + Send + Sync>;
 pub enum ErrorCode {
     /// Configuration error.
     ConfigError,
+    /// Invalid query syntax.
+    InvalidQuery,
+    /// Entry not found.
+    EntryNotFound,
     /// Database is locked/busy and can be retried.
     DbLocked,
     /// Database error without retry.
@@ -30,6 +34,8 @@ impl ErrorCode {
     pub fn as_str(&self) -> &'static str {
         match self {
             ErrorCode::ConfigError => "CONFIG_ERROR",
+            ErrorCode::InvalidQuery => "INVALID_QUERY",
+            ErrorCode::EntryNotFound => "ENTRY_NOT_FOUND",
             ErrorCode::DbLocked => "DB_LOCKED",
             ErrorCode::DbError => "DB_ERROR",
             ErrorCode::Internal => "INTERNAL",
@@ -45,6 +51,24 @@ pub enum AppError {
     /// Configuration error.
     #[error("{message}")]
     Config {
+        /// Human-readable message.
+        message: String,
+        /// Source error when available.
+        #[source]
+        source: Option<BoxError>,
+    },
+    /// Query syntax error.
+    #[error("{message}")]
+    InvalidQuery {
+        /// Human-readable message.
+        message: String,
+        /// Source error when available.
+        #[source]
+        source: Option<BoxError>,
+    },
+    /// Entry not found error.
+    #[error("{message}")]
+    EntryNotFound {
         /// Human-readable message.
         message: String,
         /// Source error when available.
@@ -104,6 +128,8 @@ impl AppError {
     pub fn code(&self) -> ErrorCode {
         match self {
             AppError::Config { .. } => ErrorCode::ConfigError,
+            AppError::InvalidQuery { .. } => ErrorCode::InvalidQuery,
+            AppError::EntryNotFound { .. } => ErrorCode::EntryNotFound,
             AppError::DbLocked { .. } => ErrorCode::DbLocked,
             AppError::Db { .. } => ErrorCode::DbError,
             AppError::Internal { .. } => ErrorCode::Internal,
@@ -116,6 +142,8 @@ impl AppError {
     pub fn message(&self) -> &str {
         match self {
             AppError::Config { message, .. }
+            | AppError::InvalidQuery { message, .. }
+            | AppError::EntryNotFound { message, .. }
             | AppError::DbLocked { message, .. }
             | AppError::Db { message, .. }
             | AppError::Internal { message, .. }
@@ -145,6 +173,22 @@ impl AppError {
         Self::Config {
             message: message.into(),
             source: Some(Box::new(source)),
+        }
+    }
+
+    /// Creates an invalid query error.
+    pub fn invalid_query(message: impl Into<String>) -> Self {
+        Self::InvalidQuery {
+            message: message.into(),
+            source: None,
+        }
+    }
+
+    /// Creates an entry not found error.
+    pub fn entry_not_found(message: impl Into<String>) -> Self {
+        Self::EntryNotFound {
+            message: message.into(),
+            source: None,
         }
     }
 

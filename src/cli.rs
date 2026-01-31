@@ -12,6 +12,23 @@ pub enum OutputFormat {
     Json,
 }
 
+/// Sort order for entry listing.
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum SortOrder {
+    /// Order by date (desc).
+    #[value(alias = "date_desc")]
+    DateDesc,
+    /// Order by date (asc).
+    #[value(alias = "date_asc")]
+    DateAsc,
+    /// Order by first seen (desc).
+    #[value(alias = "first_seen_desc")]
+    FirstSeenDesc,
+    /// Order by first seen (asc).
+    #[value(alias = "first_seen_asc")]
+    FirstSeenAsc,
+}
+
 /// Feeder CLI arguments.
 #[derive(Debug, Parser)]
 #[command(name = "feeder", version, about = "Local-first feed reader backend")]
@@ -62,4 +79,57 @@ pub enum Command {
 
     /// Sync feeds and ingest new entries.
     Sync,
+
+    /// List entry summaries.
+    List {
+        /// Query string for tag filters.
+        #[arg(long)]
+        query: Option<String>,
+        /// Sort order.
+        #[arg(long, value_enum)]
+        sort: Option<SortOrder>,
+        /// Number of items to return.
+        #[arg(long)]
+        limit: Option<usize>,
+        /// Pagination cursor.
+        #[arg(long)]
+        cursor: Option<String>,
+    },
+
+    /// View entry detail by id.
+    View {
+        /// Entry id.
+        id: i64,
+    },
+
+    /// Update entry tags.
+    Mark {
+        /// Mark operation to perform.
+        #[command(subcommand)]
+        command: MarkCommand,
+    },
+}
+
+/// Mark operation subcommands.
+#[derive(Debug, Subcommand)]
+pub enum MarkCommand {
+    /// Mark entries as read (remove unread tag).
+    Read { ids: Vec<i64> },
+    /// Mark entries as unread (add unread tag).
+    Unread { ids: Vec<i64> },
+    /// Mark entries as starred (add star tag).
+    Star { ids: Vec<i64> },
+    /// Mark entries as unstarred (remove star tag).
+    Unstar { ids: Vec<i64> },
+    /// Add/remove custom tags.
+    Tag {
+        /// Entry ids.
+        ids: Vec<i64>,
+        /// Tags to add (comma-separated).
+        #[arg(long)]
+        add: Option<String>,
+        /// Tags to remove (comma-separated).
+        #[arg(long)]
+        remove: Option<String>,
+    },
 }
