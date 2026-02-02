@@ -2,9 +2,10 @@
 
 use crate::config::{AppConfig, SyncConfig};
 use crate::error::AppError;
+use crossbeam_channel::{Receiver, Sender, select, unbounded};
 use std::fs;
 use std::io::{Cursor, Read};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
@@ -19,39 +20,18 @@ pub(crate) fn fetch_parallel(
     rules: Arc<Vec<CompiledRule>>,
 ) -> Result<(Vec<SyncResult>, Vec<SyncError>), AppError> {
     let workers = config.sync.parallel.max(1);
-    let (job_tx, job_rx) = mpsc::channel::<SyncTarget>();
-    let (result_tx, result_rx) = mpsc::channel::<WorkerResult>();
-    let shared_rx = Arc::new(Mutex::new(job_rx));
+    let (job_tx, job_rx) = unbounded::<SyncTarget>();
+    let (result_tx, result_rx) = unbounded::<WorkerResult>();
+    let (cancel_tx, cancel_rx) = unbounded::<()>();
 
     let mut handles = Vec::new();
     for _ in 0..workers {
-        let rx = Arc::clone(&shared_rx);
+        let job_rx = job_rx.clone();
+        let cancel_rx = cancel_rx.clone();
         let tx = result_tx.clone();
         let config = config.clone();
         let rules = Arc::clone(&rules);
-        let handle = thread::spawn(move || {
-            loop {
-                let job = {
-                    let guard = match rx.lock() {
-                        Ok(guard) => guard,
-                        Err(_) => {
-                            let _ = tx.send(WorkerResult::Fatal(AppError::io(
-                                "Worker queue lock poisoned",
-                            )));
-                            break;
-                        }
-                    };
-                    guard.recv()
-                };
-                match job {
-                    Ok(target) => {
-                        let result = fetch_and_parse(&target, &config, &rules);
-                        let _ = tx.send(result);
-                    }
-                    Err(_) => break,
-                }
-            }
-        });
+        let handle = thread::spawn(move || worker_loop(job_rx, cancel_rx, tx, &config, &rules));
         handles.push(handle);
     }
 
@@ -66,17 +46,17 @@ pub(crate) fn fetch_parallel(
     let mut results = Vec::new();
     let mut errors = Vec::new();
     let mut fatal: Option<AppError> = None;
-    let mut received = 0usize;
-    while received < targets.len() {
-        let result = result_rx
-            .recv()
-            .map_err(|error| AppError::io(format!("Failed to receive result: {error}")))?;
-        received += 1;
+    loop {
+        let result = match result_rx.recv() {
+            Ok(result) => result,
+            Err(_) => break,
+        };
         match result {
             WorkerResult::Ok(parsed) => results.push(parsed),
             WorkerResult::Error(error) => errors.push(error),
             WorkerResult::Fatal(error) => {
                 fatal = Some(error);
+                drop(cancel_tx);
                 break;
             }
         }
@@ -92,6 +72,28 @@ pub(crate) fn fetch_parallel(
         return Err(error);
     }
     Ok((results, errors))
+}
+
+/// Worker loop that consumes sync targets and reports results.
+fn worker_loop(
+    job_rx: Receiver<SyncTarget>,
+    cancel_rx: Receiver<()>,
+    result_tx: Sender<WorkerResult>,
+    config: &AppConfig,
+    rules: &[CompiledRule],
+) {
+    loop {
+        select! {
+            recv(cancel_rx) -> _ => break,
+            recv(job_rx) -> job => match job {
+                Ok(target) => {
+                    let result = fetch_and_parse(&target, config, rules);
+                    let _ = result_tx.send(result);
+                }
+                Err(_) => break,
+            }
+        }
+    }
 }
 
 /// Fetches a single feed and parses entries.
