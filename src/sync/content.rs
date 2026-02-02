@@ -1,7 +1,7 @@
 //! Content selection and storage helpers.
 
 use crate::config::{AppConfig, ContentStore};
-use crate::db::EntryContentInput;
+use crate::db::{EntryContentInput, EntryContentStorage};
 use crate::error::AppError;
 use crate::sync::model::EntryContentPlan;
 use sha2::{Digest, Sha256};
@@ -34,7 +34,7 @@ pub(crate) fn build_entry_content(
     let Some(content) = content else {
         return Ok(EntryContentPlan {
             content: Some(EntryContentInput {
-                storage: "none".to_string(),
+                storage: EntryContentStorage::None,
                 reference: None,
                 content_type,
                 content: None,
@@ -45,7 +45,7 @@ pub(crate) fn build_entry_content(
     match config.storage.content_store {
         ContentStore::Db => Ok(EntryContentPlan {
             content: Some(EntryContentInput {
-                storage: "db".to_string(),
+                storage: EntryContentStorage::Db,
                 reference: None,
                 content_type,
                 content: Some(content),
@@ -56,7 +56,7 @@ pub(crate) fn build_entry_content(
             let reference = content_hash(&content);
             Ok(EntryContentPlan {
                 content: Some(EntryContentInput {
-                    storage: "fs".to_string(),
+                    storage: EntryContentStorage::Fs,
                     reference: Some(reference),
                     content_type,
                     content: None,
@@ -66,7 +66,7 @@ pub(crate) fn build_entry_content(
         }
         ContentStore::None => Ok(EntryContentPlan {
             content: Some(EntryContentInput {
-                storage: "none".to_string(),
+                storage: EntryContentStorage::None,
                 reference: None,
                 content_type,
                 content: None,
@@ -118,8 +118,6 @@ pub(crate) fn remove_content_fs(root: &Path, reference: &str) -> Result<(), AppE
     match fs::remove_file(&path) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(AppError::io(format!(
-            "Failed to remove content: {error}"
-        ))),
+        Err(error) => Err(AppError::io(format!("Failed to remove content: {error}"))),
     }
 }

@@ -1,6 +1,7 @@
 //! Database ingestion for sync results.
 
 use crate::config::AppConfig;
+use crate::db::EntryContentStorage;
 use crate::db::sqlite::{
     find_feed_id_with_conn, insert_entry_content_with_conn, insert_entry_tags_with_conn,
     insert_entry_with_conn,
@@ -26,14 +27,15 @@ pub(crate) fn ingest_results(
             let insert = insert_entry_with_conn(conn, &input)?;
             if insert.inserted {
                 if let Some(content) = entry.content {
-                    if content.storage == "fs" {
+                    if content.storage == EntryContentStorage::Fs {
                         let payload = entry.content_payload.as_deref().ok_or_else(|| {
                             AppError::internal("Missing content payload for fs storage")
                         })?;
                         let reference = content.reference.as_deref().ok_or_else(|| {
                             AppError::internal("Missing content reference for fs storage")
                         })?;
-                        let created = write_content_fs(&config.storage.data_dir, reference, payload)?;
+                        let created =
+                            write_content_fs(&config.storage.data_dir, reference, payload)?;
                         if let Err(error) =
                             insert_entry_content_with_conn(conn, insert.entry_id, &content)
                         {

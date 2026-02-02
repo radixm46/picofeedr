@@ -68,13 +68,45 @@ pub struct EntryInput {
 #[derive(Debug, Clone)]
 pub struct EntryContentInput {
     /// Storage mode.
-    pub storage: String,
+    pub storage: EntryContentStorage,
     /// Storage reference for filesystem content.
     pub reference: Option<String>,
     /// Content type.
     pub content_type: Option<String>,
     /// Content payload (DB storage only).
     pub content: Option<String>,
+}
+
+/// Storage mode for entry contents.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EntryContentStorage {
+    /// Store content in SQLite.
+    Db,
+    /// Store content in filesystem.
+    Fs,
+    /// No content stored.
+    None,
+}
+
+impl EntryContentStorage {
+    /// Returns the storage value for persistence.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EntryContentStorage::Db => "db",
+            EntryContentStorage::Fs => "fs",
+            EntryContentStorage::None => "none",
+        }
+    }
+
+    /// Parses the storage value from persistence.
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "db" => Some(EntryContentStorage::Db),
+            "fs" => Some(EntryContentStorage::Fs),
+            "none" => Some(EntryContentStorage::None),
+            _ => None,
+        }
+    }
 }
 
 /// Result of inserting an entry.

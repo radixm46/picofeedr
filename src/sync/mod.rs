@@ -20,7 +20,7 @@ pub use model::SyncSummary;
 use autotag::compile_auto_tags;
 use fetch::fetch_parallel;
 use ingest::ingest_results;
-use model::SyncTarget;
+use model::{SyncStatus, SyncTarget};
 
 /// Runs a sync for all feeds in config.
 pub fn run_sync(
@@ -41,11 +41,11 @@ pub fn run_sync(
     let elapsed = start.elapsed().as_secs_f64();
     let failed = errors.len();
     let status = if failed > 0 && failed == targets.len() {
-        "failed".to_string()
+        SyncStatus::Failed
     } else if failed > 0 {
-        "partial_failed".to_string()
+        SyncStatus::PartialFailed
     } else {
-        "completed".to_string()
+        SyncStatus::Completed
     };
     Ok(SyncSummary {
         status,

@@ -55,7 +55,7 @@ pub(crate) fn insert_entry_content_with_conn(
          VALUES (?1, ?2, ?3, ?4, ?5)",
         params![
             entry_id,
-            content.storage,
+            content.storage.as_str(),
             content.reference,
             content.content_type,
             content.content

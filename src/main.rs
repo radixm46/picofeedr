@@ -251,7 +251,7 @@ fn render_plain(result: &CommandOutput) {
             }
         }
         CommandOutput::Sync { summary } => {
-            println!("status: {}", summary.status);
+            println!("status: {}", summary.status.as_str());
             println!(
                 "fetched: {} failed: {} new_entries: {} elapsed: {:.2}s",
                 summary.fetched, summary.failed, summary.new_entries, summary.elapsed
@@ -261,7 +261,9 @@ fn render_plain(result: &CommandOutput) {
                 for error in &summary.errors {
                     println!(
                         "  {} {} retry={}",
-                        error.feed_url, error.code, error.retry
+                        error.feed_url,
+                        error.code.as_str(),
+                        error.retry
                     );
                     println!("    {}", error.message);
                 }

@@ -7,8 +7,8 @@ use serde::Serialize;
 /// Sync result summary.
 #[derive(Debug, Serialize)]
 pub struct SyncSummary {
-    /// Sync status string.
-    pub status: String,
+    /// Sync status.
+    pub status: SyncStatus,
     /// Number of feeds fetched.
     pub fetched: usize,
     /// Number of failed feeds.
@@ -26,12 +26,51 @@ pub struct SyncSummary {
 pub struct SyncError {
     /// Feed URL that failed.
     pub feed_url: String,
-    /// Error code string.
-    pub code: String,
+    /// Error code.
+    pub code: SyncErrorCode,
     /// Error message.
     pub message: String,
     /// Whether the caller should retry.
     pub retry: bool,
+}
+
+/// Sync status values.
+#[derive(Debug, Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SyncStatus {
+    Completed,
+    PartialFailed,
+    Failed,
+}
+
+impl SyncStatus {
+    /// Returns the display label for plain output.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SyncStatus::Completed => "completed",
+            SyncStatus::PartialFailed => "partial_failed",
+            SyncStatus::Failed => "failed",
+        }
+    }
+}
+
+/// Sync error code values.
+#[derive(Debug, Serialize, Clone, Copy, PartialEq, Eq)]
+pub enum SyncErrorCode {
+    #[serde(rename = "FETCH_FAILED")]
+    FetchFailed,
+    #[serde(rename = "PARSE_FAILED")]
+    ParseFailed,
+}
+
+impl SyncErrorCode {
+    /// Returns the display label for plain output.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SyncErrorCode::FetchFailed => "FETCH_FAILED",
+            SyncErrorCode::ParseFailed => "PARSE_FAILED",
+        }
+    }
 }
 
 impl SyncError {
@@ -39,7 +78,7 @@ impl SyncError {
     pub(crate) fn fetch(feed_url: &str, message: String) -> Self {
         Self {
             feed_url: feed_url.to_string(),
-            code: "FETCH_FAILED".to_string(),
+            code: SyncErrorCode::FetchFailed,
             message,
             retry: !feed_url.starts_with("file://"),
         }
@@ -49,7 +88,7 @@ impl SyncError {
     pub(crate) fn parse(feed_url: &str, message: String) -> Self {
         Self {
             feed_url: feed_url.to_string(),
-            code: "PARSE_FAILED".to_string(),
+            code: SyncErrorCode::ParseFailed,
             message,
             retry: false,
         }

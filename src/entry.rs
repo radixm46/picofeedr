@@ -3,6 +3,7 @@
 use crate::cli::SortOrder;
 use crate::config::AppConfig;
 use crate::db::sqlite::{SqliteStore, ensure_tag_with_conn};
+use crate::db::{EntryContentStorage, EntryContentStorage as Storage};
 use crate::error::AppError;
 use crate::query::TagQuery;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -391,9 +392,11 @@ fn load_content(
     let Some((storage, reference, content_type, content)) = row else {
         return Ok((None, None));
     };
-    match storage.as_str() {
-        "db" => Ok((content, content_type)),
-        "fs" => {
+    let storage = EntryContentStorage::from_str(&storage)
+        .ok_or_else(|| AppError::internal(format!("Unknown content storage: {storage}")))?;
+    match storage {
+        Storage::Db => Ok((content, content_type)),
+        Storage::Fs => {
             let Some(reference) = reference else {
                 return Ok((None, content_type));
             };
@@ -401,7 +404,7 @@ fn load_content(
             let content = fs::read_to_string(path).ok();
             Ok((content, content_type))
         }
-        _ => Ok((None, content_type)),
+        Storage::None => Ok((None, content_type)),
     }
 }
 
