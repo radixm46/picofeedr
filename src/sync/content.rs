@@ -3,8 +3,11 @@
 use crate::config::{AppConfig, ContentStore};
 use crate::db::EntryContentInput;
 use crate::error::AppError;
+use crate::sync::model::EntryContentPlan;
 use sha2::{Digest, Sha256};
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::{ErrorKind, Write};
+use std::path::{Path, PathBuf};
 
 /// Selects the best content payload from a feed entry.
 pub(crate) fn select_content(entry: &feed_rs::model::Entry) -> (Option<String>, Option<String>) {
@@ -27,52 +30,96 @@ pub(crate) fn build_entry_content(
     config: &AppConfig,
     content: Option<String>,
     content_type: Option<String>,
-) -> Result<Option<EntryContentInput>, AppError> {
+) -> Result<EntryContentPlan, AppError> {
     let Some(content) = content else {
-        return Ok(Some(EntryContentInput {
-            storage: "none".to_string(),
-            reference: None,
-            content_type,
-            content: None,
-        }));
-    };
-    match config.storage.content_store {
-        ContentStore::Db => Ok(Some(EntryContentInput {
-            storage: "db".to_string(),
-            reference: None,
-            content_type,
-            content: Some(content),
-        })),
-        ContentStore::Fs => {
-            let reference = store_content_fs(&config.storage.data_dir, &content)?;
-            Ok(Some(EntryContentInput {
-                storage: "fs".to_string(),
-                reference: Some(reference),
+        return Ok(EntryContentPlan {
+            content: Some(EntryContentInput {
+                storage: "none".to_string(),
+                reference: None,
                 content_type,
                 content: None,
-            }))
+            }),
+            payload: None,
+        });
+    };
+    match config.storage.content_store {
+        ContentStore::Db => Ok(EntryContentPlan {
+            content: Some(EntryContentInput {
+                storage: "db".to_string(),
+                reference: None,
+                content_type,
+                content: Some(content),
+            }),
+            payload: None,
+        }),
+        ContentStore::Fs => {
+            let reference = content_hash(&content);
+            Ok(EntryContentPlan {
+                content: Some(EntryContentInput {
+                    storage: "fs".to_string(),
+                    reference: Some(reference),
+                    content_type,
+                    content: None,
+                }),
+                payload: Some(content),
+            })
         }
-        ContentStore::None => Ok(Some(EntryContentInput {
-            storage: "none".to_string(),
-            reference: None,
-            content_type,
-            content: None,
-        })),
+        ContentStore::None => Ok(EntryContentPlan {
+            content: Some(EntryContentInput {
+                storage: "none".to_string(),
+                reference: None,
+                content_type,
+                content: None,
+            }),
+            payload: None,
+        }),
     }
 }
 
-/// Stores content on filesystem and returns the hash reference.
-fn store_content_fs(root: &std::path::Path, content: &str) -> Result<String, AppError> {
+/// Computes the content hash for filesystem storage.
+fn content_hash(content: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(content.as_bytes());
     let digest = hasher.finalize();
-    let hex = hex::encode(digest);
-    let (prefix, _) = hex.split_at(2);
-    let dir = root.join(prefix);
+    hex::encode(digest)
+}
+
+/// Builds the filesystem path for a content reference.
+pub(crate) fn content_path(root: &Path, reference: &str) -> PathBuf {
+    let (prefix, _) = reference.split_at(2);
+    root.join(prefix).join(reference)
+}
+
+/// Stores content on filesystem if missing and returns whether it was created.
+pub(crate) fn write_content_fs(
+    root: &Path,
+    reference: &str,
+    content: &str,
+) -> Result<bool, AppError> {
+    let dir = root.join(&reference[0..2]);
     fs::create_dir_all(&dir)
         .map_err(|error| AppError::io(format!("Failed to create content dir: {error}")))?;
-    let path = dir.join(&hex);
-    fs::write(&path, content.as_bytes())
+    let path = content_path(root, reference);
+    let mut file = match OpenOptions::new().write(true).create_new(true).open(&path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == ErrorKind::AlreadyExists => return Ok(false),
+        Err(error) => {
+            return Err(AppError::io(format!("Failed to write content: {error}")));
+        }
+    };
+    file.write_all(content.as_bytes())
         .map_err(|error| AppError::io(format!("Failed to write content: {error}")))?;
-    Ok(hex)
+    Ok(true)
+}
+
+/// Removes filesystem content if present.
+pub(crate) fn remove_content_fs(root: &Path, reference: &str) -> Result<(), AppError> {
+    let path = content_path(root, reference);
+    match fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(AppError::io(format!(
+            "Failed to remove content: {error}"
+        ))),
+    }
 }

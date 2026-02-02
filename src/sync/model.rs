@@ -76,7 +76,16 @@ pub(crate) struct SyncEntry {
     pub(crate) feed_key: String,
     pub(crate) entry: PendingEntry,
     pub(crate) content: Option<EntryContentInput>,
+    /// Content payload for filesystem storage.
+    pub(crate) content_payload: Option<String>,
     pub(crate) tags: Vec<String>,
+}
+
+/// Planned content storage for sync entries.
+#[derive(Debug)]
+pub(crate) struct EntryContentPlan {
+    pub(crate) content: Option<EntryContentInput>,
+    pub(crate) payload: Option<String>,
 }
 
 /// Pending entry data before feed_id resolution.

@@ -35,7 +35,7 @@ pub fn run_sync(
 
     let tx = store.transaction()?;
     crate::feed::reconcile_feeds_with_conn(&tx, feeds_config, &config.unread_tag)?;
-    let new_entries = ingest_results(&tx, results)?;
+    let new_entries = ingest_results(&tx, config, results)?;
     tx.commit()?;
 
     let elapsed = start.elapsed().as_secs_f64();

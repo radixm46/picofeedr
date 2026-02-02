@@ -27,7 +27,7 @@ pub(crate) fn normalize_entry(
     let (content, content_type) = select_content(entry);
     let identity = EntryIdentity::from_entry(&target.feed_key, entry, content.as_deref());
     let entry_key = identity.entry_key;
-    let content_input = build_entry_content(config, content, content_type)?;
+    let content_plan = build_entry_content(config, content, content_type)?;
 
     let mut tags = Vec::new();
     tags.extend(target.tags.iter().cloned());
@@ -49,7 +49,8 @@ pub(crate) fn normalize_entry(
             first_seen_at,
             meta_json: None,
         },
-        content: content_input,
+        content: content_plan.content,
+        content_payload: content_plan.payload,
         tags,
     })
 }

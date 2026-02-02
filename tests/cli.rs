@@ -4,6 +4,7 @@ use assert_cmd::cargo::cargo_bin_cmd;
 use rusqlite::Connection;
 use serde_json::Value;
 use std::fs;
+use std::path::Path;
 use tempfile::TempDir;
 
 /// Creates a feeder command configured for JSON output.
@@ -269,6 +270,39 @@ fn sync_ingests_entries_and_tags() {
         )
         .expect("hot count");
     assert_eq!(hot_count, 1);
+}
+
+/// Ensures sync writes content to filesystem storage.
+#[test]
+fn sync_writes_content_to_fs_store() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files_fs(&temp);
+
+    feeder_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("sync")
+        .assert()
+        .success();
+
+    let conn = Connection::open(&paths.db_path).expect("open db");
+    let (storage, reference, content): (String, Option<String>, Option<String>) = conn
+        .query_row(
+            "SELECT storage, ref, content FROM entry_contents ORDER BY entry_id LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .expect("entry_contents");
+    assert_eq!(storage, "fs");
+    let reference = reference.expect("ref");
+    assert!(content.is_none());
+
+    let path = Path::new(&paths.data_dir)
+        .join(&reference[0..2])
+        .join(&reference);
+    assert!(path.exists());
 }
 
 /// Ensures sync reports partial failures without exiting.
@@ -680,6 +714,85 @@ auto_tags:
     SyncFixturePaths {
         config_path: config_path.display().to_string(),
         db_path: db_path.display().to_string(),
+    }
+}
+
+/// Fixture file paths for fs-content sync tests.
+struct SyncFixtureFsPaths {
+    config_path: String,
+    db_path: String,
+    data_dir: String,
+}
+
+/// Writes config, feeds, and feed XML for fs-content sync tests.
+fn write_sync_fixture_files_fs(temp: &TempDir) -> SyncFixtureFsPaths {
+    let config_path = temp.path().join("config.toml");
+    let feeds_path = temp.path().join("feeds.yaml");
+    let db_path = temp.path().join("db.sqlite");
+    let feed_path = temp.path().join("feed.xml");
+    let data_dir = temp.path().join("data");
+
+    let feed_xml = r#"<?xml version="1.0"?>
+<rss version="2.0">
+  <channel>
+    <title>Example Feed</title>
+    <link>https://example.com</link>
+    <description>Example Feed</description>
+    <item>
+      <title>First Entry</title>
+      <link>https://example.com/1</link>
+      <guid>entry-1</guid>
+      <pubDate>Mon, 01 Jan 2024 00:00:00 GMT</pubDate>
+      <description>Hello world</description>
+    </item>
+  </channel>
+</rss>
+"#;
+
+    let config = format!(
+        r#"unread_tag = "unread"
+
+[database]
+path = "{}"
+
+[feeds]
+source = "{}"
+
+[sync]
+parallel = 1
+timeout = 5
+user_agent = "feeder-test/0.1.0"
+retry_count = 0
+retry_delay = 0
+
+[storage]
+content_store = "fs"
+data_dir = "{}"
+"#,
+        db_path.display(),
+        feeds_path.display(),
+        data_dir.display()
+    );
+
+    let feed_url = format!("file://{}", feed_path.display());
+    let feeds = format!(
+        r#"feeds:
+  tech:
+    tags: [tech]
+    feeds:
+      - url: {feed_url}
+        title: Example Feed
+"#
+    );
+
+    fs::write(&config_path, config).expect("write config");
+    fs::write(&feeds_path, feeds).expect("write feeds");
+    fs::write(&feed_path, feed_xml).expect("write feed");
+
+    SyncFixtureFsPaths {
+        config_path: config_path.display().to_string(),
+        db_path: db_path.display().to_string(),
+        data_dir: data_dir.display().to_string(),
     }
 }
 
