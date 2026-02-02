@@ -1,6 +1,5 @@
 //! Identity helpers for feeds and entries.
 
-use crate::time::current_epoch;
 use sha1::Sha1;
 use sha2::{Digest, Sha256};
 
@@ -44,7 +43,11 @@ impl EntryIdentity {
         } else {
             Some(entry.id.as_str())
         };
-        let link = entry.links.first().map(|link| link.href.as_str());
+        let link = entry
+            .links
+            .iter()
+            .map(|link| link.href.as_str())
+            .find(|href| !href.trim().is_empty());
         let title = entry.title.as_ref().map(|title| title.content.as_str());
         let author = entry.authors.first().map(|author| author.name.as_str());
         let published_at = entry.published.map(|value| value.timestamp());
@@ -114,9 +117,6 @@ fn build_fallback_id(identity: &EntryIdentityInput<'_>) -> String {
     let author = identity.author.unwrap_or("");
     let published = identity.published_at.unwrap_or(0);
     let updated = identity.updated_at.unwrap_or(0);
-    if title.is_empty() && author.is_empty() && published == 0 && updated == 0 {
-        return format!("urn:sha1:{}", sha1_hex(&current_epoch().to_string()));
-    }
     let seed = format!("title:{title}|published:{published}|updated:{updated}|author:{author}");
     format!("urn:sha1:{}", sha1_hex(&seed))
 }
@@ -180,6 +180,26 @@ mod tests {
         let expected = format!(
             "urn:sha1:{}",
             sha1_hex("title:Title|published:10|updated:0|author:A")
+        );
+        assert_eq!(fallback, expected);
+    }
+
+    #[test]
+    fn build_fallback_id_is_deterministic_with_empty_seed() {
+        let identity = EntryIdentityInput {
+            namespace: "ns",
+            raw_id: None,
+            link: None,
+            content: None,
+            title: None,
+            published_at: None,
+            updated_at: None,
+            author: None,
+        };
+        let fallback = build_fallback_id(&identity);
+        let expected = format!(
+            "urn:sha1:{}",
+            sha1_hex("title:|published:0|updated:0|author:")
         );
         assert_eq!(fallback, expected);
     }

@@ -75,7 +75,7 @@
     2. link
     3. `urn:sha1:<sha1(content)>`
     4. `urn:sha1:<sha1(title|published_at|updated_at|author)>`
-    5. last resort `urn:sha1:<sha1(now)>`
+    5. last resort `urn:sha1:<sha1(seed)>`（※seedは決定的に構成する。値が全て空でも同一seedになるため、衝突しうるのだ）
   * `cleaned_id` trims and collapses whitespace
 * `published_at` / `updated_at`：ソースが主張する時刻（欠損・嘘を許容）
 * `first_seen_at`：ローカルが初めて観測した時刻（NOT NULL）
