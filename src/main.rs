@@ -391,10 +391,8 @@ fn detect_output_from_args(args: &[OsString]) -> OutputFormat {
     let mut iter = args.iter().peekable();
     while let Some(arg) = iter.next() {
         if arg == "--output" {
-            if let Some(value) = iter.peek() {
-                if value.to_string_lossy() == "plain" {
-                    return OutputFormat::Plain;
-                }
+            if let Some(value) = iter.peek() && value.to_string_lossy() == "plain" {
+                return OutputFormat::Plain;
             }
             return OutputFormat::Json;
         }
@@ -460,13 +458,13 @@ fn execute_mark(
     store: &mut db::sqlite::SqliteStore,
     config: &config::AppConfig,
     command: &MarkCommand,
-) -> Result<usize, AppError> {
+    ) -> Result<usize, AppError> {
     match command {
         MarkCommand::Read { ids } => {
-            entry::mark_entries(store, ids, &[], &[config.unread_tag.clone()])
+            entry::mark_entries(store, ids, &[], std::slice::from_ref(&config.unread_tag))
         }
         MarkCommand::Unread { ids } => {
-            entry::mark_entries(store, ids, &[config.unread_tag.clone()], &[])
+            entry::mark_entries(store, ids, std::slice::from_ref(&config.unread_tag), &[])
         }
         MarkCommand::Tag { ids, add, remove } => {
             let add_tags = parse_tag_list(add.as_deref());
