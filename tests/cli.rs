@@ -28,6 +28,18 @@ fn extract_ok_data(output: &[u8]) -> Value {
     value.get("data").cloned().expect("data")
 }
 
+/// Extracts error code from a failed JSON envelope.
+fn extract_error_code(output: &[u8]) -> String {
+    let value: Value = serde_json::from_slice(output).expect("json");
+    assert_eq!(value["ok"], false, "expected ok=false envelope");
+    value
+        .get("error")
+        .and_then(|error| error.get("code"))
+        .and_then(|code| code.as_str())
+        .expect("error code")
+        .to_string()
+}
+
 /// Ensures plain output is not JSON.
 fn assert_plain_output(output: &[u8]) {
     let parsed = serde_json::from_slice::<Value>(output);
@@ -436,6 +448,229 @@ fn list_returns_paginated_results() {
     assert_eq!(data["total_hits"], 2);
     assert_eq!(data["items"].as_array().expect("items array").len(), 1);
     assert!(data["next_cursor"].is_null());
+}
+
+/// Ensures feed filters work by id and title.
+#[test]
+fn list_filters_by_feed() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+
+    feeder_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("sync")
+        .assert()
+        .success();
+
+    let conn = Connection::open(&paths.db_path).expect("open db");
+    let feed_id: i64 = conn
+        .query_row(
+            "SELECT id FROM feeds WHERE title = 'Example Feed'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("feed id");
+
+    let output = feeder_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("list")
+        .arg("--query")
+        .arg(format!("feed:{feed_id}"))
+        .arg("--sort")
+        .arg("first_seen_desc")
+        .arg("--limit")
+        .arg("10")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let data = extract_ok_data(&output);
+    assert_eq!(data["total_hits"], 2);
+
+    let output = feeder_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("list")
+        .arg("--query")
+        .arg("feed:\"Example Feed\"")
+        .arg("--sort")
+        .arg("first_seen_desc")
+        .arg("--limit")
+        .arg("10")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let data = extract_ok_data(&output);
+    assert_eq!(data["total_hits"], 2);
+}
+
+/// Ensures title filters work.
+#[test]
+fn list_filters_by_title() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+
+    feeder_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("sync")
+        .assert()
+        .success();
+
+    let output = feeder_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("list")
+        .arg("--query")
+        .arg("title:\"First\"")
+        .arg("--sort")
+        .arg("first_seen_desc")
+        .arg("--limit")
+        .arg("10")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let data = extract_ok_data(&output);
+    assert_eq!(data["total_hits"], 1);
+    let items = data["items"].as_array().expect("items array");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["title"], "First Entry");
+}
+
+/// Ensures date filters are applied to effective date.
+#[test]
+fn list_filters_by_date_range() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+
+    feeder_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("sync")
+        .assert()
+        .success();
+
+    let output = feeder_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("list")
+        .arg("--query")
+        .arg("after:2024-01-02")
+        .arg("--sort")
+        .arg("date_desc")
+        .arg("--limit")
+        .arg("10")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let data = extract_ok_data(&output);
+    assert_eq!(data["total_hits"], 1);
+
+    let output = feeder_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("list")
+        .arg("--query")
+        .arg("before:2024-01-02")
+        .arg("--sort")
+        .arg("date_desc")
+        .arg("--limit")
+        .arg("10")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let data = extract_ok_data(&output);
+    assert_eq!(data["total_hits"], 1);
+}
+
+/// Ensures cursor mismatches are rejected.
+#[test]
+fn list_rejects_mismatched_cursor() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+
+    feeder_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("sync")
+        .assert()
+        .success();
+
+    let output = feeder_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("list")
+        .arg("--query")
+        .arg("unread")
+        .arg("--sort")
+        .arg("first_seen_desc")
+        .arg("--limit")
+        .arg("1")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let data = extract_ok_data(&output);
+    let cursor = data["next_cursor"].as_str().expect("cursor");
+
+    let output = feeder_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("list")
+        .arg("--query")
+        .arg("tag:tech")
+        .arg("--sort")
+        .arg("first_seen_desc")
+        .arg("--limit")
+        .arg("1")
+        .arg("--cursor")
+        .arg(cursor)
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    let code = extract_error_code(&output);
+    assert_eq!(code, "INVALID_QUERY");
 }
 
 /// Ensures view returns entry details with tags.
