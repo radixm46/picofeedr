@@ -26,7 +26,7 @@ feeder list --query "unread tag:security -tag:misc"
 
 **追加構文：**
 
-- `text:"keyword"` - 全文検索（FTS5、要検討：日本語トークナイズ等）
+- `title:"keyword"` - タイトル部分検索（暫定仕様、後で全文検索方針と合わせて再検討）
 - `feed:123` または `feed:"Feed Title"` - 特定フィード
 - `before:2026-01-01` / `after:2025-12-01` - 日付範囲（`date = COALESCE(published_at, updated_at, first_seen_at)` に対して適用）
 
@@ -34,7 +34,7 @@ feeder list --query "unread tag:security -tag:misc"
 
 ```
 
-feeder list --query 'unread text:"rust" after:2026-01-01'
+feeder list --query 'unread title:"rust" feed:"Rust Blog" after:2026-01-01'
 
 ```
 

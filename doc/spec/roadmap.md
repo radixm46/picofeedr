@@ -46,8 +46,7 @@
 
 ### Phase 5：クエリ拡張（Week 4前半〜後半）
 
-28. FTS5テーブル作成・更新
-29. クエリ言語拡張（text:, feed:, before:/after:）
+28. クエリ言語拡張（feed:, before:/after:）
 30. CLI: 拡張クエリ対応
 31. テスト
 
