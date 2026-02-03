@@ -97,6 +97,13 @@ CREATE INDEX IF NOT EXISTS idx_entry_tags_tag ON entry_tags(tag_id);
 CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name);
 "#;
 
+const CURRENT_SCHEMA_VERSION: i64 = 1;
+
+/// Returns the current schema version.
+pub fn current_schema_version() -> i64 {
+    CURRENT_SCHEMA_VERSION
+}
+
 /// Applies schema migrations and initializes es_meta.
 pub fn migrate(conn: &Connection) -> Result<(), AppError> {
     conn.execute_batch(SCHEMA_SQL)?;

@@ -29,6 +29,18 @@ pub enum SortOrder {
     FirstSeenAsc,
 }
 
+impl SortOrder {
+    /// Returns the canonical string representation.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SortOrder::DateDesc => "date_desc",
+            SortOrder::DateAsc => "date_asc",
+            SortOrder::FirstSeenDesc => "first_seen_desc",
+            SortOrder::FirstSeenAsc => "first_seen_asc",
+        }
+    }
+}
+
 /// Feeder CLI arguments.
 #[derive(Debug, Parser)]
 #[command(name = "feeder", version, about = "Local-first feed reader backend")]

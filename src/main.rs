@@ -18,7 +18,7 @@ use crate::cli::{Cli, Command, MarkCommand, OutputFormat, SortOrder};
 use crate::entry::{EntryDetail, EntryListResponse};
 use crate::error::AppError;
 use crate::feed::{FeedConfigDiffResponse, FeedListResponse};
-use crate::query::TagQuery;
+use crate::query::EntryQuery;
 use crate::response::Envelope;
 use crate::sync::SyncSummary;
 use crate::tag::TagManager;
@@ -102,8 +102,8 @@ fn execute_command(cli: &Cli) -> Result<CommandOutput, AppError> {
     match &cli.command {
         Command::Ping => Ok(CommandOutput::Ping),
         Command::Version => Ok(CommandOutput::Version {
-            api_version: "0.5.0",
-            schema_version: 1,
+            api_version: env!("CARGO_PKG_VERSION"),
+            schema_version: db::migrate::current_schema_version(),
             build: "dev",
         }),
         Command::Tags
@@ -151,7 +151,7 @@ fn execute_command(cli: &Cli) -> Result<CommandOutput, AppError> {
                     limit,
                     cursor,
                 } => {
-                    let query = TagQuery::parse(query.as_deref(), &config.unread_tag)?;
+                    let query = EntryQuery::parse(query.as_deref(), &config.unread_tag)?;
                     let sort = sort.unwrap_or(SortOrder::FirstSeenDesc);
                     let limit = limit.unwrap_or(100);
                     let list = entry::list_entries(&store, &query, sort, limit, cursor.as_deref())?;

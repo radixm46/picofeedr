@@ -26,7 +26,7 @@ pub(crate) fn ingest_results(
             let input = entry.entry.with_feed_id(feed_id);
             let insert = insert_entry_with_conn(conn, &input)?;
             if insert.inserted {
-                if let Some(content) = entry.content {
+                if let Some(content) = entry.content.as_ref() {
                     if content.storage == EntryContentStorage::Fs {
                         let payload = entry.content_payload.as_deref().ok_or_else(|| {
                             AppError::internal("Missing content payload for fs storage")

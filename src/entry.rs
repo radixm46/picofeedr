@@ -6,11 +6,12 @@ use crate::content_ref;
 use crate::db::sqlite::{SqliteStore, ensure_tag_with_conn};
 use crate::db::{EntryContentStorage, EntryContentStorage as Storage};
 use crate::error::AppError;
-use crate::query::TagQuery;
+use crate::query::{EntryQuery, FeedFilter};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 use serde::{Deserialize, Serialize};
+use sha1::{Digest, Sha1};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
@@ -90,21 +91,31 @@ pub struct EntryListResponse {
 struct Cursor {
     k: i64,
     id: i64,
+    sort: String,
+    query_hash: String,
 }
 
 /// Lists entries using tag filters and cursor pagination.
 pub fn list_entries(
     store: &SqliteStore,
-    query: &TagQuery,
+    query: &EntryQuery,
     sort: SortOrder,
     limit: usize,
     cursor: Option<&str>,
 ) -> Result<EntryListResponse, AppError> {
     let conn = store.connection();
-    let (count_where_sql, count_params) = build_where_clause(query, sort, None)?;
+    let query_hash = compute_query_hash(query);
+    let (count_where_sql, count_params) = build_where_clause(query, sort, None, &query_hash)?;
     let total_hits = count_entries(conn, &count_where_sql, &count_params)?;
-    let (page_where_sql, page_params) = build_where_clause(query, sort, cursor)?;
-    let (items, next_cursor) = fetch_entries(conn, &page_where_sql, &page_params, sort, limit)?;
+    let (page_where_sql, page_params) = build_where_clause(query, sort, cursor, &query_hash)?;
+    let (items, next_cursor) = fetch_entries(
+        conn,
+        &page_where_sql,
+        &page_params,
+        sort,
+        limit,
+        &query_hash,
+    )?;
     Ok(EntryListResponse {
         total_hits,
         items,
@@ -216,13 +227,14 @@ pub fn mark_entries(
 }
 
 fn build_where_clause(
-    query: &TagQuery,
+    query: &EntryQuery,
     sort: SortOrder,
     cursor: Option<&str>,
+    query_hash: &str,
 ) -> Result<(String, Vec<Value>), AppError> {
     let mut clauses = Vec::new();
     let mut params = Vec::new();
-    for tag in &query.include {
+    for tag in &query.include_tags {
         clauses.push(
             "EXISTS (SELECT 1 FROM entry_tags et JOIN tags t ON et.tag_id = t.id \
              WHERE et.entry_id = e.id AND t.name = ?)"
@@ -230,7 +242,7 @@ fn build_where_clause(
         );
         params.push(Value::from(tag.clone()));
     }
-    for tag in &query.exclude {
+    for tag in &query.exclude_tags {
         clauses.push(
             "NOT EXISTS (SELECT 1 FROM entry_tags et JOIN tags t ON et.tag_id = t.id \
              WHERE et.entry_id = e.id AND t.name = ?)"
@@ -238,8 +250,35 @@ fn build_where_clause(
         );
         params.push(Value::from(tag.clone()));
     }
+    if let Some(feed) = &query.feed {
+        match feed {
+            FeedFilter::Id(id) => {
+                clauses.push("e.feed_id = ?".to_string());
+                params.push(Value::from(*id));
+            }
+            FeedFilter::Title(title) => {
+                clauses.push(
+                    "EXISTS (SELECT 1 FROM feeds f WHERE f.id = e.feed_id AND f.title = ?)"
+                        .to_string(),
+                );
+                params.push(Value::from(title.clone()));
+            }
+        }
+    }
+    if let Some(title) = &query.title {
+        clauses.push("e.title LIKE ?".to_string());
+        params.push(Value::from(format!("%{title}%")));
+    }
+    if let Some(after) = query.after {
+        clauses.push(format!("({}) >= ?", effective_date_expr()));
+        params.push(Value::from(after));
+    }
+    if let Some(before) = query.before {
+        clauses.push(format!("({}) < ?", effective_date_expr()));
+        params.push(Value::from(before));
+    }
     if let Some(cursor) = cursor {
-        let cursor = decode_cursor(cursor)?;
+        let cursor = decode_cursor(cursor, sort, query_hash)?;
         let key_expr = sort_key_expr(sort);
         let predicate = match sort {
             SortOrder::DateDesc | SortOrder::FirstSeenDesc => {
@@ -273,6 +312,7 @@ fn fetch_entries(
     params: &[Value],
     sort: SortOrder,
     limit: usize,
+    query_hash: &str,
 ) -> Result<(Vec<EntrySummary>, Option<String>), AppError> {
     let key_expr = sort_key_expr(sort);
     let order_clause = sort_order_clause(sort);
@@ -318,7 +358,9 @@ fn fetch_entries(
     }
     let next_cursor = if has_next {
         match (entries.last(), sort_keys.last()) {
-            (Some(entry), Some(key)) => Some(encode_cursor(*key, entry.id)?),
+            (Some(entry), Some(key)) => {
+                Some(encode_cursor_with_query(*key, entry.id, sort, query_hash)?)
+            }
             _ => None,
         }
     } else {
@@ -329,11 +371,14 @@ fn fetch_entries(
 
 fn sort_key_expr(sort: SortOrder) -> &'static str {
     match sort {
-        SortOrder::DateDesc | SortOrder::DateAsc => {
-            "COALESCE(e.published_at, e.updated_at, e.first_seen_at)"
-        }
+        SortOrder::DateDesc | SortOrder::DateAsc => effective_date_expr(),
         SortOrder::FirstSeenDesc | SortOrder::FirstSeenAsc => "e.first_seen_at",
     }
+}
+
+/// Returns the SQL expression for effective date filtering.
+fn effective_date_expr() -> &'static str {
+    "COALESCE(e.published_at, e.updated_at, e.first_seen_at)"
 }
 
 fn sort_order_clause(sort: SortOrder) -> &'static str {
@@ -461,16 +506,64 @@ fn lookup_tag_ids(conn: &Connection, tags: &[String]) -> Result<HashMap<String, 
     Ok(map)
 }
 
-fn encode_cursor(key: i64, id: i64) -> Result<String, AppError> {
-    let cursor = Cursor { k: key, id };
+/// Encodes pagination cursor with query metadata.
+fn encode_cursor_with_query(
+    key: i64,
+    id: i64,
+    sort: SortOrder,
+    query_hash: &str,
+) -> Result<String, AppError> {
+    let cursor = Cursor {
+        k: key,
+        id,
+        sort: sort.as_str().to_string(),
+        query_hash: query_hash.to_string(),
+    };
     let bytes = serde_json::to_vec(&cursor)?;
     Ok(URL_SAFE_NO_PAD.encode(bytes))
 }
 
-fn decode_cursor(raw: &str) -> Result<Cursor, AppError> {
+/// Decodes and validates pagination cursor.
+fn decode_cursor(raw: &str, sort: SortOrder, query_hash: &str) -> Result<Cursor, AppError> {
     let bytes = URL_SAFE_NO_PAD
         .decode(raw.as_bytes())
         .map_err(|error| AppError::invalid_query(format!("Invalid cursor: {error}")))?;
-    serde_json::from_slice(&bytes)
-        .map_err(|error| AppError::invalid_query(format!("Invalid cursor: {error}")))
+    let cursor: Cursor = serde_json::from_slice(&bytes)
+        .map_err(|error| AppError::invalid_query(format!("Invalid cursor: {error}")))?;
+    if cursor.sort != sort.as_str() || cursor.query_hash != query_hash {
+        return Err(AppError::invalid_query(
+            "Cursor does not match the current query",
+        ));
+    }
+    Ok(cursor)
+}
+
+/// Computes a stable hash for query validation.
+fn compute_query_hash(query: &EntryQuery) -> String {
+    let mut include = query.include_tags.clone();
+    let mut exclude = query.exclude_tags.clone();
+    include.sort();
+    exclude.sort();
+    let mut components = Vec::new();
+    components.push(format!("include={}", include.join(",")));
+    components.push(format!("exclude={}", exclude.join(",")));
+    if let Some(feed) = &query.feed {
+        match feed {
+            FeedFilter::Id(id) => components.push(format!("feed_id={id}")),
+            FeedFilter::Title(title) => components.push(format!("feed_title={title}")),
+        }
+    }
+    if let Some(title) = &query.title {
+        components.push(format!("title={title}"));
+    }
+    if let Some(after) = query.after {
+        components.push(format!("after={after}"));
+    }
+    if let Some(before) = query.before {
+        components.push(format!("before={before}"));
+    }
+    let payload = components.join("|");
+    let mut hasher = Sha1::new();
+    hasher.update(payload.as_bytes());
+    hex::encode(hasher.finalize())
 }
