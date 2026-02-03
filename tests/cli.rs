@@ -1041,10 +1041,7 @@ fn write_sync_fixture_files(temp: &TempDir) -> SyncFixturePaths {
 }
 
 /// Writes config, feeds, and feed XML for sync tests with custom unread tag.
-fn write_sync_fixture_files_with_unread_tag(
-    temp: &TempDir,
-    unread_tag: &str,
-) -> SyncFixturePaths {
+fn write_sync_fixture_files_with_unread_tag(temp: &TempDir, unread_tag: &str) -> SyncFixturePaths {
     let config_path = temp.path().join("config.toml");
     let feeds_path = temp.path().join("feeds.yaml");
     let db_path = temp.path().join("db.sqlite");

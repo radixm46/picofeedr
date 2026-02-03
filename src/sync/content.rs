@@ -12,7 +12,9 @@ use std::path::Path;
 
 /// Selects the best content payload from a feed entry.
 pub(crate) fn select_content(entry: &feed_rs::model::Entry) -> (Option<String>, Option<String>) {
-    if let Some(content) = &entry.content && let Some(body) = &content.body {
+    if let Some(content) = &entry.content
+        && let Some(body) = &content.body
+    {
         return (Some(body.clone()), Some(content.content_type.to_string()));
     }
     if let Some(summary) = &entry.summary {
