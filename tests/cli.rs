@@ -40,6 +40,13 @@ fn extract_error_code(output: &[u8]) -> String {
         .to_string()
 }
 
+/// Extracts error payload from a failed JSON envelope.
+fn extract_error_payload(output: &[u8]) -> Value {
+    let value: Value = serde_json::from_slice(output).expect("json");
+    assert_eq!(value["ok"], false, "expected ok=false envelope");
+    value.get("error").cloned().expect("error")
+}
+
 /// Ensures plain output is not JSON.
 fn assert_plain_output(output: &[u8]) {
     let parsed = serde_json::from_slice::<Value>(output);
@@ -143,6 +150,51 @@ fn tags_command_returns_tag_dictionary() {
         .map(|tag| tag.as_str().unwrap().to_string())
         .collect();
     assert_eq!(tag_values, vec!["rust", "tech", "unread"]);
+}
+
+/// Ensures unread token maps to configured unread tag.
+#[test]
+fn unread_token_respects_config_unread_tag() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files_with_unread_tag(&temp, "fresh");
+
+    feeder_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("sync")
+        .assert()
+        .success();
+
+    let output = feeder_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("list")
+        .arg("--query")
+        .arg("unread")
+        .arg("--sort")
+        .arg("first_seen_desc")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let data = extract_ok_data(&output);
+    let items = data["items"].as_array().expect("items array");
+    assert_eq!(items.len(), 2);
+    for item in items {
+        let tags = item["tags"].as_array().expect("tags array");
+        let tag_values: Vec<String> = tags
+            .iter()
+            .map(|tag| tag.as_str().unwrap().to_string())
+            .collect();
+        assert!(tag_values.contains(&"fresh".to_string()));
+        assert!(!tag_values.contains(&"unread".to_string()));
+    }
 }
 
 /// Ensures list command renders human-readable plain output.
@@ -365,6 +417,8 @@ fn sync_reports_failed_when_all_feeds_fail() {
     assert_eq!(data["status"], "failed");
     assert_eq!(data["fetched"], 1);
     assert_eq!(data["failed"], 1);
+    let errors = data["errors"].as_array().expect("errors array");
+    assert_eq!(errors.len(), 1);
 }
 
 /// Ensures list returns paginated results with tag filters.
@@ -673,6 +727,115 @@ fn list_rejects_mismatched_cursor() {
     assert_eq!(code, "INVALID_QUERY");
 }
 
+/// Ensures invalid cursors are rejected with fatal error.
+#[test]
+fn list_rejects_invalid_cursor_format() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+
+    feeder_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("sync")
+        .assert()
+        .success();
+
+    let output = feeder_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("list")
+        .arg("--query")
+        .arg("unread")
+        .arg("--sort")
+        .arg("first_seen_desc")
+        .arg("--limit")
+        .arg("1")
+        .arg("--cursor")
+        .arg("not-a-cursor")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    let error = extract_error_payload(&output);
+    assert_eq!(error["code"], "INVALID_QUERY");
+    assert_eq!(error["retry"], false);
+}
+
+/// Ensures fatal config errors return JSON envelope and non-zero exit code.
+#[test]
+fn fatal_config_error_is_enveloped() {
+    let temp = TempDir::new().expect("tempdir");
+    let config_path = temp.path().join("config.toml");
+    let db_path = temp.path().join("db.sqlite");
+
+    let config = format!(
+        r#"unread_tag = "unread"
+
+[database]
+path = "{}"
+
+[feeds]
+source = "{}"
+
+[cli]
+output = "bogus"
+"#,
+        db_path.display(),
+        temp.path().join("feeds.yaml").display()
+    );
+
+    fs::write(&config_path, config).expect("write config");
+    fs::write(temp.path().join("feeds.yaml"), "feeds: {}").expect("write feeds");
+
+    let output = feeder_cmd_json()
+        .arg("--config")
+        .arg(&config_path)
+        .arg("--db")
+        .arg(&db_path)
+        .arg("tags")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    let error = extract_error_payload(&output);
+    assert_eq!(error["code"], "CONFIG_ERROR");
+    assert_eq!(error["retry"], false);
+}
+
+/// Ensures locked database errors are fatal and retryable.
+#[test]
+fn db_locked_returns_retry_true() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_fixture_files(&temp);
+
+    let conn = Connection::open(&paths.db_path).expect("open db");
+    conn.execute("BEGIN EXCLUSIVE", []).expect("lock db");
+
+    let output = feeder_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("tags")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    let error = extract_error_payload(&output);
+    assert_eq!(error["code"], "DB_LOCKED");
+    assert_eq!(error["retry"], true);
+}
+
 /// Ensures view returns entry details with tags.
 #[test]
 fn view_returns_entry_detail() {
@@ -874,6 +1037,14 @@ struct SyncFixturePaths {
 
 /// Writes config, feeds, and feed XML for sync tests.
 fn write_sync_fixture_files(temp: &TempDir) -> SyncFixturePaths {
+    write_sync_fixture_files_with_unread_tag(temp, "unread")
+}
+
+/// Writes config, feeds, and feed XML for sync tests with custom unread tag.
+fn write_sync_fixture_files_with_unread_tag(
+    temp: &TempDir,
+    unread_tag: &str,
+) -> SyncFixturePaths {
     let config_path = temp.path().join("config.toml");
     let feeds_path = temp.path().join("feeds.yaml");
     let db_path = temp.path().join("db.sqlite");
@@ -904,7 +1075,7 @@ fn write_sync_fixture_files(temp: &TempDir) -> SyncFixturePaths {
 "#;
 
     let config = format!(
-        r#"unread_tag = "unread"
+        r#"unread_tag = "{unread_tag}"
 
 [database]
 path = "{}"
