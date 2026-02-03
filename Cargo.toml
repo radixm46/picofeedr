@@ -1,6 +1,6 @@
 [package]
 name = "feeder"
-version = "0.1.0"
+version = "0.5.0-alpha.1"
 edition = "2024"
 
 [dependencies]
@@ -23,6 +23,7 @@ toml = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt"] }
 ureq = { version = "2", features = ["tls"] }
+time = "0.3"
 
 [dev-dependencies]
 assert_cmd = "2"
