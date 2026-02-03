@@ -37,7 +37,7 @@ pub(crate) fn ingest_results(
                         let created =
                             write_content_fs(&config.storage.data_dir, reference, payload)?;
                         if let Err(error) =
-                            insert_entry_content_with_conn(conn, insert.entry_id, &content)
+                            insert_entry_content_with_conn(conn, insert.entry_id, content)
                         {
                             if created {
                                 let _ = remove_content_fs(&config.storage.data_dir, reference);
@@ -45,7 +45,7 @@ pub(crate) fn ingest_results(
                             return Err(error);
                         }
                     } else {
-                        insert_entry_content_with_conn(conn, insert.entry_id, &content)?;
+                        insert_entry_content_with_conn(conn, insert.entry_id, content)?;
                     }
                 }
                 insert_entry_tags_with_conn(conn, insert.entry_id, &entry.tags)?;
