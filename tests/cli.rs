@@ -299,9 +299,8 @@ fn sync_writes_content_to_fs_store() {
     let reference = reference.expect("ref");
     assert!(content.is_none());
 
-    let path = Path::new(&paths.data_dir)
-        .join(&reference[0..2])
-        .join(&reference);
+    let prefix = reference.get(0..2).expect("prefix");
+    let path = Path::new(&paths.data_dir).join(prefix).join(&reference);
     assert!(path.exists());
 }
 

@@ -2,6 +2,7 @@
 
 mod cli;
 mod config;
+mod content_ref;
 mod db;
 mod entry;
 mod error;

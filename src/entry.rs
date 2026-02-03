@@ -2,6 +2,7 @@
 
 use crate::cli::SortOrder;
 use crate::config::AppConfig;
+use crate::content_ref;
 use crate::db::sqlite::{SqliteStore, ensure_tag_with_conn};
 use crate::db::{EntryContentStorage, EntryContentStorage as Storage};
 use crate::error::AppError;
@@ -400,17 +401,15 @@ fn load_content(
             let Some(reference) = reference else {
                 return Ok((None, content_type));
             };
-            let path = content_path(data_dir, &reference);
+            let path = match content_ref::sha256_path(data_dir, &reference) {
+                Ok(path) => path,
+                Err(_) => return Ok((None, content_type)),
+            };
             let content = fs::read_to_string(path).ok();
             Ok((content, content_type))
         }
         Storage::None => Ok((None, content_type)),
     }
-}
-
-fn content_path(data_dir: &Path, reference: &str) -> std::path::PathBuf {
-    let prefix = reference.get(0..2).unwrap_or(reference);
-    data_dir.join(prefix).join(reference)
 }
 
 fn load_enclosures(conn: &Connection, entry_id: i64) -> Result<Vec<EntryEnclosure>, AppError> {

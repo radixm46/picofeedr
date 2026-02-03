@@ -1,13 +1,14 @@
 //! Content selection and storage helpers.
 
 use crate::config::{AppConfig, ContentStore};
+use crate::content_ref;
 use crate::db::{EntryContentInput, EntryContentStorage};
 use crate::error::AppError;
 use crate::sync::model::EntryContentPlan;
 use sha2::{Digest, Sha256};
 use std::fs::{self, OpenOptions};
 use std::io::{ErrorKind, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Selects the best content payload from a feed entry.
 pub(crate) fn select_content(entry: &feed_rs::model::Entry) -> (Option<String>, Option<String>) {
@@ -84,22 +85,18 @@ fn content_hash(content: &str) -> String {
     hex::encode(digest)
 }
 
-/// Builds the filesystem path for a content reference.
-pub(crate) fn content_path(root: &Path, reference: &str) -> PathBuf {
-    let (prefix, _) = reference.split_at(2);
-    root.join(prefix).join(reference)
-}
-
 /// Stores content on filesystem if missing and returns whether it was created.
 pub(crate) fn write_content_fs(
     root: &Path,
     reference: &str,
     content: &str,
 ) -> Result<bool, AppError> {
-    let dir = root.join(&reference[0..2]);
-    fs::create_dir_all(&dir)
+    let path = content_ref::sha256_path(root, reference)?;
+    let dir = path
+        .parent()
+        .ok_or_else(|| AppError::internal("Invalid content path".to_string()))?;
+    fs::create_dir_all(dir)
         .map_err(|error| AppError::io(format!("Failed to create content dir: {error}")))?;
-    let path = content_path(root, reference);
     let mut file = match OpenOptions::new().write(true).create_new(true).open(&path) {
         Ok(file) => file,
         Err(error) if error.kind() == ErrorKind::AlreadyExists => return Ok(false),
@@ -114,7 +111,7 @@ pub(crate) fn write_content_fs(
 
 /// Removes filesystem content if present.
 pub(crate) fn remove_content_fs(root: &Path, reference: &str) -> Result<(), AppError> {
-    let path = content_path(root, reference);
+    let path = content_ref::sha256_path(root, reference)?;
     match fs::remove_file(&path) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
