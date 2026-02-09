@@ -61,6 +61,7 @@
 * **購読ではなく帰属**のためのカタログ
 * `feed_key` はアプリ定義の安定ID（正規化URLやハッシュ等）
 * `url/title/site_url/meta_json` などは表示・説明のための最小情報
+* `meta_json` には `feeds.yaml` の設定値（tags / auto_tags ルール）を保存しないのだ
 
 ### 4.3 `entries`
 

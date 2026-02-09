@@ -46,7 +46,7 @@ feeder feeds
 # → {"ok": true, "data": {"feeds": [{id, feed_key, url, title, site_url, author, tags}]}, "error": null}
 
 feeder feeds --config-check
-# → {"ok": true, "data": {"new_in_config": [...], "removed_from_config": [...], "tag_changes": [...]}, "error": null}
+# → {"ok": true, "data": {"valid": true, "errors": [], "warnings": [], "checked_feeds": 12}, "error": null}
 
 ```
 
@@ -55,6 +55,25 @@ feeder feeds --config-check
 * フィードの追加/削除は `feeds.yaml` を直接編集
 * `sync` 実行時に自動的にDBと同期される
 * `feeds` の `tags` は `feeds.yaml` 由来の情報であり、DBの正本ではない（DBは購読の真実を保持しない）
+* `feeds --config-check` は **静的検証専用** で、DB差分表示は行わないのだ
+
+**ConfigCheckResult：**
+
+```
+{ "valid": <bool>, "errors": [ValidationIssue...], "warnings": [ValidationIssue...], "checked_feeds": <int> }
+```
+
+**ValidationIssue：**
+
+```
+{ "code": "DUPLICATE_FEED_URL|EMPTY_FEED_URL|INVALID_AUTO_TAG_RULE|...", "message": "<string>", "path": "<feeds.yaml logical path>|null" }
+```
+
+**終了コード：**
+
+* `valid=true` は exit code 0
+* `valid=false` は exit code 1
+* warning のみ（`errors=[]`）は exit code 0
 
 ### A6.3 同期（取得）
 
@@ -90,6 +109,7 @@ feeder sync
 
 1. `feeds.yaml` を読み込み、階層をフラット化（タグ継承・auto_tags をコンパイル）
 2. `feeds` カタログを upsert（`feed_key` を算出し、`url`/`title`/`site_url`/`author`/`meta_json` を更新）
+   - `meta_json` は拡張メタ用途であり、`feeds.yaml` の tags / ルールは保存しないのだ
    - YAMLから削除されたURL → **何もしない**（履歴保持。同期対象から外れるだけ）
 3. **YAMLに列挙されたURLのみ** を並列fetch（`sync.parallel` 設定）
 4. 新規エントリに自動タグ付与

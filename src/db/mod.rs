@@ -18,8 +18,6 @@ pub struct FeedRow {
     pub author: Option<String>,
     /// Optional site URL.
     pub site_url: Option<String>,
-    /// Optional JSON metadata.
-    pub meta_json: Option<String>,
 }
 
 /// Feed input for upserts.

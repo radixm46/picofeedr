@@ -1,5 +1,14 @@
 # 変更履歴
 
+## v0.6（2026-02-09）
+
+- **Breaking: `feeds --config-check` を差分表示から静的妥当性検証へ変更**
+  - 出力を `{valid, errors, warnings, checked_feeds}` に変更
+  - `new_in_config` / `removed_from_config` / `tag_changes` を廃止
+  - `valid=false` のときのみ exit code 1 に変更
+- **`feeds.meta_json` への tags 保存を廃止**
+  - `feeds.yaml` が唯一の真実である方針を明文化
+
 ## v0.5（2026-01-17）
 
  - **DB設計の正本を `doc/db.dbml` / `doc/spec/db.md` に寄せる**

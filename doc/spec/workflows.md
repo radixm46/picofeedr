@@ -68,7 +68,7 @@ vim ~/.config/feeder/feeds.yaml
 
 # tags: [new]
 
-# 2. 差分確認
+# 2. 設定の静的妥当性確認
 
 feeder feeds --output json --config-check
 

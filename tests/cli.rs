@@ -53,9 +53,9 @@ fn assert_plain_output(output: &[u8]) {
     assert!(parsed.is_err(), "expected plain (non-JSON) output");
 }
 
-/// Ensures feeds --config-check reports config-only feeds.
+/// Ensures feeds --config-check returns validation report fields.
 #[test]
-fn feeds_config_check_reports_new_feeds() {
+fn config_check_returns_validation_report() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_fixture_files(&temp);
 
@@ -73,73 +73,27 @@ fn feeds_config_check_reports_new_feeds() {
         .clone();
 
     let data = extract_ok_data(&output);
-    let new_in_config = data
-        .get("new_in_config")
-        .and_then(|value| value.as_array())
-        .expect("new_in_config array");
-    assert_eq!(new_in_config.len(), 1);
-    assert_eq!(new_in_config[0]["url"], "https://example.com/feed");
+    assert_eq!(data["valid"], true);
+    assert!(data["errors"].as_array().expect("errors").is_empty());
+    assert!(data["warnings"].as_array().expect("warnings").is_empty());
+    assert_eq!(data["checked_feeds"], 1);
+    assert!(data.get("new_in_config").is_none());
+    assert!(data.get("removed_from_config").is_none());
+    assert!(data.get("tag_changes").is_none());
 }
 
-/// Ensures feeds --config-check reports DB-only feeds as removed_from_config.
+/// Ensures duplicated feed URLs fail config check.
 #[test]
-fn feeds_config_check_reports_removed_from_config() {
+fn config_check_fails_on_duplicate_url() {
     let temp = TempDir::new().expect("tempdir");
-    let paths = write_fixture_files_with_simple_feed_tags(&temp, &["old"]);
-
-    feeder_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
-        .arg("feeds")
-        .assert()
-        .success();
-
-    fs::write(&paths.feeds_path, "feeds: {}").expect("rewrite feeds");
-
-    let output = feeder_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
-        .arg("feeds")
-        .arg("--config-check")
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-
-    let data = extract_ok_data(&output);
-    let removed = data["removed_from_config"]
-        .as_array()
-        .expect("removed_from_config array");
-    assert_eq!(removed.len(), 1);
-    assert_eq!(removed[0]["url"], "https://example.com/feed");
-}
-
-/// Ensures feeds --config-check reports tag changes using DB metadata as old_tags.
-#[test]
-fn feeds_config_check_reports_tag_changes() {
-    let temp = TempDir::new().expect("tempdir");
-    let paths = write_fixture_files_with_simple_feed_tags(&temp, &["old"]);
-
-    feeder_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
-        .arg("feeds")
-        .assert()
-        .success();
-
+    let paths = write_fixture_files(&temp);
     let feeds = r#"feeds:
   group:
-    tags: [new]
     feeds:
       - url: https://example.com/feed
-        title: Example Feed
+        title: First
+      - url: https://example.com/feed
+        title: Second
 "#;
     fs::write(&paths.feeds_path, feeds).expect("rewrite feeds");
 
@@ -151,20 +105,79 @@ fn feeds_config_check_reports_tag_changes() {
         .arg("feeds")
         .arg("--config-check")
         .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    let data = extract_ok_data(&output);
+    assert_eq!(data["valid"], false);
+    let errors = data["errors"].as_array().expect("errors array");
+    assert!(
+        errors
+            .iter()
+            .any(|issue| issue["code"] == "DUPLICATE_FEED_URL"),
+        "expected DUPLICATE_FEED_URL error"
+    );
+}
+
+/// Ensures empty feed URL fails config check.
+#[test]
+fn config_check_fails_on_empty_url() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_fixture_files(&temp);
+    let feeds = r#"feeds:
+  group:
+    feeds:
+      - url: ""
+        title: Empty URL
+"#;
+    fs::write(&paths.feeds_path, feeds).expect("rewrite feeds");
+
+    let output = feeder_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("feeds")
+        .arg("--config-check")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    let data = extract_ok_data(&output);
+    assert_eq!(data["valid"], false);
+    let errors = data["errors"].as_array().expect("errors array");
+    assert!(
+        errors.iter().any(|issue| issue["code"] == "EMPTY_FEED_URL"),
+        "expected EMPTY_FEED_URL error"
+    );
+}
+
+/// Ensures config check does not require opening the database.
+#[test]
+fn config_check_does_not_require_db() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_fixture_files(&temp);
+
+    let output = feeder_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(temp.path().join("missing-dir").join("db.sqlite"))
+        .arg("feeds")
+        .arg("--config-check")
+        .assert()
         .success()
         .get_output()
         .stdout
         .clone();
 
     let data = extract_ok_data(&output);
-    let changes = data["tag_changes"].as_array().expect("tag_changes array");
-    assert_eq!(changes.len(), 1);
-    let old_tags = changes[0]["old_tags"].as_array().expect("old_tags array");
-    let new_tags = changes[0]["new_tags"].as_array().expect("new_tags array");
-    assert_eq!(old_tags.len(), 1);
-    assert_eq!(new_tags.len(), 1);
-    assert_eq!(old_tags[0], "old");
-    assert_eq!(new_tags[0], "new");
+    assert_eq!(data["valid"], true);
+    assert_eq!(data["checked_feeds"], 1);
 }
 
 /// Ensures feeds command reconciles and returns tags.
@@ -1250,46 +1263,6 @@ source = "{}"
         - url: https://example.com/feed
           title: Example Feed
 "#;
-
-    fs::write(&config_path, config).expect("write config");
-    fs::write(&feeds_path, feeds).expect("write feeds");
-
-    FixturePaths {
-        config_path: config_path.display().to_string(),
-        db_path: db_path.display().to_string(),
-        feeds_path: feeds_path.display().to_string(),
-    }
-}
-
-/// Writes a minimal feeds.yaml fixture with a single feed and group-level tags.
-fn write_fixture_files_with_simple_feed_tags(temp: &TempDir, tags: &[&str]) -> FixturePaths {
-    let config_path = temp.path().join("config.toml");
-    let feeds_path = temp.path().join("feeds.yaml");
-    let db_path = temp.path().join("db.sqlite");
-
-    let config = format!(
-        r#"unread_tag = "unread"
-
-[database]
-path = "{}"
-
-[feeds]
-source = "{}"
-"#,
-        db_path.display(),
-        feeds_path.display()
-    );
-
-    let tags = tags.join(", ");
-    let feeds = format!(
-        r#"feeds:
-  group:
-    tags: [{tags}]
-    feeds:
-      - url: https://example.com/feed
-        title: Example Feed
-"#
-    );
 
     fs::write(&config_path, config).expect("write config");
     fs::write(&feeds_path, feeds).expect("write feeds");

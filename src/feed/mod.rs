@@ -4,6 +4,7 @@ mod api;
 mod identity;
 mod reconcile;
 
-pub use api::{FeedConfigDiffResponse, FeedListResponse, diff_config_vs_db, render_feed_list};
+pub use api::FeedListResponse;
+pub use api::render_feed_list;
 pub use identity::feed_key_from_url;
 pub use reconcile::{reconcile_feeds, reconcile_feeds_with_conn};

@@ -53,7 +53,7 @@ feeder view <id>                 # エントリ詳細
 feeder mark <operation> <ids>    # 状態更新
 feeder tags                      # タグ一覧
 feeder feeds                     # フィード一覧
-feeder feeds --config-check      # 設定ファイルとDB差分表示
+feeder feeds --config-check      # 設定ファイルの静的妥当性検証（DB非依存）
 
 ```
 

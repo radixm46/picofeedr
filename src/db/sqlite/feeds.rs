@@ -6,9 +6,8 @@ use rusqlite::{Connection, params};
 
 /// Returns all feeds stored in the database.
 pub(crate) fn list_feeds_with_conn(conn: &Connection) -> Result<Vec<FeedRow>, AppError> {
-    let mut stmt = conn.prepare(
-        "SELECT id, feed_key, url, title, author, site_url, meta_json FROM feeds ORDER BY id",
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT id, feed_key, url, title, author, site_url FROM feeds ORDER BY id")?;
     let feeds = stmt
         .query_map([], |row| {
             Ok(FeedRow {
@@ -18,7 +17,6 @@ pub(crate) fn list_feeds_with_conn(conn: &Connection) -> Result<Vec<FeedRow>, Ap
                 title: row.get(3)?,
                 author: row.get(4)?,
                 site_url: row.get(5)?,
-                meta_json: row.get(6)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;

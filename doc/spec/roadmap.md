@@ -22,7 +22,7 @@
 10. `feeds` テーブル操作
 11. `feeds.yaml` とDBの同期（reconcileFeeds）
 12. CLI: `feeder feeds`
-13. CLI: `feeder feeds --config-check`
+13. CLI: `feeder feeds --config-check`（静的妥当性検証）
 
 ### Phase 3：同期処理（Week 2後半）
 

@@ -15,9 +15,10 @@ mod tag;
 mod time;
 
 use crate::cli::{Cli, Command, MarkCommand, OutputFormat, SortOrder};
+use crate::config::feeds::ConfigCheckReport;
 use crate::entry::{EntryDetail, EntryListResponse};
 use crate::error::AppError;
-use crate::feed::{FeedConfigDiffResponse, FeedListResponse};
+use crate::feed::FeedListResponse;
 use crate::query::EntryQuery;
 use crate::response::Envelope;
 use crate::sync::SyncSummary;
@@ -46,9 +47,6 @@ enum CommandOutput {
     FeedsList {
         feeds: FeedListResponse,
     },
-    FeedsDiff {
-        diff: FeedConfigDiffResponse,
-    },
     Sync {
         summary: SyncSummary,
     },
@@ -73,6 +71,21 @@ fn main() -> ExitCode {
     let output = resolve_effective_output(&cli);
     init_logging(resolve_effective_log_level(&cli));
     debug!(?output, ?cli.command, "resolved CLI output and command");
+    if matches!(cli.command, Command::Feeds { config_check: true }) {
+        match run_config_check(&cli, output) {
+            Ok(exit_code) => return exit_code,
+            Err(error) => {
+                maybe_print_diagnostics(&cli, &error);
+                match output {
+                    OutputFormat::Json => {
+                        print_json_or_fallback(&Envelope::<serde_json::Value>::fatal(&error))
+                    }
+                    OutputFormat::Plain => eprintln!("{error}"),
+                }
+                return ExitCode::from(1);
+            }
+        }
+    }
     if let Err(error) = run(&cli, output) {
         maybe_print_diagnostics(&cli, &error);
         match output {
@@ -94,6 +107,24 @@ fn run(cli: &Cli, output: OutputFormat) -> Result<(), AppError> {
         OutputFormat::Plain => render_plain(&result),
     }
     Ok(())
+}
+
+/// Runs static feeds config validation without touching the database.
+fn run_config_check(cli: &Cli, output: OutputFormat) -> Result<ExitCode, AppError> {
+    let config = load_config(cli)?;
+    let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
+    let report = feeds_config.validate();
+    match output {
+        OutputFormat::Json => {
+            print_json_or_fallback(&Envelope::ok(serde_json::to_value(&report)?));
+        }
+        OutputFormat::Plain => render_config_check_plain(&report),
+    }
+    Ok(if report.valid {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    })
 }
 
 /// Executes the CLI command and returns the result.
@@ -129,16 +160,11 @@ fn execute_command(cli: &Cli) -> Result<CommandOutput, AppError> {
                 }
                 Command::Feeds { config_check } => {
                     let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
-                    if *config_check {
-                        let db_feeds = store.list_feeds()?;
-                        let diff = feed::diff_config_vs_db(&feeds_config, &db_feeds);
-                        Ok(CommandOutput::FeedsDiff { diff })
-                    } else {
-                        feed::reconcile_feeds(&store, &feeds_config, &config.unread_tag)?;
-                        let db_feeds = store.list_feeds()?;
-                        let feeds = feed::render_feed_list(&feeds_config, &db_feeds);
-                        Ok(CommandOutput::FeedsList { feeds })
-                    }
+                    debug_assert!(!config_check);
+                    feed::reconcile_feeds(&store, &feeds_config, &config.unread_tag)?;
+                    let db_feeds = store.list_feeds()?;
+                    let feeds = feed::render_feed_list(&feeds_config, &db_feeds);
+                    Ok(CommandOutput::FeedsList { feeds })
                 }
                 Command::Sync => {
                     let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
@@ -186,7 +212,6 @@ fn render_json(result: &CommandOutput) -> Result<(), AppError> {
         }),
         CommandOutput::Tags { tags } => json!({ "tags": tags }),
         CommandOutput::FeedsList { feeds } => serde_json::to_value(feeds)?,
-        CommandOutput::FeedsDiff { diff } => serde_json::to_value(diff)?,
         CommandOutput::Sync { summary } => serde_json::to_value(summary)?,
         CommandOutput::List { list } => serde_json::to_value(list)?,
         CommandOutput::View { detail } => serde_json::to_value(detail)?,
@@ -227,28 +252,6 @@ fn render_plain(result: &CommandOutput) {
                 if let Some(author) = &feed.author {
                     println!("  author: {author}");
                 }
-            }
-        }
-        CommandOutput::FeedsDiff { diff } => {
-            println!("new_in_config: {}", diff.new_in_config.len());
-            for item in &diff.new_in_config {
-                let title = item.title.as_deref().unwrap_or("(untitled)");
-                println!("  {} {} {}", item.feed_key, title, item.url);
-                let tags = format_tags(&item.tags);
-                if !tags.is_empty() {
-                    println!("    tags: {tags}");
-                }
-            }
-            println!("removed_from_config: {}", diff.removed_from_config.len());
-            for item in &diff.removed_from_config {
-                let title = item.title.as_deref().unwrap_or("(untitled)");
-                println!("  {} {} {}", item.feed_key, title, item.url);
-            }
-            println!("tag_changes: {}", diff.tag_changes.len());
-            for change in &diff.tag_changes {
-                println!("  {} {}", change.feed_key, change.url);
-                println!("    old: {}", format_tags(&change.old_tags));
-                println!("    new: {}", format_tags(&change.new_tags));
             }
         }
         CommandOutput::Sync { summary } => {
@@ -312,6 +315,28 @@ fn render_plain(result: &CommandOutput) {
             }
         }
         CommandOutput::Mark { updated } => println!("updated: {updated}"),
+    }
+}
+
+/// Renders human-readable output for feeds config validation.
+fn render_config_check_plain(report: &ConfigCheckReport) {
+    println!("valid: {}", report.valid);
+    println!("checked_feeds: {}", report.checked_feeds);
+    println!("errors: {}", report.errors.len());
+    for issue in &report.errors {
+        if let Some(path) = &issue.path {
+            println!("  {} {} ({path})", issue.code, issue.message);
+        } else {
+            println!("  {} {}", issue.code, issue.message);
+        }
+    }
+    println!("warnings: {}", report.warnings.len());
+    for issue in &report.warnings {
+        if let Some(path) = &issue.path {
+            println!("  {} {} ({path})", issue.code, issue.message);
+        } else {
+            println!("  {} {}", issue.code, issue.message);
+        }
     }
 }
 

@@ -6,7 +6,6 @@ use crate::db::sqlite::{SqliteStore, ensure_tag_with_conn, upsert_feed_with_conn
 use crate::error::AppError;
 use crate::time::current_epoch;
 use rusqlite::Connection;
-use serde_json::json;
 use std::collections::HashSet;
 
 use super::identity::feed_key_from_url;
@@ -53,6 +52,6 @@ fn feed_input(feed: &FeedConfig) -> FeedInput {
         title: feed.title.clone(),
         author: None,
         site_url: None,
-        meta_json: Some(json!({"tags": feed.tags}).to_string()),
+        meta_json: None,
     }
 }

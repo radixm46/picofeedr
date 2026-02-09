@@ -2,7 +2,9 @@
 
 use crate::error::AppError;
 use serde::Deserialize;
+use serde::Serialize;
 use serde_yaml_ng::Value;
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
@@ -27,7 +29,7 @@ impl FeedsConfig {
             .get("feeds")
             .ok_or_else(|| AppError::config("feeds.yaml missing top-level 'feeds'"))?;
         let mut feeds = Vec::new();
-        flatten_groups(feeds_value, &[], &mut feeds)?;
+        flatten_groups(feeds_value, &[], "feeds", &mut feeds)?;
         let auto_tags = parse_auto_tags(root.get("auto_tags"))?;
         Ok(Self { feeds, auto_tags })
     }
@@ -45,6 +47,72 @@ impl FeedsConfig {
         }
         tags
     }
+
+    /// Validates feeds.yaml semantics and returns a static validation report.
+    pub fn validate(&self) -> ConfigCheckReport {
+        let mut errors = Vec::new();
+        let mut warnings = Vec::new();
+
+        let mut url_paths: HashMap<String, Vec<String>> = HashMap::new();
+        for feed in &self.feeds {
+            if feed.url.is_empty() {
+                errors.push(ValidationIssue {
+                    code: "EMPTY_FEED_URL".to_string(),
+                    message: "feed url must not be empty".to_string(),
+                    path: Some(format!("{}.url", feed.path)),
+                });
+            }
+            url_paths
+                .entry(feed.url.clone())
+                .or_default()
+                .push(feed.path.clone());
+
+            for duplicated_tag in duplicated_values(&feed.declared_tags) {
+                warnings.push(ValidationIssue {
+                    code: "DUPLICATE_FEED_TAG".to_string(),
+                    message: format!("duplicated feed tag '{duplicated_tag}'"),
+                    path: Some(format!("{}.tags", feed.path)),
+                });
+            }
+        }
+
+        for (url, paths) in url_paths {
+            if url.is_empty() || paths.len() < 2 {
+                continue;
+            }
+            for path in paths {
+                errors.push(ValidationIssue {
+                    code: "DUPLICATE_FEED_URL".to_string(),
+                    message: format!("duplicated feed url '{url}'"),
+                    path: Some(format!("{path}.url")),
+                });
+            }
+        }
+
+        for (index, rule) in self.auto_tags.iter().enumerate() {
+            if rule.add_tags.is_empty() {
+                errors.push(ValidationIssue {
+                    code: "INVALID_AUTO_TAG_RULE".to_string(),
+                    message: "auto tag rule requires at least one add_tags value".to_string(),
+                    path: Some(format!("auto_tags[{index}].add_tags")),
+                });
+            }
+            if rule.title_regex.is_none() && rule.title_contains.is_none() {
+                errors.push(ValidationIssue {
+                    code: "INVALID_AUTO_TAG_RULE".to_string(),
+                    message: "auto tag rule requires title_regex or title_contains".to_string(),
+                    path: Some(format!("auto_tags[{index}]")),
+                });
+            }
+        }
+
+        ConfigCheckReport {
+            valid: errors.is_empty(),
+            errors,
+            warnings,
+            checked_feeds: self.feeds.len(),
+        }
+    }
 }
 
 /// Single feed entry parsed from feeds.yaml.
@@ -56,6 +124,10 @@ pub struct FeedConfig {
     pub title: Option<String>,
     /// Tags inherited from groups plus feed-level tags.
     pub tags: Vec<String>,
+    /// Logical path in feeds.yaml used for validation reporting.
+    pub path: String,
+    /// Feed-level tags before deduplication.
+    pub declared_tags: Vec<String>,
 }
 
 /// Auto-tag rule definition from feeds.yaml.
@@ -75,6 +147,30 @@ pub struct AutoTagRule {
     pub priority: Option<i64>,
 }
 
+/// Static validation issue for feeds config check.
+#[derive(Debug, Clone, Serialize)]
+pub struct ValidationIssue {
+    /// Machine-readable issue code.
+    pub code: String,
+    /// Human-readable issue details.
+    pub message: String,
+    /// Logical path in feeds.yaml where the issue was detected.
+    pub path: Option<String>,
+}
+
+/// Static validation report for `feeds --config-check`.
+#[derive(Debug, Clone, Serialize)]
+pub struct ConfigCheckReport {
+    /// True when no validation errors are present.
+    pub valid: bool,
+    /// Validation errors that should fail the command.
+    pub errors: Vec<ValidationIssue>,
+    /// Validation warnings that do not fail the command.
+    pub warnings: Vec<ValidationIssue>,
+    /// Number of feed entries checked.
+    pub checked_feeds: usize,
+}
+
 /// Parses auto_tag rules from YAML value.
 fn parse_auto_tags(value: Option<&Value>) -> Result<Vec<AutoTagRule>, AppError> {
     match value {
@@ -90,13 +186,18 @@ fn parse_auto_tags(value: Option<&Value>) -> Result<Vec<AutoTagRule>, AppError> 
 fn flatten_groups(
     value: &Value,
     inherited: &[String],
+    current_path: &str,
     out: &mut Vec<FeedConfig>,
 ) -> Result<(), AppError> {
     let map = value
         .as_mapping()
         .ok_or_else(|| AppError::config("feeds.yaml 'feeds' must be a mapping"))?;
-    for (_, group) in map {
-        flatten_group(group, inherited, out)?;
+    for (key, group) in map {
+        let key = key
+            .as_str()
+            .ok_or_else(|| AppError::config("feeds group key must be a string"))?;
+        let group_path = format!("{current_path}.{key}");
+        flatten_group(group, inherited, &group_path, out)?;
     }
     Ok(())
 }
@@ -105,6 +206,7 @@ fn flatten_groups(
 fn flatten_group(
     value: &Value,
     inherited: &[String],
+    current_path: &str,
     out: &mut Vec<FeedConfig>,
 ) -> Result<(), AppError> {
     let map = value
@@ -122,7 +224,7 @@ fn flatten_group(
         let feeds_seq = feeds_value
             .as_sequence()
             .ok_or_else(|| AppError::config("feeds entry must be a list"))?;
-        for feed_value in feeds_seq {
+        for (index, feed_value) in feeds_seq.iter().enumerate() {
             let feed_map = feed_value
                 .as_mapping()
                 .ok_or_else(|| AppError::config("feed entry must be a mapping"))?;
@@ -145,6 +247,8 @@ fn flatten_group(
                 url: url_value.trim().to_string(),
                 title,
                 tags,
+                path: format!("{current_path}.feeds[{index}]"),
+                declared_tags: feed_tags,
             });
         }
     }
@@ -153,7 +257,11 @@ fn flatten_group(
         if matches!(key, Value::String(name) if name == "tags" || name == "feeds") {
             continue;
         }
-        flatten_group(value, &merged_tags, out)?;
+        let key = key
+            .as_str()
+            .ok_or_else(|| AppError::config("feeds group key must be a string"))?;
+        let nested_path = format!("{current_path}.{key}");
+        flatten_group(value, &merged_tags, &nested_path, out)?;
     }
     Ok(())
 }
@@ -180,4 +288,17 @@ fn merge_tags(base: &[String], extra: &[String]) -> Vec<String> {
         }
     }
     merged
+}
+
+/// Returns duplicated values while preserving first-seen order.
+fn duplicated_values(values: &[String]) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut duplicates = HashSet::new();
+    let mut result = Vec::new();
+    for value in values {
+        if !seen.insert(value.clone()) && duplicates.insert(value.clone()) {
+            result.push(value.clone());
+        }
+    }
+    result
 }

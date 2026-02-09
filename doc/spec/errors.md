@@ -14,6 +14,7 @@
 
 - 致命（fatal）は **exit code != 0** + 上記 JSON なのだ。
 - `sync` の fetch/parse 失敗は致命ではなく、exit code は 0 のまま `data.errors` に積むのだ（A10.3）。
+- `feeds --config-check` は validation report を `ok=true` で返し、`data.valid=false` のときのみ exit code 1 を返すのだ。
 
 **TODO（将来拡張の候補）：**
 
@@ -38,3 +39,10 @@
 
 - `FETCH_FAILED` - フィード取得失敗（ネットワーク/HTTPなど）
 - `PARSE_FAILED` - フィードパース失敗（不正XML/Atom/RSS）
+
+### A10.4 config-check validation issue codes（`data.errors` / `data.warnings`）
+
+- `DUPLICATE_FEED_URL` - 同一URLが複数feedとして定義されている
+- `EMPTY_FEED_URL` - feedのurlが空文字
+- `INVALID_AUTO_TAG_RULE` - `auto_tags` の定義不備（例：`add_tags` 空、条件未指定）
+- `DUPLICATE_FEED_TAG` - 同一feed定義で同じtagが重複（warning）
