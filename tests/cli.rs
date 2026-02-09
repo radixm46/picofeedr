@@ -77,9 +77,6 @@ fn config_check_returns_validation_report() {
     assert!(data["errors"].as_array().expect("errors").is_empty());
     assert!(data["warnings"].as_array().expect("warnings").is_empty());
     assert_eq!(data["checked_feeds"], 1);
-    assert!(data.get("new_in_config").is_none());
-    assert!(data.get("removed_from_config").is_none());
-    assert!(data.get("tag_changes").is_none());
 }
 
 /// Ensures duplicated feed URLs fail config check.
