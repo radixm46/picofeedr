@@ -64,12 +64,22 @@ impl EntryQuery {
                 if value.is_empty() {
                     return Err(AppError::invalid_query("feed: requires a value"));
                 }
+                if query.feed.is_some() {
+                    return Err(AppError::invalid_query(
+                        "feed: cannot be specified multiple times",
+                    ));
+                }
                 query.feed = Some(parse_feed_filter(value)?);
                 continue;
             }
             if let Some(value) = token.strip_prefix("title:") {
                 if value.is_empty() {
                     return Err(AppError::invalid_query("title: requires a value"));
+                }
+                if query.title.is_some() {
+                    return Err(AppError::invalid_query(
+                        "title: cannot be specified multiple times",
+                    ));
                 }
                 query.title = Some(value.to_string());
                 continue;
@@ -78,12 +88,22 @@ impl EntryQuery {
                 if value.is_empty() {
                     return Err(AppError::invalid_query("after: requires a value"));
                 }
+                if query.after.is_some() {
+                    return Err(AppError::invalid_query(
+                        "after: cannot be specified multiple times",
+                    ));
+                }
                 query.after = Some(parse_date_to_epoch(value)?);
                 continue;
             }
             if let Some(value) = token.strip_prefix("before:") {
                 if value.is_empty() {
                     return Err(AppError::invalid_query("before: requires a value"));
+                }
+                if query.before.is_some() {
+                    return Err(AppError::invalid_query(
+                        "before: cannot be specified multiple times",
+                    ));
                 }
                 query.before = Some(parse_date_to_epoch(value)?);
                 continue;
@@ -97,6 +117,8 @@ impl EntryQuery {
 }
 
 /// Tokenizes query text while honoring quoted segments.
+///
+/// Quoted segments are delimited by `"` and may contain escaped `\"` and `\\`.
 fn tokenize(raw: &str) -> Result<Vec<String>, AppError> {
     let mut tokens = Vec::new();
     let mut current = String::new();
@@ -211,12 +233,38 @@ mod tests {
     }
 
     #[test]
+    fn rejects_duplicate_feed_tokens() {
+        let error = EntryQuery::parse(Some("feed:1 feed:2"), "unread").unwrap_err();
+        assert_eq!(error.code().as_str(), "INVALID_QUERY");
+    }
+
+    #[test]
+    fn rejects_duplicate_title_tokens() {
+        let error = EntryQuery::parse(Some("title:foo title:bar"), "unread").unwrap_err();
+        assert_eq!(error.code().as_str(), "INVALID_QUERY");
+    }
+
+    #[test]
     fn parse_date_bounds() {
         let query =
             EntryQuery::parse(Some("after:2026-01-01 before:2026-01-02"), "unread").expect("query");
         assert!(query.after.is_some());
         assert!(query.before.is_some());
         assert!(query.after.unwrap() < query.before.unwrap());
+    }
+
+    #[test]
+    fn rejects_duplicate_after_tokens() {
+        let error =
+            EntryQuery::parse(Some("after:2026-01-01 after:2026-01-02"), "unread").unwrap_err();
+        assert_eq!(error.code().as_str(), "INVALID_QUERY");
+    }
+
+    #[test]
+    fn rejects_duplicate_before_tokens() {
+        let error =
+            EntryQuery::parse(Some("before:2026-01-01 before:2026-01-02"), "unread").unwrap_err();
+        assert_eq!(error.code().as_str(), "INVALID_QUERY");
     }
 
     #[test]

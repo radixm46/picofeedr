@@ -11,6 +11,7 @@
 - `tag:security` - 指定タグを持つエントリ
 - `-tag:misc` - 指定タグを持たないエントリ
 - スペース区切りは AND 条件
+- `feed:` / `title:` / `after:` / `before:` はそれぞれ 1 回のみ指定可能（複数指定は `INVALID_QUERY`）
 
 **例：**
 
@@ -29,6 +30,13 @@ picofeedr list --query "unread tag:security -tag:misc"
 - `title:"keyword"` - タイトル部分検索（暫定仕様、後で全文検索方針と合わせて再検討）
 - `feed:123` または `feed:"Feed Title"` - 特定フィード
 - `before:2026-01-01` / `after:2025-12-01` - 日付範囲（`date = COALESCE(published_at, updated_at, first_seen_at)` に対して適用）
+
+### A7.2.1 トークン化（クォート・エスケープ）
+
+- クエリは空白区切りでトークン化する
+- `"` で囲んだ区間では空白を値として保持する
+- クォート内では `\"` を `"`、`\\` を `\` として扱う
+- クォートが閉じていない場合は `INVALID_QUERY` とする
 
 **例：**
 
