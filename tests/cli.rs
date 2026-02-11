@@ -1050,6 +1050,23 @@ output = "bogus"
     assert_eq!(error["retry"], false);
 }
 
+/// Ensures CLI parse errors keep JSON envelope when using --output=json form.
+#[test]
+fn parse_error_with_output_equals_json_is_enveloped() {
+    let output = cargo_bin_cmd!("feeder")
+        .arg("--output=json")
+        .arg("unknown")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    let error = extract_error_payload(&output);
+    assert_eq!(error["code"], "CONFIG_ERROR");
+    assert_eq!(error["retry"], false);
+}
+
 /// Ensures locked database errors are fatal and retryable.
 #[test]
 fn db_locked_returns_retry_true() {

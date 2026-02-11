@@ -415,13 +415,23 @@ fn handle_cli_parse_error(args: &[OsString], error: clap::Error) -> ExitCode {
 fn detect_output_from_args(args: &[OsString]) -> OutputFormat {
     let mut iter = args.iter().peekable();
     while let Some(arg) = iter.next() {
-        if arg == "--output" {
-            if let Some(value) = iter.peek()
-                && value.to_string_lossy() == "plain"
-            {
-                return OutputFormat::Plain;
+        let arg_value = arg.to_string_lossy();
+        if arg_value == "--output" {
+            if let Some(value) = iter.peek() {
+                return if value.to_string_lossy() == "plain" {
+                    OutputFormat::Plain
+                } else {
+                    OutputFormat::Json
+                };
             }
             return OutputFormat::Json;
+        }
+        if let Some(value) = arg_value.strip_prefix("--output=") {
+            return if value == "plain" {
+                OutputFormat::Plain
+            } else {
+                OutputFormat::Json
+            };
         }
     }
     OutputFormat::Plain

@@ -82,9 +82,9 @@ pub enum Command {
     /// List tags stored in the database.
     Tags,
 
-    /// List feeds or compare config with the database.
+    /// List feeds or run static config validation.
     Feeds {
-        /// Show config differences without updating the database.
+        /// Validate feeds config without touching the database.
         #[arg(long, action = clap::ArgAction::SetTrue)]
         config_check: bool,
     },
