@@ -16,7 +16,7 @@
 
 ```
 
-feeder list --query "unread tag:security -tag:misc"
+picofeedr list --query "unread tag:security -tag:misc"
 
 # → 未読 AND securityタグあり AND miscタグなし
 
@@ -34,7 +34,7 @@ feeder list --query "unread tag:security -tag:misc"
 
 ```
 
-feeder list --query 'unread title:"rust" feed:"Rust Blog" after:2026-01-01'
+picofeedr list --query 'unread title:"rust" feed:"Rust Blog" after:2026-01-01'
 
 ```
 

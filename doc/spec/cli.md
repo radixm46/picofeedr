@@ -31,10 +31,10 @@ CLI の主要な出力は stdout に出すのだ。`--output` で形式を切り
 - `error.data`（機械可読な補助情報）と `error.causes`（エラーチェーン）を追加して、復旧/表示分岐を強化するのだ。
 
 ```
-feeder version
+picofeedr version
 # → {"ok": true, "data": {"api_version": "0.5.0", "schema_version": 1, "build": "abc123"}, "error": null}
 
-feeder ping
+picofeedr ping
 # → {"ok": true, "data": {"ok": true}, "error": null}
 
 ```
@@ -42,10 +42,10 @@ feeder ping
 ### A6.2 フィード管理
 
 ```
-feeder feeds
+picofeedr feeds
 # → {"ok": true, "data": {"feeds": [{id, feed_key, url, title, site_url, author, tags}]}, "error": null}
 
-feeder feeds --config-check
+picofeedr feeds --config-check
 # → {"ok": true, "data": {"valid": true, "errors": [], "warnings": [], "checked_feeds": 12}, "error": null}
 
 ```
@@ -78,7 +78,7 @@ feeder feeds --config-check
 ### A6.3 同期（取得）
 
 ```
-feeder sync
+picofeedr sync
 # → {"ok": true, "data": {"status": "completed", "fetched": 120, "failed": 0, "new_entries": 42, "elapsed": 245.3, "errors": []}, "error": null}
 
 # 一部失敗時の例
@@ -121,7 +121,7 @@ feeder sync
 
 ```
 
-feeder list --query <q> --sort <date_desc|date_asc|first_seen_desc|first_seen_asc> --limit <n> [--cursor <cursor>]
+picofeedr list --query <q> --sort <date_desc|date_asc|first_seen_desc|first_seen_asc> --limit <n> [--cursor <cursor>]
 
 # → {"ok": true, "data": {"total_hits": 342, "items": [EntrySummary...], "next_cursor": "eyJ..."}, "error": null}
 
@@ -144,7 +144,7 @@ feeder list --query <q> --sort <date_desc|date_asc|first_seen_desc|first_seen_as
 
 ```
 
-feeder view <id>
+picofeedr view <id>
 
 # → {"ok": true, "data": EntryDetail, "error": null}
 
@@ -174,19 +174,19 @@ feeder view <id>
 
 ※ 以下の出力例は `--output json` の場合なのだ。plain は人間向けの整形出力になるのだ。
 
-feeder mark read   ...
+picofeedr mark read   ...
 
 # → {"ok": true, "data": {"updated": 2}, "error": null}
 
-feeder mark unread   ...
+picofeedr mark unread   ...
 
 # → {"ok": true, "data": {"updated": 2}, "error": null}
 
-feeder mark tag   ... --add foo,bar --remove baz
+picofeedr mark tag   ... --add foo,bar --remove baz
 
 # → {"ok": true, "data": {"updated": 2}, "error": null}
 
-feeder mark tag   ... --add star
+picofeedr mark tag   ... --add star
 
 # → {"ok": true, "data": {"updated": 2}, "error": null}
 
@@ -196,7 +196,7 @@ feeder mark tag   ... --add star
 
 ```
 
-feeder tags
+picofeedr tags
 
 # → {"ok": true, "data": {"tags": ["unread", "tech", "security", "rust", ...]}, "error": null}
 

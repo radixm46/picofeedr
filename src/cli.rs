@@ -41,9 +41,9 @@ impl SortOrder {
     }
 }
 
-/// Feeder CLI arguments.
+/// Picofeedr CLI arguments.
 #[derive(Debug, Parser)]
-#[command(name = "feeder", version, about = "Local-first feed reader backend")]
+#[command(name = "picofeedr", version, about = "Local-first feed reader backend")]
 pub struct Cli {
     /// Path to config.toml.
     #[arg(long)]

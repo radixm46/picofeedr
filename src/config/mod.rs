@@ -192,7 +192,7 @@ fn resolve_config_path(path_override: Option<PathBuf>) -> Result<PathBuf, AppErr
     if let Some(path) = path_override {
         return expand_path(&path.to_string_lossy());
     }
-    expand_path("~/.config/feeder/config.toml")
+    expand_path("~/.config/picofeedr/config.toml")
 }
 
 /// Expands ~ in paths and returns a PathBuf.
@@ -220,7 +220,9 @@ impl SyncConfig {
         Ok(Self {
             parallel: raw.parallel.unwrap_or(5).max(1),
             timeout_secs: raw.timeout.unwrap_or(30),
-            user_agent: raw.user_agent.unwrap_or_else(|| "feeder/0.1.0".to_string()),
+            user_agent: raw
+                .user_agent
+                .unwrap_or_else(|| "picofeedr/0.1.0".to_string()),
             retry_count: raw.retry_count.unwrap_or(3),
             retry_delay_secs: raw.retry_delay.unwrap_or(5),
         })
@@ -237,7 +239,7 @@ impl StorageConfig {
         let store = parse_content_store(raw.content_store.as_deref())?;
         let data_dir = match raw.data_dir {
             Some(path) => expand_path(&path)?,
-            None => expand_path("~/.local/share/feeder/data")?,
+            None => expand_path("~/.local/share/picofeedr/data")?,
         };
         Ok(Self {
             content_store: store,

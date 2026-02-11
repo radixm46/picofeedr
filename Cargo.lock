@@ -376,35 +376,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "feeder"
-version = "0.5.0-alpha.1"
-dependencies = [
- "anyhow",
- "assert_cmd",
- "base64",
- "clap",
- "crossbeam-channel",
- "feed-rs",
- "hex",
- "predicates",
- "regex",
- "rusqlite",
- "serde",
- "serde_json",
- "serde_yaml_ng",
- "sha1",
- "sha2",
- "shellexpand",
- "tempfile",
- "thiserror",
- "time",
- "toml",
- "tracing",
- "tracing-subscriber",
- "ureq",
-]
-
-[[package]]
 name = "find-msvc-tools"
 version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -767,6 +738,35 @@ name = "percent-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
+
+[[package]]
+name = "picofeedr"
+version = "0.5.0-alpha.1"
+dependencies = [
+ "anyhow",
+ "assert_cmd",
+ "base64",
+ "clap",
+ "crossbeam-channel",
+ "feed-rs",
+ "hex",
+ "predicates",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "serde_yaml_ng",
+ "sha1",
+ "sha2",
+ "shellexpand",
+ "tempfile",
+ "thiserror",
+ "time",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+ "ureq",
+]
 
 [[package]]
 name = "pin-project-lite"

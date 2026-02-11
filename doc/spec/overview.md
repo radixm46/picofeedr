@@ -34,7 +34,7 @@
 
 ### A2.1 CLI Mode（デフォルト）
 
-* `feeder <command>` を都度起動し、主要な結果は **標準出力（stdout）** に出すのだ
+* `picofeedr <command>` を都度起動し、主要な結果は **標準出力（stdout）** に出すのだ
   - 出力形式は `--output json|plain`（または設定）で切り替えるのだ
 * `--output json`（機械可読）
   - 成功：exit code 0 + JSON（共通envelope）
@@ -47,20 +47,20 @@
 **コマンド一覧：**
 
 ```
-feeder sync                      # 同期実行
-feeder list [--query <q>]        # エントリ一覧
-feeder view <id>                 # エントリ詳細
-feeder mark <operation> <ids>    # 状態更新
-feeder tags                      # タグ一覧
-feeder feeds                     # フィード一覧
-feeder feeds --config-check      # 設定ファイルの静的妥当性検証（DB非依存）
+picofeedr sync                      # 同期実行
+picofeedr list [--query <q>]        # エントリ一覧
+picofeedr view <id>                 # エントリ詳細
+picofeedr mark <operation> <ids>    # 状態更新
+picofeedr tags                      # タグ一覧
+picofeedr feeds                     # フィード一覧
+picofeedr feeds --config-check      # 設定ファイルの静的妥当性検証（DB非依存）
 
 ```
 
 **共通フラグ：**
 
 ```
---config <path>     # config.toml のパス（デフォルト: ~/.config/feeder/config.toml）
+--config <path>     # config.toml のパス（デフォルト: ~/.config/picofeedr/config.toml）
 --db <path>         # DB パスの上書き（テスト用）
 --output <json|plain> # 出力形式（デフォルト: plain）
 --debug             # デバッグ情報をstderrに出す（json出力を壊さない）
@@ -70,7 +70,7 @@ feeder feeds --config-check      # 設定ファイルの静的妥当性検証（
 
 ### A2.2 RPC Mode（オプション）
 
-* `feeder serve` でstdio JSON-RPC 2.0サーバー起動
+* `picofeedr serve` でstdio JSON-RPC 2.0サーバー起動
 * 双方向通信、進捗通知（notification）対応
 
 **メソッド一覧：**

@@ -14,15 +14,15 @@
 
 6. `tags` / `entry_tags` テーブル操作
 7. TagManager実装
-8. CLI: `feeder tags`
+8. CLI: `picofeedr tags`
 9. テスト
 
 ### Phase 2：フィード管理（Week 2前半）
 
 10. `feeds` テーブル操作
 11. `feeds.yaml` とDBの同期（reconcileFeeds）
-12. CLI: `feeder feeds`
-13. CLI: `feeder feeds --config-check`（静的妥当性検証）
+12. CLI: `picofeedr feeds`
+13. CLI: `picofeedr feeds --config-check`（静的妥当性検証）
 
 ### Phase 3：同期処理（Week 2後半）
 
@@ -30,7 +30,7 @@
 15. Entry正規化・保存
 16. 自動タグルール適用
 17. 並列fetch実装（worker pool）
-18. CLI: `feeder sync`
+18. CLI: `picofeedr sync`
 
 **マイルストーン1：基本同期完成**
 
@@ -38,9 +38,9 @@
 
 19. Query parser（タグフィルタのみ）
 20. entries.query 実装（カーソルページング）
-21. CLI: `feeder list`
-22. CLI: `feeder view`
-23. CLI: `feeder mark`
+21. CLI: `picofeedr list`
+22. CLI: `picofeedr view`
+23. CLI: `picofeedr mark`
 
 **マイルストーン2：実用可能（ここまでで120 feedsでも快適）**
 

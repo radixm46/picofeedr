@@ -2,7 +2,7 @@
 
 ## E1. Elfeedとの比較
 
-| 機能 Elfeed Feeder |              |               |
+| 機能 Elfeed Picofeedr |              |               |
 | ---------------- | ------------ | ------------- |
 | プラットフォーム         | Emacs専用      | UI非依存         |
 | 設定ファイル           | Emacs Lisp   | YAML          |
@@ -14,7 +14,7 @@
 
 ## E2. Himalayaとの比較
 
-| 機能 Himalaya Feeder |           |               |
+| 機能 Himalaya Picofeedr |           |               |
 | ------------------ | --------- | ------------- |
 | 対象                 | Email     | RSS/Atom      |
 | CLI設計              | 都度実行      | 都度実行 + RPC    |

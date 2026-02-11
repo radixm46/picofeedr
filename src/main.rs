@@ -1,4 +1,4 @@
-//! Feeder CLI entrypoint.
+//! Picofeedr CLI entrypoint.
 
 mod cli;
 mod config;

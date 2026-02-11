@@ -62,13 +62,13 @@
 
 ```
 
-(defun feeder-sync () "Run sync synchronously and refresh list." (interactive) (let* ((resp (feeder-cli-json "sync")) (data (alist-get 'data resp))) (message "Sync completed: fetched=%s new_entries=%s" (alist-get 'fetched data) (alist-get 'new_entries data)) (feeder-refresh-list)))
+(defun picofeedr-sync () "Run sync synchronously and refresh list." (interactive) (let* ((resp (picofeedr-cli-json "sync")) (data (alist-get 'data resp))) (message "Sync completed: fetched=%s new_entries=%s" (alist-get 'fetched data) (alist-get 'new_entries data)) (picofeedr-refresh-list)))
 
-(defun feeder-cli-json (&rest args) "Run feeder command and parse JSON output." (with-temp-buffer (apply #'call-process "feeder" nil t nil "--output" "json" args) (goto-char (point-min)) (json-parse-buffer :object-type 'alist)))
+(defun picofeedr-cli-json (&rest args) "Run picofeedr command and parse JSON output." (with-temp-buffer (apply #'call-process "picofeedr" nil t nil "--output" "json" args) (goto-char (point-min)) (json-parse-buffer :object-type 'alist)))
 
-(defun feeder-list () "Show entry list." (interactive) (let* ((resp (feeder-cli-json "list" "--query" "unread" "--limit" "100")) (data (alist-get 'data resp))) ;; Display items... ))
+(defun picofeedr-list () "Show entry list." (interactive) (let* ((resp (picofeedr-cli-json "list" "--query" "unread" "--limit" "100")) (data (alist-get 'data resp))) ;; Display items... ))
 
-(defun feeder-mark-read (&rest ids) "Mark entries as read." (apply #'feeder-cli-json "mark" "read" (mapcar #'number-to-string ids)))
+(defun picofeedr-mark-read (&rest ids) "Mark entries as read." (apply #'picofeedr-cli-json "mark" "read" (mapcar #'number-to-string ids)))
 
 ```
 

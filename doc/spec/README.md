@@ -1,4 +1,4 @@
-# Feeder Spec (Split Docs)
+# Picofeedr Spec (Split Docs)
 
 このディレクトリは `doc/spec.md` を分割した仕様書群なのだ。
 

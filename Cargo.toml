@@ -1,5 +1,5 @@
 [package]
-name = "feeder"
+name = "picofeedr"
 version = "0.5.0-alpha.1"
 edition = "2024"
 

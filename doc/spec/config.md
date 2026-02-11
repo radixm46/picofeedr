@@ -7,30 +7,30 @@
 アプリケーションの**動作方法**を定義（変更頻度：低）
 
 ```
-# ~/.config/feeder/config.toml
+# ~/.config/picofeedr/config.toml
 
 unread_tag = "unread"       # 未読タグ名（新規取り込み時に付与）
 
 [database]
-path = "~/.local/share/feeder/db.sqlite"
+path = "~/.local/share/picofeedr/db.sqlite"
 
 [sync]
 parallel = 5              # 並列fetch数
 timeout = 30              # HTTP timeout（秒）
-user_agent = "feeder/0.1.0"
+user_agent = "picofeedr/0.1.0"
 retry_count = 3
 retry_delay = 5
 
 [storage]
 content_store = "db"      # db | fs | none
-data_dir = "~/.local/share/feeder/data"
+data_dir = "~/.local/share/picofeedr/data"
 
 [query]
 default_limit = 100
 max_limit = 1000
 
 [feeds]
-source = "~/.config/feeder/feeds.yaml"
+source = "~/.config/picofeedr/feeds.yaml"
 
 [cli]
 output = "plain"          # json | plain（CLIフラグがあればそちらを優先）
@@ -55,7 +55,7 @@ level = "info"            # error | warn | info | debug | trace（主にstderr�
 **データの内容**を定義（変更頻度：高）
 
 ```
-# ~/.config/feeder/feeds.yaml
+# ~/.config/picofeedr/feeds.yaml
 
 feeds:
   tech:

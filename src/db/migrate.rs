@@ -112,7 +112,7 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
         let meta_json = json!({
             "schema_version": 1,
             "created_at": current_epoch(),
-            "app_id": "feeder"
+            "app_id": "picofeedr"
         })
         .to_string();
         conn.execute(

@@ -7,16 +7,16 @@ use std::fs;
 use std::path::Path;
 use tempfile::TempDir;
 
-/// Creates a feeder command configured for JSON output.
-fn feeder_cmd_json() -> assert_cmd::Command {
-    let mut cmd = cargo_bin_cmd!("feeder");
+/// Creates a picofeedr command configured for JSON output.
+fn picofeedr_cmd_json() -> assert_cmd::Command {
+    let mut cmd = cargo_bin_cmd!("picofeedr");
     cmd.arg("--output").arg("json");
     cmd
 }
 
-/// Creates a feeder command configured for plain output.
-fn feeder_cmd_plain() -> assert_cmd::Command {
-    let mut cmd = cargo_bin_cmd!("feeder");
+/// Creates a picofeedr command configured for plain output.
+fn picofeedr_cmd_plain() -> assert_cmd::Command {
+    let mut cmd = cargo_bin_cmd!("picofeedr");
     cmd.arg("--output").arg("plain");
     cmd
 }
@@ -59,7 +59,7 @@ fn config_check_returns_validation_report() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_fixture_files(&temp);
 
-    let output = feeder_cmd_json()
+    let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -94,7 +94,7 @@ fn config_check_fails_on_duplicate_url() {
 "#;
     fs::write(&paths.feeds_path, feeds).expect("rewrite feeds");
 
-    let output = feeder_cmd_json()
+    let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -131,7 +131,7 @@ fn config_check_fails_on_empty_url() {
 "#;
     fs::write(&paths.feeds_path, feeds).expect("rewrite feeds");
 
-    let output = feeder_cmd_json()
+    let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -159,7 +159,7 @@ fn config_check_does_not_require_db() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_fixture_files(&temp);
 
-    let output = feeder_cmd_json()
+    let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -183,7 +183,7 @@ fn feeds_reconcile_returns_tags() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_fixture_files(&temp);
 
-    let output = feeder_cmd_json()
+    let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -215,7 +215,7 @@ fn tags_command_returns_tag_dictionary() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_fixture_files(&temp);
 
-    feeder_cmd_json()
+    picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -224,7 +224,7 @@ fn tags_command_returns_tag_dictionary() {
         .assert()
         .success();
 
-    let output = feeder_cmd_json()
+    let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -255,7 +255,7 @@ fn fatal_invalid_toml_syntax_is_enveloped() {
     let config_path = temp.path().join("config.toml");
     fs::write(&config_path, "unread_tag = ").expect("write config");
 
-    let output = feeder_cmd_json()
+    let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&config_path)
         .arg("tags")
@@ -292,7 +292,7 @@ source = "{}"
     );
     fs::write(&config_path, config).expect("write config");
 
-    let output = feeder_cmd_json()
+    let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&config_path)
         .arg("--db")
@@ -333,7 +333,7 @@ source = "{}"
     fs::write(&config_path, config).expect("write config");
     fs::write(&feeds_path, "feeds: [").expect("write feeds");
 
-    let output = feeder_cmd_json()
+    let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&config_path)
         .arg("--db")
@@ -374,7 +374,7 @@ source = "{}"
     fs::write(&config_path, config).expect("write config");
     fs::write(&feeds_path, "auto_tags: []").expect("write feeds");
 
-    let output = feeder_cmd_json()
+    let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&config_path)
         .arg("--db")
@@ -398,7 +398,7 @@ fn unread_token_respects_config_unread_tag() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files_with_unread_tag(&temp, "fresh");
 
-    feeder_cmd_json()
+    picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -407,7 +407,7 @@ fn unread_token_respects_config_unread_tag() {
         .assert()
         .success();
 
-    let output = feeder_cmd_json()
+    let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -443,7 +443,7 @@ fn list_plain_is_human_readable() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
 
-    feeder_cmd_json()
+    picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -452,7 +452,7 @@ fn list_plain_is_human_readable() {
         .assert()
         .success();
 
-    let output = feeder_cmd_plain()
+    let output = picofeedr_cmd_plain()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -480,7 +480,7 @@ fn view_plain_is_human_readable() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
 
-    feeder_cmd_json()
+    picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -498,7 +498,7 @@ fn view_plain_is_human_readable() {
         )
         .expect("entry id");
 
-    let output = feeder_cmd_plain()
+    let output = picofeedr_cmd_plain()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -523,7 +523,7 @@ fn sync_ingests_entries_and_tags() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
 
-    let output = feeder_cmd_json()
+    let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -582,7 +582,7 @@ fn sync_writes_content_to_fs_store() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files_fs(&temp);
 
-    feeder_cmd_json()
+    picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -614,7 +614,7 @@ fn sync_reports_partial_failed() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_failure_fixture_files(&temp);
 
-    let output = feeder_cmd_json()
+    let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -641,7 +641,7 @@ fn sync_reports_failed_when_all_feeds_fail() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_all_failed_fixture_files(&temp);
 
-    let output = feeder_cmd_json()
+    let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -667,7 +667,7 @@ fn list_returns_paginated_results() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
 
-    feeder_cmd_json()
+    picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -695,7 +695,7 @@ fn list_returns_paginated_results() {
         .expect("unread count");
     assert_eq!(unread_entries, 2);
 
-    let output = feeder_cmd_json()
+    let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -718,7 +718,7 @@ fn list_returns_paginated_results() {
     assert_eq!(data["items"].as_array().expect("items array").len(), 1);
     let cursor = data["next_cursor"].as_str().expect("next_cursor");
 
-    let output = feeder_cmd_json()
+    let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -750,7 +750,7 @@ fn list_filters_by_feed() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
 
-    feeder_cmd_json()
+    picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -768,7 +768,7 @@ fn list_filters_by_feed() {
         )
         .expect("feed id");
 
-    let output = feeder_cmd_json()
+    let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -789,7 +789,7 @@ fn list_filters_by_feed() {
     let data = extract_ok_data(&output);
     assert_eq!(data["total_hits"], 2);
 
-    let output = feeder_cmd_json()
+    let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -817,7 +817,7 @@ fn list_filters_by_title() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
 
-    feeder_cmd_json()
+    picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -826,7 +826,7 @@ fn list_filters_by_title() {
         .assert()
         .success();
 
-    let output = feeder_cmd_json()
+    let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -857,7 +857,7 @@ fn list_filters_by_date_range() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
 
-    feeder_cmd_json()
+    picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -866,7 +866,7 @@ fn list_filters_by_date_range() {
         .assert()
         .success();
 
-    let output = feeder_cmd_json()
+    let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -886,7 +886,7 @@ fn list_filters_by_date_range() {
     let data = extract_ok_data(&output);
     assert_eq!(data["total_hits"], 1);
 
-    let output = feeder_cmd_json()
+    let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -913,7 +913,7 @@ fn list_rejects_mismatched_cursor() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
 
-    feeder_cmd_json()
+    picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -922,7 +922,7 @@ fn list_rejects_mismatched_cursor() {
         .assert()
         .success();
 
-    let output = feeder_cmd_json()
+    let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -943,7 +943,7 @@ fn list_rejects_mismatched_cursor() {
     let data = extract_ok_data(&output);
     let cursor = data["next_cursor"].as_str().expect("cursor");
 
-    let output = feeder_cmd_json()
+    let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -973,7 +973,7 @@ fn list_rejects_invalid_cursor_format() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
 
-    feeder_cmd_json()
+    picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -982,7 +982,7 @@ fn list_rejects_invalid_cursor_format() {
         .assert()
         .success();
 
-    let output = feeder_cmd_json()
+    let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -1033,7 +1033,7 @@ output = "bogus"
     fs::write(&config_path, config).expect("write config");
     fs::write(temp.path().join("feeds.yaml"), "feeds: {}").expect("write feeds");
 
-    let output = feeder_cmd_json()
+    let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&config_path)
         .arg("--db")
@@ -1053,7 +1053,7 @@ output = "bogus"
 /// Ensures CLI parse errors keep JSON envelope when using --output=json form.
 #[test]
 fn parse_error_with_output_equals_json_is_enveloped() {
-    let output = cargo_bin_cmd!("feeder")
+    let output = cargo_bin_cmd!("picofeedr")
         .arg("--output=json")
         .arg("unknown")
         .assert()
@@ -1076,7 +1076,7 @@ fn db_locked_returns_retry_true() {
     let conn = Connection::open(&paths.db_path).expect("open db");
     conn.execute("BEGIN EXCLUSIVE", []).expect("lock db");
 
-    let output = feeder_cmd_json()
+    let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -1099,7 +1099,7 @@ fn view_returns_entry_detail() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
 
-    feeder_cmd_json()
+    picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -1117,7 +1117,7 @@ fn view_returns_entry_detail() {
         )
         .expect("entry id");
 
-    let output = feeder_cmd_json()
+    let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -1148,7 +1148,7 @@ fn mark_updates_tags() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
 
-    feeder_cmd_json()
+    picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -1167,7 +1167,7 @@ fn mark_updates_tags() {
         .collect();
     assert_eq!(entry_ids.len(), 2);
 
-    feeder_cmd_json()
+    picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -1188,7 +1188,7 @@ fn mark_updates_tags() {
         .expect("unread count");
     assert_eq!(unread_count, 0);
 
-    feeder_cmd_json()
+    picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -1208,7 +1208,7 @@ fn mark_updates_tags() {
         .expect("unread count");
     assert_eq!(unread_count, 1);
 
-    feeder_cmd_json()
+    picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
         .arg("--db")
@@ -1342,7 +1342,7 @@ source = "{}"
 [sync]
 parallel = 1
 timeout = 5
-user_agent = "feeder-test/0.1.0"
+user_agent = "picofeedr-test/0.1.0"
 retry_count = 0
 retry_delay = 0
 
@@ -1422,7 +1422,7 @@ source = "{}"
 [sync]
 parallel = 1
 timeout = 5
-user_agent = "feeder-test/0.1.0"
+user_agent = "picofeedr-test/0.1.0"
 retry_count = 0
 retry_delay = 0
 
@@ -1494,7 +1494,7 @@ source = "{}"
 [sync]
 parallel = 1
 timeout = 5
-user_agent = "feeder-test/0.1.0"
+user_agent = "picofeedr-test/0.1.0"
 retry_count = 0
 retry_delay = 0
 
@@ -1549,7 +1549,7 @@ source = "{}"
 [sync]
 parallel = 1
 timeout = 5
-user_agent = "feeder-test/0.1.0"
+user_agent = "picofeedr-test/0.1.0"
 retry_count = 0
 retry_delay = 0
 

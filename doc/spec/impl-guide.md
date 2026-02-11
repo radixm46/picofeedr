@@ -14,7 +14,7 @@
 ## D2. プロジェクト構成（Rust・ドラフト）
 
 ```
-feeder/
+picofeedr/
 ├── Cargo.toml
 ├── migrations/            # SQL migrations（採用する場合）
 ├── src/

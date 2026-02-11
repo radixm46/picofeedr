@@ -35,7 +35,7 @@
 
 ### A10.3 sync errors（非致命）
 
-`feeder sync` の `errors` 配列で使うコード例なのだ（exit code は 0 のまま継続するのだ）。
+`picofeedr sync` の `errors` 配列で使うコード例なのだ（exit code は 0 のまま継続するのだ）。
 
 - `FETCH_FAILED` - フィード取得失敗（ネットワーク/HTTPなど）
 - `PARSE_FAILED` - フィードパース失敗（不正XML/Atom/RSS）
