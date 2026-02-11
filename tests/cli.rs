@@ -744,6 +744,97 @@ fn list_returns_paginated_results() {
     assert!(data["next_cursor"].is_null());
 }
 
+/// Ensures tag expression operators and precedence are applied.
+#[test]
+fn list_filters_by_tag_expression() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("sync")
+        .assert()
+        .success();
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("list")
+        .arg("--query")
+        .arg("tag:(hot|tech)&!hot")
+        .arg("--sort")
+        .arg("first_seen_desc")
+        .arg("--limit")
+        .arg("10")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let data = extract_ok_data(&output);
+    assert_eq!(data["total_hits"], 1);
+    let items = data["items"].as_array().expect("items array");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["title"], "Second Entry");
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("list")
+        .arg("--query")
+        .arg("tag:hot|tech&!hot")
+        .arg("--sort")
+        .arg("first_seen_desc")
+        .arg("--limit")
+        .arg("10")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let data = extract_ok_data(&output);
+    assert_eq!(data["total_hits"], 2);
+}
+
+/// Ensures complex -tag expression syntax is rejected.
+#[test]
+fn list_rejects_complex_minus_tag_expression() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("sync")
+        .assert()
+        .success();
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("list")
+        .arg("--query=-tag:(tech|hot)")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+    assert_eq!(extract_error_code(&output), "INVALID_QUERY");
+}
+
 /// Ensures feed filters work by id and title.
 #[test]
 fn list_filters_by_feed() {

@@ -127,6 +127,12 @@ picofeedr list --query <q> --sort <date_desc|date_asc|first_seen_desc|first_seen
 
 ```
 
+**クエリ例（tag論理式）：**
+
+```
+picofeedr list --query 'tag:(A|B)&!C' --sort first_seen_desc --limit 20
+```
+
 **sort の意味：**
 
 - `date_*`：`date = COALESCE(published_at, updated_at, first_seen_at)` をキーにソート

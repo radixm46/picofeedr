@@ -6,7 +6,7 @@ use crate::content_ref;
 use crate::db::sqlite::{SqliteStore, ensure_tag_with_conn};
 use crate::db::{EntryContentStorage, EntryContentStorage as Storage};
 use crate::error::AppError;
-use crate::query::{EntryQuery, FeedFilter};
+use crate::query::{EntryQuery, FeedFilter, TagExpr};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
@@ -234,21 +234,11 @@ fn build_where_clause(
 ) -> Result<(String, Vec<Value>), AppError> {
     let mut clauses = Vec::new();
     let mut params = Vec::new();
-    for tag in &query.include_tags {
-        clauses.push(
-            "EXISTS (SELECT 1 FROM entry_tags et JOIN tags t ON et.tag_id = t.id \
-             WHERE et.entry_id = e.id AND t.name = ?)"
-                .to_string(),
-        );
-        params.push(Value::from(tag.clone()));
-    }
-    for tag in &query.exclude_tags {
-        clauses.push(
-            "NOT EXISTS (SELECT 1 FROM entry_tags et JOIN tags t ON et.tag_id = t.id \
-             WHERE et.entry_id = e.id AND t.name = ?)"
-                .to_string(),
-        );
-        params.push(Value::from(tag.clone()));
+    if let Some(tag_expr) = &query.tag_expr {
+        clauses.push(format!(
+            "({})",
+            build_tag_expr_clause(tag_expr, &mut params)
+        ));
     }
     if let Some(feed) = &query.feed {
         match feed {
@@ -540,13 +530,10 @@ fn decode_cursor(raw: &str, sort: SortOrder, query_hash: &str) -> Result<Cursor,
 
 /// Computes a stable hash for query validation.
 fn compute_query_hash(query: &EntryQuery) -> String {
-    let mut include = query.include_tags.clone();
-    let mut exclude = query.exclude_tags.clone();
-    include.sort();
-    exclude.sort();
     let mut components = Vec::new();
-    components.push(format!("include={}", include.join(",")));
-    components.push(format!("exclude={}", exclude.join(",")));
+    if let Some(tag_expr) = &query.tag_expr {
+        components.push(format!("tag_expr={}", tag_expr.canonical()));
+    }
     if let Some(feed) = &query.feed {
         match feed {
             FeedFilter::Id(id) => components.push(format!("feed_id={id}")),
@@ -566,4 +553,31 @@ fn compute_query_hash(query: &EntryQuery) -> String {
     let mut hasher = Sha1::new();
     hasher.update(payload.as_bytes());
     hex::encode(hasher.finalize())
+}
+
+/// Builds SQL for a tag expression and appends bind params.
+fn build_tag_expr_clause(expr: &TagExpr, params: &mut Vec<Value>) -> String {
+    match expr {
+        TagExpr::Tag(tag) => {
+            params.push(Value::from(tag.clone()));
+            "EXISTS (SELECT 1 FROM entry_tags et JOIN tags t ON et.tag_id = t.id \
+             WHERE et.entry_id = e.id AND t.name = ?)"
+                .to_string()
+        }
+        TagExpr::Not(inner) => format!("NOT ({})", build_tag_expr_clause(inner, params)),
+        TagExpr::And(items) => {
+            let clauses = items
+                .iter()
+                .map(|item| format!("({})", build_tag_expr_clause(item, params)))
+                .collect::<Vec<_>>();
+            clauses.join(" AND ")
+        }
+        TagExpr::Or(items) => {
+            let clauses = items
+                .iter()
+                .map(|item| format!("({})", build_tag_expr_clause(item, params)))
+                .collect::<Vec<_>>();
+            clauses.join(" OR ")
+        }
+    }
 }
