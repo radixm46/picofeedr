@@ -805,9 +805,9 @@ fn list_filters_by_tag_expression() {
     assert_eq!(data["total_hits"], 2);
 }
 
-/// Ensures complex -tag expression syntax is rejected.
+/// Ensures -tag expression alias applies top-level NOT.
 #[test]
-fn list_rejects_complex_minus_tag_expression() {
+fn list_accepts_minus_tag_expression_alias() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
 
@@ -826,13 +826,18 @@ fn list_rejects_complex_minus_tag_expression() {
         .arg("--db")
         .arg(&paths.db_path)
         .arg("list")
-        .arg("--query=-tag:(tech|hot)")
+        .arg("--query")
+        .arg("tag:tech -tag:hot|rust")
         .assert()
-        .failure()
+        .success()
         .get_output()
         .stdout
         .clone();
-    assert_eq!(extract_error_code(&output), "INVALID_QUERY");
+    let data = extract_ok_data(&output);
+    assert_eq!(data["total_hits"], 1);
+    let items = data["items"].as_array().expect("items array");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["title"], "Second Entry");
 }
 
 /// Ensures feed filters work by id and title.

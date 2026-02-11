@@ -100,12 +100,20 @@ impl EntryQuery {
                 continue;
             }
             if let Some(value) = token.strip_prefix("-tag:") {
-                if value.is_empty() {
+                let mut parts = Vec::new();
+                if !value.is_empty() {
+                    parts.push(value.to_string());
+                }
+                index += 1;
+                while index < tokens.len() && !is_top_level_token(&tokens[index]) {
+                    parts.push(tokens[index].clone());
+                    index += 1;
+                }
+                if parts.is_empty() {
                     return Err(AppError::invalid_query("-tag: requires a value"));
                 }
-                let tag = parse_single_tag_literal(value)?;
-                tag_terms.push(TagExpr::Not(Box::new(TagExpr::Tag(tag))));
-                index += 1;
+                let inner = parse_minus_tag_expr(&parts.join(" "))?;
+                tag_terms.push(TagExpr::Not(Box::new(inner)));
                 continue;
             }
             if let Some(value) = token.strip_prefix("feed:") {
@@ -325,20 +333,15 @@ fn parse_tag_expr(raw: &str) -> Result<TagExpr, AppError> {
     Ok(normalize_tag_expr(expr))
 }
 
-/// Parses `-tag:` value as a single literal and rejects complex notation.
-fn parse_single_tag_literal(raw: &str) -> Result<String, AppError> {
-    let tokens = lex_tag_expr(raw)?;
-    if tokens.len() != 1 {
+/// Parses `-tag:` value and rejects nested NOT expressions.
+fn parse_minus_tag_expr(raw: &str) -> Result<TagExpr, AppError> {
+    let expr = parse_tag_expr(raw)?;
+    if contains_not(&expr) {
         return Err(AppError::invalid_query(
-            "-tag: supports only a single tag literal",
+            "-tag: expression must not include NOT/!",
         ));
     }
-    match &tokens[0] {
-        TagToken::Literal(value) => Ok(value.clone()),
-        _ => Err(AppError::invalid_query(
-            "-tag: supports only a single tag literal",
-        )),
-    }
+    Ok(expr)
 }
 
 /// Escapes a tag literal for canonical serialization.
@@ -415,6 +418,15 @@ fn has_direct_tag_conflict(expr: &TagExpr) -> bool {
         }
     }
     include.iter().any(|tag| exclude.contains(tag))
+}
+
+/// Returns true when expression tree contains NOT.
+fn contains_not(expr: &TagExpr) -> bool {
+    match expr {
+        TagExpr::Tag(_) => false,
+        TagExpr::Not(_) => true,
+        TagExpr::And(items) | TagExpr::Or(items) => items.iter().any(contains_not),
+    }
 }
 
 /// Token used by tag expression parser.
@@ -790,8 +802,23 @@ mod tests {
     }
 
     #[test]
-    fn rejects_complex_minus_tag_notation() {
-        for raw in ["-tag:(A|B)", "-tag:A|B", "-tag:!A"] {
+    fn parse_minus_tag_expression_alias() {
+        let query = EntryQuery::parse(Some("tag:A&B&C -tag:D|E"), "unread").expect("query");
+        let expected = normalize_tag_expr(TagExpr::And(vec![
+            TagExpr::Tag("A".to_string()),
+            TagExpr::Tag("B".to_string()),
+            TagExpr::Tag("C".to_string()),
+            TagExpr::Not(Box::new(TagExpr::Or(vec![
+                TagExpr::Tag("D".to_string()),
+                TagExpr::Tag("E".to_string()),
+            ]))),
+        ]));
+        assert_eq!(query.tag_expr, Some(expected));
+    }
+
+    #[test]
+    fn rejects_minus_tag_not_notation() {
+        for raw in ["-tag:!A", "-tag:NOT A"] {
             let error = EntryQuery::parse(Some(raw), "unread").unwrap_err();
             assert_eq!(error.code().as_str(), "INVALID_QUERY");
         }

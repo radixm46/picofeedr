@@ -131,6 +131,7 @@ picofeedr list --query <q> --sort <date_desc|date_asc|first_seen_desc|first_seen
 
 ```
 picofeedr list --query 'tag:(A|B)&!C' --sort first_seen_desc --limit 20
+picofeedr list --query 'tag:A&B&C -tag:D|E' --sort first_seen_desc --limit 20
 ```
 
 **sort の意味：**

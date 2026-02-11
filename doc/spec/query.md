@@ -6,7 +6,7 @@
 
 - `unread` - `tag:<unread_tag>` のショートカット（`unread_tag` は設定。デフォルト `unread`）
 - `tag:<expr>` - タグ論理式
-- `-tag:<name>` - 単一タグ除外の糖衣構文（`NOT tag:<name>` と等価）
+- `-tag:<expr_without_not>` - 除外式の糖衣構文（`NOT(tag:<expr_without_not>)` と等価）
 - `feed:123` または `feed:"Feed Title"` - 特定フィード
 - `title:"keyword"` - タイトル部分検索（`LIKE '%keyword%'`）
 - `before:YYYY-MM-DD` / `after:YYYY-MM-DD` - 日付範囲（`date = COALESCE(published_at, updated_at, first_seen_at)`）
@@ -44,11 +44,14 @@ QuotedLiteral::= '"' ( '\\"' | '\\\\' | <other> )* '"'
 
 #### A7.2.3 `-tag:` の制約
 
-- `-tag:` は単一タグ名のみ受理する
+- `-tag:` はトップレベル `NOT` のエイリアスとして扱う
+- `-tag:` の内部では `NOT/!` を禁止する（`INVALID_QUERY`）
+- 受理例:
+  - `-tag:A|B|C`（`NOT (A OR B OR C)`）
+  - `tag:A&B&C -tag:D|E`（`A AND B AND C AND NOT (D OR E)`）
 - 非対応（`INVALID_QUERY`）:
-  - `-tag:(A|B)`
-  - `-tag:A|B`
   - `-tag:!A`
+  - `-tag:NOT A`
 - `tag:rust -tag:rust` のような直接矛盾は `INVALID_QUERY`
 
 ### A7.3 トークン化（全体クエリ）
