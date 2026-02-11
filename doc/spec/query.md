@@ -97,3 +97,7 @@ picofeedr list --query 'tag:("rust news"|tech) -tag:misc'
 
 - `|` と `&` はシェルで解釈されるので、`--query` は原則シングルクォートで囲う
 - 例: `--query 'tag:(A|B)&!C'`
+
+### A7.7 日付検索拡張（Draft）
+
+- 相対日付を含む拡張仕様は `doc/spec/query-date.md` を参照する

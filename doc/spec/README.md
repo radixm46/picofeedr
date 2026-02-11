@@ -16,6 +16,7 @@
 - `doc/spec/db.md`：DB設計方針と運用想定
 - `doc/spec/cli.md`：CLIコマンドとJSON入出力
 - `doc/spec/query.md`：検索クエリ言語
+- `doc/spec/query-date.md`：日付検索拡張仕様（draft）
 - `doc/spec/pagination.md`：カーソルページング仕様
 - `doc/spec/errors.md`：エラー仕様
 - `doc/spec/roadmap.md`：実装フェーズ（MVP順）
