@@ -50,6 +50,8 @@ level = "info"            # error | warn | info | debug | trace（主にstderr�
 
 `log.level` はデバッグ/トレース出力の粒度の目安なのだ。ログは stdout を汚さないため、原則 stderr に寄せるのだ（詳細は `doc/spec/overview.md`）。
 
+`query.default_limit` は `list --limit` 未指定時の既定件数なのだ。`query.max_limit` は安全上限で、`--limit` がこれを超える場合は `INVALID_QUERY` になるのだ。`default_limit` / `max_limit` はどちらも 1 以上で、`default_limit <= max_limit` を必須とするのだ。
+
 ### A3.2 feeds.yaml（フィード一覧・自動タグ）
 
 **データの内容**を定義（変更頻度：高）

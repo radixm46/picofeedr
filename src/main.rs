@@ -179,7 +179,7 @@ fn execute_command(cli: &Cli) -> Result<CommandOutput, AppError> {
                 } => {
                     let query = EntryQuery::parse(query.as_deref(), &config.unread_tag)?;
                     let sort = sort.unwrap_or(SortOrder::FirstSeenDesc);
-                    let limit = limit.unwrap_or(100);
+                    let limit = resolve_list_limit(*limit, config.query)?;
                     let list = entry::list_entries(&store, &query, sort, limit, cursor.as_deref())?;
                     Ok(CommandOutput::List { list })
                 }
@@ -195,6 +195,21 @@ fn execute_command(cli: &Cli) -> Result<CommandOutput, AppError> {
             }
         }
     }
+}
+
+/// Resolves the effective list limit from CLI argument and query config.
+fn resolve_list_limit(limit: Option<usize>, query: config::QueryConfig) -> Result<usize, AppError> {
+    let resolved = limit.unwrap_or(query.default_limit);
+    if resolved == 0 {
+        return Err(AppError::invalid_query("--limit must be greater than 0"));
+    }
+    if resolved > query.max_limit {
+        return Err(AppError::invalid_query(format!(
+            "--limit must be less than or equal to {}",
+            query.max_limit
+        )));
+    }
+    Ok(resolved)
 }
 
 /// Renders JSON output for a command result.

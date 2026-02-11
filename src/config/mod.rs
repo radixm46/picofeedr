@@ -20,6 +20,8 @@ pub struct AppConfig {
     pub sync: SyncConfig,
     /// Content storage configuration.
     pub storage: StorageConfig,
+    /// Query behavior configuration.
+    pub query: QueryConfig,
     /// CLI configuration.
     pub cli: CliConfig,
     /// Logging configuration.
@@ -62,6 +64,15 @@ pub struct StorageConfig {
     pub content_store: ContentStore,
     /// Root directory for file storage.
     pub data_dir: PathBuf,
+}
+
+/// Query configuration.
+#[derive(Debug, Clone, Copy)]
+pub struct QueryConfig {
+    /// Default list limit used when --limit is not specified.
+    pub default_limit: usize,
+    /// Hard upper bound for list limit.
+    pub max_limit: usize,
 }
 
 /// CLI configuration.
@@ -107,6 +118,7 @@ struct AppConfigRaw {
     feeds: FeedsSourceConfigRaw,
     sync: Option<SyncConfigRaw>,
     storage: Option<StorageConfigRaw>,
+    query: Option<QueryConfigRaw>,
     cli: Option<CliConfigRaw>,
     log: Option<LogConfigRaw>,
 }
@@ -140,6 +152,13 @@ struct StorageConfigRaw {
     data_dir: Option<String>,
 }
 
+/// Raw query config representation.
+#[derive(Debug, Deserialize)]
+struct QueryConfigRaw {
+    default_limit: Option<usize>,
+    max_limit: Option<usize>,
+}
+
 /// Raw CLI config representation.
 #[derive(Debug, Deserialize)]
 struct CliConfigRaw {
@@ -164,6 +183,7 @@ impl AppConfig {
         let feeds_path = expand_path(&raw.feeds.source)?;
         let sync = SyncConfig::from_raw(raw.sync)?;
         let storage = StorageConfig::from_raw(raw.storage)?;
+        let query = QueryConfig::from_raw(raw.query)?;
         let cli = CliConfig::from_raw(raw.cli)?;
         let log = LogConfig::from_raw(raw.log)?;
         Ok(Self {
@@ -174,6 +194,7 @@ impl AppConfig {
             feeds: FeedsSourceConfig { source: feeds_path },
             sync,
             storage,
+            query,
             cli,
             log,
         })
@@ -254,6 +275,35 @@ impl CliConfig {
         let raw = raw.unwrap_or(CliConfigRaw { output: None });
         let output = parse_output_format(raw.output.as_deref())?;
         Ok(Self { output })
+    }
+}
+
+impl QueryConfig {
+    /// Builds a QueryConfig from optional raw config.
+    fn from_raw(raw: Option<QueryConfigRaw>) -> Result<Self, AppError> {
+        let raw = raw.unwrap_or(QueryConfigRaw {
+            default_limit: None,
+            max_limit: None,
+        });
+        let default_limit = raw.default_limit.unwrap_or(100);
+        let max_limit = raw.max_limit.unwrap_or(1000);
+        if default_limit == 0 {
+            return Err(AppError::config(
+                "query.default_limit must be greater than 0",
+            ));
+        }
+        if max_limit == 0 {
+            return Err(AppError::config("query.max_limit must be greater than 0"));
+        }
+        if default_limit > max_limit {
+            return Err(AppError::config(
+                "query.default_limit must be less than or equal to query.max_limit",
+            ));
+        }
+        Ok(Self {
+            default_limit,
+            max_limit,
+        })
     }
 }
 

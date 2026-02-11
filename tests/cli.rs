@@ -1103,6 +1103,185 @@ fn list_rejects_invalid_cursor_format() {
     assert_eq!(error["retry"], false);
 }
 
+/// Ensures list uses config query.default_limit when --limit is omitted.
+#[test]
+fn list_uses_config_default_limit_when_limit_omitted() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files_with_query_limits(&temp, "unread", 1, 5);
+
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("sync")
+        .assert()
+        .success();
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("list")
+        .arg("--query")
+        .arg("unread")
+        .arg("--sort")
+        .arg("first_seen_desc")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let data = extract_ok_data(&output);
+    let items = data["items"].as_array().expect("items array");
+    assert_eq!(items.len(), 1);
+    assert!(data["next_cursor"].is_string());
+}
+
+/// Ensures list rejects limits over config query.max_limit.
+#[test]
+fn list_rejects_limit_over_max_limit() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files_with_query_limits(&temp, "unread", 1, 5);
+
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("sync")
+        .assert()
+        .success();
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("list")
+        .arg("--query")
+        .arg("unread")
+        .arg("--limit")
+        .arg("6")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    let code = extract_error_code(&output);
+    assert_eq!(code, "INVALID_QUERY");
+}
+
+/// Ensures list rejects zero limit.
+#[test]
+fn list_rejects_zero_limit() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files_with_query_limits(&temp, "unread", 1, 5);
+
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("sync")
+        .assert()
+        .success();
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("list")
+        .arg("--query")
+        .arg("unread")
+        .arg("--limit")
+        .arg("0")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    let code = extract_error_code(&output);
+    assert_eq!(code, "INVALID_QUERY");
+}
+
+/// Ensures config rejects query.default_limit = 0.
+#[test]
+fn fatal_config_rejects_zero_default_limit() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files_with_query_limits(&temp, "unread", 0, 5);
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("list")
+        .arg("--query")
+        .arg("unread")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    let code = extract_error_code(&output);
+    assert_eq!(code, "CONFIG_ERROR");
+}
+
+/// Ensures config rejects query.max_limit = 0.
+#[test]
+fn fatal_config_rejects_zero_max_limit() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files_with_query_limits(&temp, "unread", 1, 0);
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("list")
+        .arg("--query")
+        .arg("unread")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    let code = extract_error_code(&output);
+    assert_eq!(code, "CONFIG_ERROR");
+}
+
+/// Ensures config rejects query.default_limit > query.max_limit.
+#[test]
+fn fatal_config_rejects_default_limit_over_max_limit() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files_with_query_limits(&temp, "unread", 6, 5);
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--db")
+        .arg(&paths.db_path)
+        .arg("list")
+        .arg("--query")
+        .arg("unread")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    let code = extract_error_code(&output);
+    assert_eq!(code, "CONFIG_ERROR");
+}
+
 /// Ensures fatal config errors return JSON envelope and non-zero exit code.
 #[test]
 fn fatal_config_error_is_enveloped() {
@@ -1392,11 +1571,21 @@ struct SyncFixturePaths {
 
 /// Writes config, feeds, and feed XML for sync tests.
 fn write_sync_fixture_files(temp: &TempDir) -> SyncFixturePaths {
-    write_sync_fixture_files_with_unread_tag(temp, "unread")
+    write_sync_fixture_files_with_query_limits(temp, "unread", 100, 1000)
 }
 
 /// Writes config, feeds, and feed XML for sync tests with custom unread tag.
 fn write_sync_fixture_files_with_unread_tag(temp: &TempDir, unread_tag: &str) -> SyncFixturePaths {
+    write_sync_fixture_files_with_query_limits(temp, unread_tag, 100, 1000)
+}
+
+/// Writes config, feeds, and feed XML for sync tests with custom unread/query limits.
+fn write_sync_fixture_files_with_query_limits(
+    temp: &TempDir,
+    unread_tag: &str,
+    default_limit: usize,
+    max_limit: usize,
+) -> SyncFixturePaths {
     let config_path = temp.path().join("config.toml");
     let feeds_path = temp.path().join("feeds.yaml");
     let db_path = temp.path().join("db.sqlite");
@@ -1444,6 +1633,10 @@ retry_delay = 0
 
 [storage]
 content_store = "db"
+
+[query]
+default_limit = {default_limit}
+max_limit = {max_limit}
 "#,
         db_path.display(),
         feeds_path.display()
