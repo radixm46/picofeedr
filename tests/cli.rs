@@ -1,10 +1,20 @@
 //! CLI integration tests.
 
+mod support;
+
 use assert_cmd::cargo::cargo_bin_cmd;
 use rusqlite::Connection;
-use serde_json::Value;
 use std::fs;
 use std::path::Path;
+use support::assertions::{
+    assert_error_envelope, assert_plain_contract, extract_error_code, extract_error_payload,
+    extract_ok_data,
+};
+use support::fixtures::{
+    acquire_exclusive_db_lock, write_fixture_files, write_sync_all_failed_fixture_files,
+    write_sync_failure_fixture_files, write_sync_fixture_files, write_sync_fixture_files_fs,
+    write_sync_fixture_files_with_query_limits, write_sync_fixture_files_with_unread_tag,
+};
 use tempfile::TempDir;
 
 /// Creates a picofeedr command configured for JSON output.
@@ -19,38 +29,6 @@ fn picofeedr_cmd_plain() -> assert_cmd::Command {
     let mut cmd = cargo_bin_cmd!("picofeedr");
     cmd.arg("--output").arg("plain");
     cmd
-}
-
-/// Extracts the `data` object from a successful JSON envelope.
-fn extract_ok_data(output: &[u8]) -> Value {
-    let value: Value = serde_json::from_slice(output).expect("json");
-    assert_eq!(value["ok"], true, "expected ok=true envelope");
-    value.get("data").cloned().expect("data")
-}
-
-/// Extracts error code from a failed JSON envelope.
-fn extract_error_code(output: &[u8]) -> String {
-    let value: Value = serde_json::from_slice(output).expect("json");
-    assert_eq!(value["ok"], false, "expected ok=false envelope");
-    value
-        .get("error")
-        .and_then(|error| error.get("code"))
-        .and_then(|code| code.as_str())
-        .expect("error code")
-        .to_string()
-}
-
-/// Extracts error payload from a failed JSON envelope.
-fn extract_error_payload(output: &[u8]) -> Value {
-    let value: Value = serde_json::from_slice(output).expect("json");
-    assert_eq!(value["ok"], false, "expected ok=false envelope");
-    value.get("error").cloned().expect("error")
-}
-
-/// Ensures plain output is not JSON.
-fn assert_plain_output(output: &[u8]) {
-    let parsed = serde_json::from_slice::<Value>(output);
-    assert!(parsed.is_err(), "expected plain (non-JSON) output");
 }
 
 /// Ensures feeds --config-check returns validation report fields.
@@ -248,117 +226,158 @@ fn tags_command_returns_tag_dictionary() {
     assert_eq!(tag_values, vec!["rust", "tech", "unread"]);
 }
 
-/// Ensures invalid TOML config is reported as CONFIG_ERROR in JSON mode.
-#[test]
-fn fatal_invalid_toml_syntax_is_enveloped() {
-    let temp = TempDir::new().expect("tempdir");
-    let config_path = temp.path().join("config.toml");
-    fs::write(&config_path, "unread_tag = ").expect("write config");
-
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&config_path)
-        .arg("tags")
-        .assert()
-        .failure()
-        .get_output()
-        .stdout
-        .clone();
-
-    let error = extract_error_payload(&output);
-    assert_eq!(error["code"], "CONFIG_ERROR");
-    assert_eq!(error["retry"], false);
+/// Case definition for fatal configuration envelope validation.
+struct FatalEnvelopeCase {
+    /// Human-readable case name for diagnostics.
+    name: &'static str,
+    /// Case setup function.
+    setup: fn(&TempDir) -> FatalEnvelopeInputs,
 }
 
-/// Ensures missing feeds.yaml is reported as CONFIG_ERROR in JSON mode.
+/// Command inputs generated for fatal envelope test cases.
+struct FatalEnvelopeInputs {
+    /// Config path passed to the command.
+    config_path: String,
+    /// Optional database path passed to the command.
+    db_path: Option<String>,
+    /// Command and arguments after global options.
+    command_args: Vec<&'static str>,
+}
+
+/// Ensures fatal configuration errors consistently keep the JSON error envelope contract.
 #[test]
-fn fatal_missing_feeds_yaml_is_enveloped() {
-    let temp = TempDir::new().expect("tempdir");
+fn fatal_config_cases_are_enveloped() {
+    let cases = vec![
+        FatalEnvelopeCase {
+            name: "invalid toml syntax",
+            setup: fatal_case_invalid_toml_syntax,
+        },
+        FatalEnvelopeCase {
+            name: "missing feeds yaml",
+            setup: fatal_case_missing_feeds_yaml,
+        },
+        FatalEnvelopeCase {
+            name: "invalid feeds yaml",
+            setup: fatal_case_invalid_feeds_yaml,
+        },
+        FatalEnvelopeCase {
+            name: "feeds yaml without feeds key",
+            setup: fatal_case_missing_top_level_feeds_key,
+        },
+        FatalEnvelopeCase {
+            name: "invalid cli output value in config",
+            setup: fatal_case_invalid_cli_output_value,
+        },
+    ];
+
+    for case in cases {
+        let temp = TempDir::new().expect("tempdir");
+        let inputs = (case.setup)(&temp);
+        let mut cmd = picofeedr_cmd_json();
+        cmd.arg("--config").arg(&inputs.config_path);
+        if let Some(db_path) = inputs.db_path {
+            cmd.arg("--db").arg(db_path);
+        }
+        let output = cmd
+            .args(&inputs.command_args)
+            .assert()
+            .failure()
+            .get_output()
+            .stdout
+            .clone();
+        assert_error_envelope(&output, "CONFIG_ERROR", false);
+        assert_eq!(
+            extract_error_code(&output),
+            "CONFIG_ERROR",
+            "case={}",
+            case.name
+        );
+    }
+}
+
+/// Creates inputs for the invalid TOML fatal-envelope case.
+fn fatal_case_invalid_toml_syntax(temp: &TempDir) -> FatalEnvelopeInputs {
+    let config_path = temp.path().join("config.toml");
+    fs::write(&config_path, "unread_tag = ").expect("write config");
+    FatalEnvelopeInputs {
+        config_path: config_path.display().to_string(),
+        db_path: None,
+        command_args: vec!["tags"],
+    }
+}
+
+/// Creates inputs for the missing feeds YAML fatal-envelope case.
+fn fatal_case_missing_feeds_yaml(temp: &TempDir) -> FatalEnvelopeInputs {
     let config_path = temp.path().join("config.toml");
     let feeds_path = temp.path().join("missing.yaml");
     let db_path = temp.path().join("db.sqlite");
-
-    let config = format!(
-        r#"unread_tag = "unread"
-
-[database]
-path = "{}"
-
-[feeds]
-source = "{}"
-"#,
-        db_path.display(),
-        feeds_path.display()
-    );
-    fs::write(&config_path, config).expect("write config");
-
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&config_path)
-        .arg("--db")
-        .arg(&db_path)
-        .arg("feeds")
-        .arg("--config-check")
-        .assert()
-        .failure()
-        .get_output()
-        .stdout
-        .clone();
-
-    let error = extract_error_payload(&output);
-    assert_eq!(error["code"], "CONFIG_ERROR");
-    assert_eq!(error["retry"], false);
+    write_config_with_feeds_source(&config_path, &db_path, &feeds_path);
+    FatalEnvelopeInputs {
+        config_path: config_path.display().to_string(),
+        db_path: Some(db_path.display().to_string()),
+        command_args: vec!["feeds", "--config-check"],
+    }
 }
 
-/// Ensures invalid feeds.yaml is reported as CONFIG_ERROR in JSON mode.
-#[test]
-fn fatal_invalid_feeds_yaml_is_enveloped() {
-    let temp = TempDir::new().expect("tempdir");
+/// Creates inputs for the invalid feeds YAML fatal-envelope case.
+fn fatal_case_invalid_feeds_yaml(temp: &TempDir) -> FatalEnvelopeInputs {
     let config_path = temp.path().join("config.toml");
     let feeds_path = temp.path().join("feeds.yaml");
     let db_path = temp.path().join("db.sqlite");
-
-    let config = format!(
-        r#"unread_tag = "unread"
-
-[database]
-path = "{}"
-
-[feeds]
-source = "{}"
-"#,
-        db_path.display(),
-        feeds_path.display()
-    );
-    fs::write(&config_path, config).expect("write config");
+    write_config_with_feeds_source(&config_path, &db_path, &feeds_path);
     fs::write(&feeds_path, "feeds: [").expect("write feeds");
-
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&config_path)
-        .arg("--db")
-        .arg(&db_path)
-        .arg("feeds")
-        .arg("--config-check")
-        .assert()
-        .failure()
-        .get_output()
-        .stdout
-        .clone();
-
-    let error = extract_error_payload(&output);
-    assert_eq!(error["code"], "CONFIG_ERROR");
-    assert_eq!(error["retry"], false);
+    FatalEnvelopeInputs {
+        config_path: config_path.display().to_string(),
+        db_path: Some(db_path.display().to_string()),
+        command_args: vec!["feeds", "--config-check"],
+    }
 }
 
-/// Ensures feeds.yaml without top-level `feeds` key is rejected as CONFIG_ERROR.
-#[test]
-fn fatal_feeds_yaml_missing_top_level_feeds_is_enveloped() {
-    let temp = TempDir::new().expect("tempdir");
+/// Creates inputs for the missing `feeds` top-level key fatal-envelope case.
+fn fatal_case_missing_top_level_feeds_key(temp: &TempDir) -> FatalEnvelopeInputs {
     let config_path = temp.path().join("config.toml");
     let feeds_path = temp.path().join("feeds.yaml");
     let db_path = temp.path().join("db.sqlite");
+    write_config_with_feeds_source(&config_path, &db_path, &feeds_path);
+    fs::write(&feeds_path, "auto_tags: []").expect("write feeds");
+    FatalEnvelopeInputs {
+        config_path: config_path.display().to_string(),
+        db_path: Some(db_path.display().to_string()),
+        command_args: vec!["feeds", "--config-check"],
+    }
+}
 
+/// Creates inputs for the invalid CLI output config fatal-envelope case.
+fn fatal_case_invalid_cli_output_value(temp: &TempDir) -> FatalEnvelopeInputs {
+    let config_path = temp.path().join("config.toml");
+    let db_path = temp.path().join("db.sqlite");
+    let feeds_path = temp.path().join("feeds.yaml");
+    let config = format!(
+        r#"unread_tag = "unread"
+
+[database]
+path = "{}"
+
+[feeds]
+source = "{}"
+
+[cli]
+output = "bogus"
+"#,
+        db_path.display(),
+        feeds_path.display()
+    );
+    fs::write(&config_path, config).expect("write config");
+    fs::write(feeds_path, "feeds: {}").expect("write feeds");
+    FatalEnvelopeInputs {
+        config_path: config_path.display().to_string(),
+        db_path: Some(db_path.display().to_string()),
+        command_args: vec!["tags"],
+    }
+}
+
+/// Writes a minimal config file pointing to a specific feeds source.
+fn write_config_with_feeds_source(config_path: &Path, db_path: &Path, feeds_path: &Path) {
     let config = format!(
         r#"unread_tag = "unread"
 
@@ -371,25 +390,7 @@ source = "{}"
         db_path.display(),
         feeds_path.display()
     );
-    fs::write(&config_path, config).expect("write config");
-    fs::write(&feeds_path, "auto_tags: []").expect("write feeds");
-
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&config_path)
-        .arg("--db")
-        .arg(&db_path)
-        .arg("feeds")
-        .arg("--config-check")
-        .assert()
-        .failure()
-        .get_output()
-        .stdout
-        .clone();
-
-    let error = extract_error_payload(&output);
-    assert_eq!(error["code"], "CONFIG_ERROR");
-    assert_eq!(error["retry"], false);
+    fs::write(config_path, config).expect("write config");
 }
 
 /// Ensures unread token maps to configured unread tag.
@@ -468,10 +469,7 @@ fn list_plain_is_human_readable() {
         .stdout
         .clone();
 
-    assert_plain_output(&output);
-    let output_str = String::from_utf8_lossy(&output);
-    assert!(output_str.contains("First Entry"));
-    assert!(output_str.contains("Second Entry"));
+    assert_plain_contract(&output, &["First Entry", "Second Entry"]);
 }
 
 /// Ensures view command renders human-readable plain output.
@@ -489,14 +487,7 @@ fn view_plain_is_human_readable() {
         .assert()
         .success();
 
-    let conn = Connection::open(&paths.db_path).expect("open db");
-    let entry_id: i64 = conn
-        .query_row(
-            "SELECT id FROM entries WHERE title = 'First Entry'",
-            [],
-            |row| row.get(0),
-        )
-        .expect("entry id");
+    let entry_id = entry_id_by_title(&paths.config_path, &paths.db_path, "First");
 
     let output = picofeedr_cmd_plain()
         .arg("--config")
@@ -511,13 +502,10 @@ fn view_plain_is_human_readable() {
         .stdout
         .clone();
 
-    assert_plain_output(&output);
-    let output_str = String::from_utf8_lossy(&output);
-    assert!(output_str.contains("First Entry"));
-    assert!(output_str.contains("https://example.com/1"));
+    assert_plain_contract(&output, &["First Entry", "https://example.com/1", "feed"]);
 }
 
-/// Ensures sync ingests entries, applies tags, and reports counts.
+/// Ensures sync reports contract fields and query-visible outcomes.
 #[test]
 fn sync_ingests_entries_and_tags() {
     let temp = TempDir::new().expect("tempdir");
@@ -542,38 +530,14 @@ fn sync_ingests_entries_and_tags() {
     assert_eq!(data["new_entries"], 2);
     assert!(data["errors"].as_array().expect("errors array").is_empty());
 
-    let conn = Connection::open(&paths.db_path).expect("open db");
-    let entry_count: i64 = conn
-        .query_row("SELECT COUNT(1) FROM entries", [], |row| row.get(0))
-        .expect("entries count");
-    assert_eq!(entry_count, 2);
+    let unread_data = list_query_json(&paths.config_path, &paths.db_path, "unread");
+    assert_eq!(unread_data["total_hits"], 2);
 
-    let unread_count: i64 = conn
-        .query_row(
-            "SELECT COUNT(1) FROM entry_tags et JOIN tags t ON et.tag_id = t.id WHERE t.name = 'unread'",
-            [],
-            |row| row.get(0),
-        )
-        .expect("unread count");
-    assert_eq!(unread_count, 2);
+    let tech_data = list_query_json(&paths.config_path, &paths.db_path, "tag:tech");
+    assert_eq!(tech_data["total_hits"], 2);
 
-    let tech_count: i64 = conn
-        .query_row(
-            "SELECT COUNT(1) FROM entry_tags et JOIN tags t ON et.tag_id = t.id WHERE t.name = 'tech'",
-            [],
-            |row| row.get(0),
-        )
-        .expect("tech count");
-    assert_eq!(tech_count, 2);
-
-    let hot_count: i64 = conn
-        .query_row(
-            "SELECT COUNT(1) FROM entry_tags et JOIN tags t ON et.tag_id = t.id WHERE t.name = 'hot'",
-            [],
-            |row| row.get(0),
-        )
-        .expect("hot count");
-    assert_eq!(hot_count, 1);
+    let hot_data = list_query_json(&paths.config_path, &paths.db_path, "tag:hot");
+    assert_eq!(hot_data["total_hits"], 1);
 }
 
 /// Ensures sync writes content to filesystem storage.
@@ -675,25 +639,6 @@ fn list_returns_paginated_results() {
         .arg("sync")
         .assert()
         .success();
-
-    let conn = Connection::open(&paths.db_path).expect("open db");
-    let tech_entries: i64 = conn
-        .query_row(
-            "SELECT COUNT(1) FROM entry_tags et JOIN tags t ON et.tag_id = t.id WHERE t.name = 'tech'",
-            [],
-            |row| row.get(0),
-        )
-        .expect("tech count");
-    assert_eq!(tech_entries, 2);
-
-    let unread_entries: i64 = conn
-        .query_row(
-            "SELECT COUNT(1) FROM entry_tags et JOIN tags t ON et.tag_id = t.id WHERE t.name = 'unread'",
-            [],
-            |row| row.get(0),
-        )
-        .expect("unread count");
-    assert_eq!(unread_entries, 2);
 
     let output = picofeedr_cmd_json()
         .arg("--config")
@@ -855,14 +800,7 @@ fn list_filters_by_feed() {
         .assert()
         .success();
 
-    let conn = Connection::open(&paths.db_path).expect("open db");
-    let feed_id: i64 = conn
-        .query_row(
-            "SELECT id FROM feeds WHERE title = 'Example Feed'",
-            [],
-            |row| row.get(0),
-        )
-        .expect("feed id");
+    let feed_id = first_feed_id_from_list(&paths.config_path, &paths.db_path);
 
     let output = picofeedr_cmd_json()
         .arg("--config")
@@ -1282,49 +1220,6 @@ fn fatal_config_rejects_default_limit_over_max_limit() {
     assert_eq!(code, "CONFIG_ERROR");
 }
 
-/// Ensures fatal config errors return JSON envelope and non-zero exit code.
-#[test]
-fn fatal_config_error_is_enveloped() {
-    let temp = TempDir::new().expect("tempdir");
-    let config_path = temp.path().join("config.toml");
-    let db_path = temp.path().join("db.sqlite");
-
-    let config = format!(
-        r#"unread_tag = "unread"
-
-[database]
-path = "{}"
-
-[feeds]
-source = "{}"
-
-[cli]
-output = "bogus"
-"#,
-        db_path.display(),
-        temp.path().join("feeds.yaml").display()
-    );
-
-    fs::write(&config_path, config).expect("write config");
-    fs::write(temp.path().join("feeds.yaml"), "feeds: {}").expect("write feeds");
-
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&config_path)
-        .arg("--db")
-        .arg(&db_path)
-        .arg("tags")
-        .assert()
-        .failure()
-        .get_output()
-        .stdout
-        .clone();
-
-    let error = extract_error_payload(&output);
-    assert_eq!(error["code"], "CONFIG_ERROR");
-    assert_eq!(error["retry"], false);
-}
-
 /// Ensures CLI parse errors keep JSON envelope when using --output=json form.
 #[test]
 fn parse_error_with_output_equals_json_is_enveloped() {
@@ -1336,10 +1231,7 @@ fn parse_error_with_output_equals_json_is_enveloped() {
         .get_output()
         .stdout
         .clone();
-
-    let error = extract_error_payload(&output);
-    assert_eq!(error["code"], "CONFIG_ERROR");
-    assert_eq!(error["retry"], false);
+    assert_error_envelope(&output, "CONFIG_ERROR", false);
 }
 
 /// Ensures locked database errors are fatal and retryable.
@@ -1347,9 +1239,7 @@ fn parse_error_with_output_equals_json_is_enveloped() {
 fn db_locked_returns_retry_true() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_fixture_files(&temp);
-
-    let conn = Connection::open(&paths.db_path).expect("open db");
-    conn.execute("BEGIN EXCLUSIVE", []).expect("lock db");
+    let _lock = acquire_exclusive_db_lock(&paths.db_path);
 
     let output = picofeedr_cmd_json()
         .arg("--config")
@@ -1362,10 +1252,7 @@ fn db_locked_returns_retry_true() {
         .get_output()
         .stdout
         .clone();
-
-    let error = extract_error_payload(&output);
-    assert_eq!(error["code"], "DB_LOCKED");
-    assert_eq!(error["retry"], true);
+    assert_error_envelope(&output, "DB_LOCKED", true);
 }
 
 /// Ensures view returns entry details with tags.
@@ -1383,14 +1270,7 @@ fn view_returns_entry_detail() {
         .assert()
         .success();
 
-    let conn = Connection::open(&paths.db_path).expect("open db");
-    let entry_id: i64 = conn
-        .query_row(
-            "SELECT id FROM entries WHERE title = 'First Entry'",
-            [],
-            |row| row.get(0),
-        )
-        .expect("entry id");
+    let entry_id = entry_id_by_title(&paths.config_path, &paths.db_path, "First");
 
     let output = picofeedr_cmd_json()
         .arg("--config")
@@ -1408,6 +1288,8 @@ fn view_returns_entry_detail() {
     let data = extract_ok_data(&output);
     assert_eq!(data["id"], entry_id);
     assert_eq!(data["feed_title"], "Example Feed");
+    assert_eq!(data["title"], "First Entry");
+    assert_eq!(data["link"], "https://example.com/1");
     let tags = data["tags"].as_array().expect("tags array");
     let tag_values: Vec<String> = tags
         .iter()
@@ -1432,14 +1314,8 @@ fn mark_updates_tags() {
         .assert()
         .success();
 
-    let conn = Connection::open(&paths.db_path).expect("open db");
-    let entry_ids: Vec<i64> = conn
-        .prepare("SELECT id FROM entries ORDER BY id")
-        .expect("prepare")
-        .query_map([], |row| row.get(0))
-        .expect("rows")
-        .map(|row| row.expect("row"))
-        .collect();
+    let unread_data = list_query_json(&paths.config_path, &paths.db_path, "unread");
+    let entry_ids = collect_item_ids(&unread_data);
     assert_eq!(entry_ids.len(), 2);
 
     picofeedr_cmd_json()
@@ -1454,14 +1330,8 @@ fn mark_updates_tags() {
         .assert()
         .success();
 
-    let unread_count: i64 = conn
-        .query_row(
-            "SELECT COUNT(1) FROM entry_tags et JOIN tags t ON et.tag_id = t.id WHERE t.name = 'unread'",
-            [],
-            |row| row.get(0),
-        )
-        .expect("unread count");
-    assert_eq!(unread_count, 0);
+    let unread_after_read = list_query_json(&paths.config_path, &paths.db_path, "unread");
+    assert_eq!(unread_after_read["total_hits"], 0);
 
     picofeedr_cmd_json()
         .arg("--config")
@@ -1474,14 +1344,8 @@ fn mark_updates_tags() {
         .assert()
         .success();
 
-    let unread_count: i64 = conn
-        .query_row(
-            "SELECT COUNT(1) FROM entry_tags et JOIN tags t ON et.tag_id = t.id WHERE t.name = 'unread'",
-            [],
-            |row| row.get(0),
-        )
-        .expect("unread count");
-    assert_eq!(unread_count, 1);
+    let unread_after_unread = list_query_json(&paths.config_path, &paths.db_path, "unread");
+    assert_eq!(unread_after_unread["total_hits"], 1);
 
     picofeedr_cmd_json()
         .arg("--config")
@@ -1498,374 +1362,61 @@ fn mark_updates_tags() {
         .assert()
         .success();
 
-    let foo_count: i64 = conn
-        .query_row(
-            "SELECT COUNT(1) FROM entry_tags et JOIN tags t ON et.tag_id = t.id WHERE t.name = 'foo'",
-            [],
-            |row| row.get(0),
-        )
-        .expect("foo count");
-    assert_eq!(foo_count, 1);
+    let foo_data = list_query_json(&paths.config_path, &paths.db_path, "tag:foo");
+    assert_eq!(foo_data["total_hits"], 1);
 
-    let tech_count: i64 = conn
-        .query_row(
-            "SELECT COUNT(1) FROM entry_tags et JOIN tags t ON et.tag_id = t.id WHERE t.name = 'tech'",
-            [],
-            |row| row.get(0),
-        )
-        .expect("tech count");
-    assert_eq!(tech_count, 1);
+    let tech_data = list_query_json(&paths.config_path, &paths.db_path, "tag:tech");
+    assert_eq!(tech_data["total_hits"], 1);
 }
 
-/// Fixture file paths for CLI tests.
-struct FixturePaths {
-    config_path: String,
-    db_path: String,
-    feeds_path: String,
+/// Runs `list` in JSON mode and returns its `data` object.
+fn list_query_json(config_path: &str, db_path: &str, query: &str) -> serde_json::Value {
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(config_path)
+        .arg("--db")
+        .arg(db_path)
+        .arg("list")
+        .arg("--query")
+        .arg(query)
+        .arg("--sort")
+        .arg("first_seen_desc")
+        .arg("--limit")
+        .arg("10")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    extract_ok_data(&output)
 }
 
-/// Writes config.toml and feeds.yaml fixtures.
-fn write_fixture_files(temp: &TempDir) -> FixturePaths {
-    let config_path = temp.path().join("config.toml");
-    let feeds_path = temp.path().join("feeds.yaml");
-    let db_path = temp.path().join("db.sqlite");
-
-    let config = format!(
-        r#"unread_tag = "unread"
-
-[database]
-path = "{}"
-
-[feeds]
-source = "{}"
-"#,
-        db_path.display(),
-        feeds_path.display()
-    );
-
-    let feeds = r#"feeds:
-  tech:
-    tags: [tech]
-    rust:
-      tags: [rust]
-      feeds:
-        - url: https://example.com/feed
-          title: Example Feed
-"#;
-
-    fs::write(&config_path, config).expect("write config");
-    fs::write(&feeds_path, feeds).expect("write feeds");
-
-    FixturePaths {
-        config_path: config_path.display().to_string(),
-        db_path: db_path.display().to_string(),
-        feeds_path: feeds_path.display().to_string(),
-    }
+/// Resolves an entry id from a title query.
+fn entry_id_by_title(config_path: &str, db_path: &str, title: &str) -> i64 {
+    let data = list_query_json(config_path, db_path, &format!("title:\"{title}\""));
+    let items = data["items"].as_array().expect("items array");
+    items
+        .first()
+        .and_then(|item| item["id"].as_i64())
+        .expect("entry id by title")
 }
 
-/// Fixture file paths for sync tests.
-struct SyncFixturePaths {
-    config_path: String,
-    db_path: String,
+/// Resolves the first feed id from list output.
+fn first_feed_id_from_list(config_path: &str, db_path: &str) -> i64 {
+    let data = list_query_json(config_path, db_path, "unread");
+    let items = data["items"].as_array().expect("items array");
+    items
+        .first()
+        .and_then(|item| item["feed_id"].as_i64())
+        .expect("feed id")
 }
 
-/// Writes config, feeds, and feed XML for sync tests.
-fn write_sync_fixture_files(temp: &TempDir) -> SyncFixturePaths {
-    write_sync_fixture_files_with_query_limits(temp, "unread", 100, 1000)
-}
-
-/// Writes config, feeds, and feed XML for sync tests with custom unread tag.
-fn write_sync_fixture_files_with_unread_tag(temp: &TempDir, unread_tag: &str) -> SyncFixturePaths {
-    write_sync_fixture_files_with_query_limits(temp, unread_tag, 100, 1000)
-}
-
-/// Writes config, feeds, and feed XML for sync tests with custom unread/query limits.
-fn write_sync_fixture_files_with_query_limits(
-    temp: &TempDir,
-    unread_tag: &str,
-    default_limit: usize,
-    max_limit: usize,
-) -> SyncFixturePaths {
-    let config_path = temp.path().join("config.toml");
-    let feeds_path = temp.path().join("feeds.yaml");
-    let db_path = temp.path().join("db.sqlite");
-    let feed_path = temp.path().join("feed.xml");
-
-    let feed_xml = r#"<?xml version="1.0"?>
-<rss version="2.0">
-  <channel>
-    <title>Example Feed</title>
-    <link>https://example.com</link>
-    <description>Example Feed</description>
-    <item>
-      <title>First Entry</title>
-      <link>https://example.com/1</link>
-      <guid>entry-1</guid>
-      <pubDate>Mon, 01 Jan 2024 00:00:00 GMT</pubDate>
-      <description>Hello world</description>
-    </item>
-    <item>
-      <title>Second Entry</title>
-      <link>https://example.com/2</link>
-      <guid>entry-2</guid>
-      <pubDate>Tue, 02 Jan 2024 00:00:00 GMT</pubDate>
-      <description>Another entry</description>
-    </item>
-  </channel>
-</rss>
-"#;
-
-    let config = format!(
-        r#"unread_tag = "{unread_tag}"
-
-[database]
-path = "{}"
-
-[feeds]
-source = "{}"
-
-[sync]
-parallel = 1
-timeout = 5
-user_agent = "picofeedr-test/0.1.0"
-retry_count = 0
-retry_delay = 0
-
-[storage]
-content_store = "db"
-
-[query]
-default_limit = {default_limit}
-max_limit = {max_limit}
-"#,
-        db_path.display(),
-        feeds_path.display()
-    );
-
-    let feed_url = format!("file://{}", feed_path.display());
-    let feeds = format!(
-        r#"feeds:
-  tech:
-    tags: [tech]
-    feeds:
-      - url: {feed_url}
-        title: Example Feed
-auto_tags:
-  - title_contains: [First]
-    add_tags: [hot]
-    priority: 1
-"#
-    );
-
-    fs::write(&config_path, config).expect("write config");
-    fs::write(&feeds_path, feeds).expect("write feeds");
-    fs::write(&feed_path, feed_xml).expect("write feed");
-
-    SyncFixturePaths {
-        config_path: config_path.display().to_string(),
-        db_path: db_path.display().to_string(),
-    }
-}
-
-/// Fixture file paths for fs-content sync tests.
-struct SyncFixtureFsPaths {
-    config_path: String,
-    db_path: String,
-    data_dir: String,
-}
-
-/// Writes config, feeds, and feed XML for fs-content sync tests.
-fn write_sync_fixture_files_fs(temp: &TempDir) -> SyncFixtureFsPaths {
-    let config_path = temp.path().join("config.toml");
-    let feeds_path = temp.path().join("feeds.yaml");
-    let db_path = temp.path().join("db.sqlite");
-    let feed_path = temp.path().join("feed.xml");
-    let data_dir = temp.path().join("data");
-
-    let feed_xml = r#"<?xml version="1.0"?>
-<rss version="2.0">
-  <channel>
-    <title>Example Feed</title>
-    <link>https://example.com</link>
-    <description>Example Feed</description>
-    <item>
-      <title>First Entry</title>
-      <link>https://example.com/1</link>
-      <guid>entry-1</guid>
-      <pubDate>Mon, 01 Jan 2024 00:00:00 GMT</pubDate>
-      <description>Hello world</description>
-    </item>
-  </channel>
-</rss>
-"#;
-
-    let config = format!(
-        r#"unread_tag = "unread"
-
-[database]
-path = "{}"
-
-[feeds]
-source = "{}"
-
-[sync]
-parallel = 1
-timeout = 5
-user_agent = "picofeedr-test/0.1.0"
-retry_count = 0
-retry_delay = 0
-
-[storage]
-content_store = "fs"
-data_dir = "{}"
-"#,
-        db_path.display(),
-        feeds_path.display(),
-        data_dir.display()
-    );
-
-    let feed_url = format!("file://{}", feed_path.display());
-    let feeds = format!(
-        r#"feeds:
-  tech:
-    tags: [tech]
-    feeds:
-      - url: {feed_url}
-        title: Example Feed
-"#
-    );
-
-    fs::write(&config_path, config).expect("write config");
-    fs::write(&feeds_path, feeds).expect("write feeds");
-    fs::write(&feed_path, feed_xml).expect("write feed");
-
-    SyncFixtureFsPaths {
-        config_path: config_path.display().to_string(),
-        db_path: db_path.display().to_string(),
-        data_dir: data_dir.display().to_string(),
-    }
-}
-
-/// Writes config, feeds, and invalid feed XML for partial failure tests.
-fn write_sync_failure_fixture_files(temp: &TempDir) -> SyncFixturePaths {
-    let config_path = temp.path().join("config.toml");
-    let feeds_path = temp.path().join("feeds.yaml");
-    let db_path = temp.path().join("db.sqlite");
-    let feed_ok_path = temp.path().join("feed_ok.xml");
-    let feed_bad_path = temp.path().join("feed_bad.xml");
-
-    let feed_ok_xml = r#"<?xml version="1.0"?>
-<rss version="2.0">
-  <channel>
-    <title>OK Feed</title>
-    <link>https://example.com</link>
-    <description>OK Feed</description>
-    <item>
-      <title>OK Entry</title>
-      <link>https://example.com/ok</link>
-      <guid>ok-entry</guid>
-      <pubDate>Mon, 01 Jan 2024 00:00:00 GMT</pubDate>
-      <description>OK</description>
-    </item>
-  </channel>
-</rss>
-"#;
-
-    let config = format!(
-        r#"unread_tag = "unread"
-
-[database]
-path = "{}"
-
-[feeds]
-source = "{}"
-
-[sync]
-parallel = 1
-timeout = 5
-user_agent = "picofeedr-test/0.1.0"
-retry_count = 0
-retry_delay = 0
-
-[storage]
-content_store = "db"
-"#,
-        db_path.display(),
-        feeds_path.display()
-    );
-
-    let feed_ok_url = format!("file://{}", feed_ok_path.display());
-    let feed_bad_url = format!("file://{}", feed_bad_path.display());
-    let feeds = format!(
-        r#"feeds:
-  tech:
-    tags: [tech]
-    feeds:
-      - url: {feed_ok_url}
-        title: OK Feed
-      - url: {feed_bad_url}
-        title: Bad Feed
-"#
-    );
-
-    fs::write(&config_path, config).expect("write config");
-    fs::write(&feeds_path, feeds).expect("write feeds");
-    fs::write(&feed_ok_path, feed_ok_xml).expect("write ok feed");
-    fs::write(&feed_bad_path, "not xml").expect("write bad feed");
-
-    SyncFixturePaths {
-        config_path: config_path.display().to_string(),
-        db_path: db_path.display().to_string(),
-    }
-}
-
-/// Writes config and invalid feeds for all-failure tests.
-fn write_sync_all_failed_fixture_files(temp: &TempDir) -> SyncFixturePaths {
-    let config_path = temp.path().join("config.toml");
-    let feeds_path = temp.path().join("feeds.yaml");
-    let db_path = temp.path().join("db.sqlite");
-    let feed_bad_path = temp.path().join("feed_bad.xml");
-
-    let config = format!(
-        r#"unread_tag = "unread"
-
-[database]
-path = "{}"
-
-[feeds]
-source = "{}"
-
-[sync]
-parallel = 1
-timeout = 5
-user_agent = "picofeedr-test/0.1.0"
-retry_count = 0
-retry_delay = 0
-
-[storage]
-content_store = "db"
-"#,
-        db_path.display(),
-        feeds_path.display()
-    );
-
-    let feed_bad_url = format!("file://{}", feed_bad_path.display());
-    let feeds = format!(
-        r#"feeds:
-  tech:
-    tags: [tech]
-    feeds:
-      - url: {feed_bad_url}
-        title: Bad Feed
-"#
-    );
-
-    fs::write(&config_path, config).expect("write config");
-    fs::write(&feeds_path, feeds).expect("write feeds");
-    fs::write(&feed_bad_path, "not xml").expect("write bad feed");
-
-    SyncFixturePaths {
-        config_path: config_path.display().to_string(),
-        db_path: db_path.display().to_string(),
-    }
+/// Collects entry ids from list response items.
+fn collect_item_ids(data: &serde_json::Value) -> Vec<i64> {
+    data["items"]
+        .as_array()
+        .expect("items array")
+        .iter()
+        .map(|item| item["id"].as_i64().expect("item id"))
+        .collect()
 }
