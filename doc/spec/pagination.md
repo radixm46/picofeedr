@@ -45,11 +45,11 @@
 
 ```
 # 初回
-picofeedr list --output json --query unread --sort first_seen_desc --limit 100
+picofeedr --output json list --query unread --sort first_seen_desc --limit 100
 # → {"ok": true, "data": {"items": [...], "next_cursor": "eyJrIjoxNzA1NDIwODAwLCJpZCI6MTIzfQ"}, "error": null}
 
 # 2ページ目
-picofeedr list --output json --query unread --sort first_seen_desc --limit 100 --cursor "eyJrIjoxNzA1NDIwODAwLCJpZCI6MTIzfQ"
+picofeedr --output json list --query unread --sort first_seen_desc --limit 100 --cursor "eyJrIjoxNzA1NDIwODAwLCJpZCI6MTIzfQ"
 ```
 
 ### A8.5 使用例（date_desc）

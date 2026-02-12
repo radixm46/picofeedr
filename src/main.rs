@@ -10,6 +10,7 @@ mod feed;
 mod identity;
 mod query;
 mod response;
+mod status;
 mod sync;
 mod tag;
 mod time;
@@ -21,6 +22,7 @@ use crate::error::AppError;
 use crate::feed::FeedListResponse;
 use crate::query::EntryQuery;
 use crate::response::Envelope;
+use crate::status::StatusResponse;
 use crate::sync::SyncSummary;
 use crate::tag::TagManager;
 use clap::Parser;
@@ -43,6 +45,9 @@ enum CommandOutput {
     },
     Tags {
         tags: Vec<String>,
+    },
+    Status {
+        status: StatusResponse,
     },
     FeedsList {
         feeds: FeedListResponse,
@@ -138,6 +143,7 @@ fn execute_command(cli: &Cli) -> Result<CommandOutput, AppError> {
             build: "dev",
         }),
         Command::Tags
+        | Command::Status
         | Command::Feeds { .. }
         | Command::Sync
         | Command::List { .. }
@@ -158,17 +164,30 @@ fn execute_command(cli: &Cli) -> Result<CommandOutput, AppError> {
                     let tags = tag_manager.list_tags()?;
                     Ok(CommandOutput::Tags { tags })
                 }
+                Command::Status => {
+                    let meta = store.read_system_meta()?;
+                    let status = StatusResponse::from_meta(
+                        &meta,
+                        db::migrate::current_schema_version(),
+                        env!("CARGO_PKG_VERSION"),
+                    );
+                    Ok(CommandOutput::Status { status })
+                }
                 Command::Feeds { config_check } => {
                     let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
                     debug_assert!(!config_check);
                     feed::reconcile_feeds(&store, &feeds_config, &config.unread_tag)?;
                     let db_feeds = store.list_feeds()?;
                     let feeds = feed::render_feed_list(&feeds_config, &db_feeds);
+                    store.bump_system_revision(time::current_epoch())?;
                     Ok(CommandOutput::FeedsList { feeds })
                 }
                 Command::Sync => {
                     let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
                     let summary = sync::run_sync(&mut store, &config, &feeds_config)?;
+                    let now = time::current_epoch();
+                    store.bump_system_revision(now)?;
+                    store.update_last_sync(now, summary.status.as_str())?;
                     Ok(CommandOutput::Sync { summary })
                 }
                 Command::List {
@@ -189,6 +208,7 @@ fn execute_command(cli: &Cli) -> Result<CommandOutput, AppError> {
                 }
                 Command::Mark { command } => {
                     let updated = execute_mark(&mut store, &config, command)?;
+                    store.bump_system_revision(time::current_epoch())?;
                     Ok(CommandOutput::Mark { updated })
                 }
                 Command::Ping | Command::Version => unreachable!("handled above"),
@@ -226,6 +246,7 @@ fn render_json(result: &CommandOutput) -> Result<(), AppError> {
             "build": build,
         }),
         CommandOutput::Tags { tags } => json!({ "tags": tags }),
+        CommandOutput::Status { status } => serde_json::to_value(status)?,
         CommandOutput::FeedsList { feeds } => serde_json::to_value(feeds)?,
         CommandOutput::Sync { summary } => serde_json::to_value(summary)?,
         CommandOutput::List { list } => serde_json::to_value(list)?,
@@ -250,6 +271,29 @@ fn render_plain(result: &CommandOutput) {
             for tag in tags {
                 println!("{tag}");
             }
+        }
+        CommandOutput::Status { status } => {
+            println!("db_revision: {}", status.db_revision);
+            println!(
+                "last_write_at: {}",
+                status
+                    .last_write_at
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "null".to_string())
+            );
+            println!("schema_version: {}", status.schema_version);
+            println!("api_version: {}", status.api_version);
+            println!(
+                "last_sync_at: {}",
+                status
+                    .last_sync_at
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "null".to_string())
+            );
+            println!(
+                "last_sync_status: {}",
+                status.last_sync_status.as_deref().unwrap_or("null")
+            );
         }
         CommandOutput::FeedsList { feeds } => {
             for feed in &feeds.feeds {

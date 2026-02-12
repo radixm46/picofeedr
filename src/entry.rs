@@ -84,6 +84,10 @@ pub struct EntryListResponse {
     pub items: Vec<EntrySummary>,
     /// Cursor for the next page.
     pub next_cursor: Option<String>,
+    /// Snapshot revision captured when the list was fetched.
+    pub snapshot_revision: i64,
+    /// Snapshot write timestamp captured when the list was fetched.
+    pub snapshot_at: Option<i64>,
 }
 
 /// Cursor payload for pagination.
@@ -104,6 +108,7 @@ pub fn list_entries(
     cursor: Option<&str>,
 ) -> Result<EntryListResponse, AppError> {
     let conn = store.connection();
+    let system_meta = store.read_system_meta()?;
     let query_hash = compute_query_hash(query);
     let (count_where_sql, count_params) = build_where_clause(query, sort, None, &query_hash)?;
     let total_hits = count_entries(conn, &count_where_sql, &count_params)?;
@@ -120,6 +125,8 @@ pub fn list_entries(
         total_hits,
         items,
         next_cursor,
+        snapshot_revision: system_meta.db_revision,
+        snapshot_at: system_meta.last_write_at,
     })
 }
 

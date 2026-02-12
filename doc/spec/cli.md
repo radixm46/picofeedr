@@ -117,13 +117,26 @@ picofeedr sync
    - `feeds.auto_tags` ルールにマッチしたタグ
    - `unread_tag`（常に付与）
 
-### A6.4 一覧検索（軽量メタデータのみ）
+### A6.4 DB状態メタデータ（軽量）
+
+```
+picofeedr status
+# → {"ok": true, "data": {"db_revision": 1284, "last_write_at": 1705420900, "schema_version": 1, "api_version": "0.5.0", "last_sync_at": 1705420800, "last_sync_status": "completed"}, "error": null}
+```
+
+**StatusResponse：**
+
+```
+{ "db_revision": <int>, "last_write_at": <epoch|null>, "schema_version": <int>, "api_version": "<string>", "last_sync_at": <epoch|null>, "last_sync_status": "completed|partial_failed|failed|null" }
+```
+
+### A6.5 一覧検索（軽量メタデータのみ）
 
 ```
 
 picofeedr list --query <q> --sort <date_desc|date_asc|first_seen_desc|first_seen_asc> --limit <n> [--cursor <cursor>]
 
-# → {"ok": true, "data": {"total_hits": 342, "items": [EntrySummary...], "next_cursor": "eyJ..."}, "error": null}
+# → {"ok": true, "data": {"total_hits": 342, "items": [EntrySummary...], "next_cursor": "eyJ...", "snapshot_revision": 1284, "snapshot_at": 1705420900}, "error": null}
 
 ```
 
@@ -147,7 +160,13 @@ picofeedr list --query 'tag:A&B&C -tag:D|E' --sort first_seen_desc --limit 20
 
 ```
 
-### A6.5 詳細取得（遅延）
+**ListResponse：**
+
+```
+{ "total_hits": <int>, "items": [EntrySummary...], "next_cursor": "<cursor|null>", "snapshot_revision": <int>, "snapshot_at": <epoch|null> }
+```
+
+### A6.6 詳細取得（遅延）
 
 ```
 
@@ -175,7 +194,7 @@ picofeedr view <id>
 - `content`/`content_type` を「常にフィールドとして返し、無い場合は `null` に統一する」かどうかを確定するのだ（省略可否を揃える）。
 - `content_available: bool` または `content_ref` 等を返して、UI 側の分岐を安定化させるのだ。
 
-### A6.6 状態更新
+### A6.7 状態更新
 
 ```
 
@@ -199,7 +218,7 @@ picofeedr mark tag   ... --add star
 
 ```
 
-### A6.7 タグ
+### A6.8 タグ
 
 ```
 

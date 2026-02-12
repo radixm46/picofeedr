@@ -82,6 +82,9 @@ pub enum Command {
     /// List tags stored in the database.
     Tags,
 
+    /// Show lightweight database status metadata.
+    Status,
+
     /// List feeds or run static config validation.
     Feeds {
         /// Validate feeds config without touching the database.

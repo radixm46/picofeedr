@@ -12,10 +12,10 @@ cp /usr/share/picofeedr/feeds.example.yaml ~/.config/picofeedr/feeds.yaml
 vim ~/.config/picofeedr/feeds.yaml
 
 # 3. 初回同期
-picofeedr sync --output json
+picofeedr --output json sync
 
 # 4. エントリ確認
-picofeedr list --output json --query unread
+picofeedr --output json list --query unread
 ```
 
 ## C2. 日常利用
@@ -28,9 +28,9 @@ picofeedr sync
 emacs -f picofeedr
 
 # または CLI で確認
-picofeedr list --output json --query "unread tag:security" | jq '.data.items[] | {id, title}'
-picofeedr view --output json 123
-picofeedr mark --output json read 123
+picofeedr --output json list --query "unread tag:security" | jq '.data.items[] | {id, title}'
+picofeedr --output json view 123
+picofeedr --output json mark read 123
 
 # 注：本文（content）が無い/取得しない運用の場合は、
 # EntryDetail の `link` を外部ブラウザ等で開くのだ。
@@ -56,10 +56,10 @@ feeds:
 
 ```bash
 # 2. 設定の静的妥当性確認
-picofeedr feeds --output json --config-check
+picofeedr --output json feeds --config-check
 
 # 3. 同期（自動的に新規フィードが追加される）
-picofeedr sync --output json
+picofeedr --output json sync
 ```
 
 ## C4. 古いエントリの削除（直接SQL）

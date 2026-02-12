@@ -2,6 +2,7 @@
 
 mod entries;
 mod feeds;
+mod meta;
 mod tags;
 
 use crate::db::FeedRow;
@@ -14,6 +15,7 @@ pub(crate) use entries::{
     insert_entry_content_with_conn, insert_entry_tags_with_conn, insert_entry_with_conn,
 };
 pub(crate) use feeds::{find_feed_id_with_conn, upsert_feed_with_conn};
+pub(crate) use meta::SystemMeta;
 pub(crate) use tags::ensure_tag_with_conn;
 
 /// SQLite store wrapper.
@@ -54,5 +56,20 @@ impl SqliteStore {
     /// Lists all tags ordered by name.
     pub fn list_tags(&self) -> Result<Vec<String>, AppError> {
         tags::list_tags_with_conn(&self.conn)
+    }
+
+    /// Returns database status metadata stored in `es_meta`.
+    pub fn read_system_meta(&self) -> Result<SystemMeta, AppError> {
+        meta::read_system_meta_with_conn(&self.conn)
+    }
+
+    /// Increments database revision and updates last write timestamp.
+    pub fn bump_system_revision(&self, now: i64) -> Result<SystemMeta, AppError> {
+        meta::bump_system_revision_with_conn(&self.conn, now)
+    }
+
+    /// Updates the latest sync timestamp and status metadata.
+    pub fn update_last_sync(&self, now: i64, status: &str) -> Result<SystemMeta, AppError> {
+        meta::update_last_sync_with_conn(&self.conn, now, status)
     }
 }
