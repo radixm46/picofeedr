@@ -373,7 +373,7 @@ const FALLBACK_INTERNAL_ERROR_JSON: &str = "{\"ok\":false,\"data\":null,\"error\
 /// Loads config and applies CLI overrides.
 fn load_config(cli: &Cli) -> Result<config::AppConfig, AppError> {
     let mut config = config::AppConfig::load(cli.config.clone())?;
-    if let Some(root_dir) = cli.root_dir.clone() {
+    if let Some(root_dir) = cli.storage_root.clone() {
         config.override_root_dir(root_dir)?;
     }
     Ok(config)

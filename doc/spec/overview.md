@@ -61,7 +61,7 @@ picofeedr feeds --config-check      # 設定ファイルの静的妥当性検証
 
 ```
 --config <path>     # config.toml のパス（デフォルト: ~/.config/picofeedr/config.toml）
---root-dir <path>   # ストレージルート上書き（db.sqlite と data/ を含む）
+--storage-root <path>   # ストレージルート上書き（db.sqlite と data/ を含む）
 --output <json|plain> # 出力形式（デフォルト: plain）
 --debug             # デバッグ情報をstderrに出す（json出力を壊さない）
 --trace             # より詳細なトレースをstderrに出す（必要ならbacktraceも）

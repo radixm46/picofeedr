@@ -51,7 +51,7 @@ pub struct Cli {
 
     /// Override storage root directory (contains db.sqlite and data/).
     #[arg(long)]
-    pub root_dir: Option<PathBuf>,
+    pub storage_root: Option<PathBuf>,
 
     /// Output format for CLI responses.
     #[arg(long, value_enum)]
