@@ -49,9 +49,9 @@ pub struct Cli {
     #[arg(long)]
     pub config: Option<PathBuf>,
 
-    /// Override database path for testing.
+    /// Override storage root directory (contains db.sqlite and data/).
     #[arg(long)]
-    pub db: Option<PathBuf>,
+    pub root_dir: Option<PathBuf>,
 
     /// Output format for CLI responses.
     #[arg(long, value_enum)]

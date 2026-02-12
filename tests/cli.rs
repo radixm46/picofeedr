@@ -40,8 +40,8 @@ fn config_check_returns_validation_report() {
     let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("feeds")
         .arg("--config-check")
         .assert()
@@ -75,8 +75,8 @@ fn config_check_fails_on_duplicate_url() {
     let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("feeds")
         .arg("--config-check")
         .assert()
@@ -112,8 +112,8 @@ fn config_check_fails_on_empty_url() {
     let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("feeds")
         .arg("--config-check")
         .assert()
@@ -140,7 +140,7 @@ fn config_check_does_not_require_db() {
     let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
+        .arg("--root-dir")
         .arg(temp.path().join("missing-dir").join("db.sqlite"))
         .arg("feeds")
         .arg("--config-check")
@@ -164,8 +164,8 @@ fn feeds_reconcile_returns_tags() {
     let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("feeds")
         .assert()
         .success()
@@ -196,8 +196,8 @@ fn tags_command_returns_tag_dictionary() {
     picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("feeds")
         .assert()
         .success();
@@ -205,8 +205,8 @@ fn tags_command_returns_tag_dictionary() {
     let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("tags")
         .assert()
         .success()
@@ -276,7 +276,7 @@ fn fatal_config_cases_are_enveloped() {
         let mut cmd = picofeedr_cmd_json();
         cmd.arg("--config").arg(&inputs.config_path);
         if let Some(db_path) = inputs.db_path {
-            cmd.arg("--db").arg(db_path);
+            cmd.arg("--root-dir").arg(db_root(&db_path));
         }
         let output = cmd
             .args(&inputs.command_args)
@@ -355,17 +355,17 @@ fn fatal_case_invalid_cli_output_value(temp: &TempDir) -> FatalEnvelopeInputs {
     let config = format!(
         r#"unread_tag = "unread"
 
-[database]
-path = "{}"
-
 [feeds]
 source = "{}"
+
+[storage]
+root_dir = "{}"
 
 [cli]
 output = "bogus"
 "#,
-        db_path.display(),
-        feeds_path.display()
+        feeds_path.display(),
+        temp.path().display()
     );
     fs::write(&config_path, config).expect("write config");
     fs::write(feeds_path, "feeds: {}").expect("write feeds");
@@ -378,17 +378,20 @@ output = "bogus"
 
 /// Writes a minimal config file pointing to a specific feeds source.
 fn write_config_with_feeds_source(config_path: &Path, db_path: &Path, feeds_path: &Path) {
+    let root_dir = db_path
+        .parent()
+        .expect("db path should include a parent directory");
     let config = format!(
         r#"unread_tag = "unread"
 
-[database]
-path = "{}"
-
 [feeds]
 source = "{}"
+
+[storage]
+root_dir = "{}"
 "#,
-        db_path.display(),
-        feeds_path.display()
+        feeds_path.display(),
+        root_dir.display()
     );
     fs::write(config_path, config).expect("write config");
 }
@@ -402,8 +405,8 @@ fn unread_token_respects_config_unread_tag() {
     picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("sync")
         .assert()
         .success();
@@ -411,8 +414,8 @@ fn unread_token_respects_config_unread_tag() {
     let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("list")
         .arg("--query")
         .arg("unread")
@@ -447,8 +450,8 @@ fn list_plain_is_human_readable() {
     picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("sync")
         .assert()
         .success();
@@ -456,8 +459,8 @@ fn list_plain_is_human_readable() {
     let output = picofeedr_cmd_plain()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("list")
         .arg("--sort")
         .arg("first_seen_desc")
@@ -481,8 +484,8 @@ fn view_plain_is_human_readable() {
     picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("sync")
         .assert()
         .success();
@@ -492,8 +495,8 @@ fn view_plain_is_human_readable() {
     let output = picofeedr_cmd_plain()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("view")
         .arg(entry_id.to_string())
         .assert()
@@ -514,8 +517,8 @@ fn sync_ingests_entries_and_tags() {
     let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("sync")
         .assert()
         .success()
@@ -549,8 +552,8 @@ fn sync_writes_content_to_fs_store() {
     picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("sync")
         .assert()
         .success();
@@ -572,6 +575,42 @@ fn sync_writes_content_to_fs_store() {
     assert!(path.exists());
 }
 
+/// Ensures --root-dir override keeps db.sqlite and data/ under the same root for fs storage.
+#[test]
+fn root_dir_override_updates_fs_storage_root() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files_fs(&temp);
+    let override_root = temp.path().join("override-root");
+    fs::create_dir_all(&override_root).expect("create override root");
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--root-dir")
+        .arg(&override_root)
+        .arg("sync")
+        .assert()
+        .success();
+
+    let override_db_path = override_root.join("db.sqlite");
+    let conn = Connection::open(&override_db_path).expect("open overridden db");
+    let (storage, reference): (String, Option<String>) = conn
+        .query_row(
+            "SELECT storage, ref FROM entry_contents ORDER BY entry_id LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("entry_contents");
+    assert_eq!(storage, "fs");
+    let reference = reference.expect("ref");
+
+    let prefix = reference.get(0..2).expect("prefix");
+    let overridden_path = override_root.join("data").join(prefix).join(&reference);
+    assert!(overridden_path.exists());
+
+    let original_path = Path::new(&paths.data_dir).join(prefix).join(&reference);
+    assert!(!original_path.exists());
+}
+
 /// Ensures sync reports partial failures without exiting.
 #[test]
 fn sync_reports_partial_failed() {
@@ -581,8 +620,8 @@ fn sync_reports_partial_failed() {
     let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("sync")
         .assert()
         .success()
@@ -608,8 +647,8 @@ fn sync_reports_failed_when_all_feeds_fail() {
     let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("sync")
         .assert()
         .success()
@@ -634,8 +673,8 @@ fn list_returns_paginated_results() {
     picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("sync")
         .assert()
         .success();
@@ -643,8 +682,8 @@ fn list_returns_paginated_results() {
     let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("list")
         .arg("--query")
         .arg("unread tag:tech")
@@ -666,8 +705,8 @@ fn list_returns_paginated_results() {
     let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("list")
         .arg("--query")
         .arg("unread tag:tech")
@@ -698,8 +737,8 @@ fn list_filters_by_tag_expression() {
     picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("sync")
         .assert()
         .success();
@@ -707,8 +746,8 @@ fn list_filters_by_tag_expression() {
     let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("list")
         .arg("--query")
         .arg("tag:(hot|tech)&!hot")
@@ -731,8 +770,8 @@ fn list_filters_by_tag_expression() {
     let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("list")
         .arg("--query")
         .arg("tag:hot|tech&!hot")
@@ -759,8 +798,8 @@ fn list_accepts_minus_tag_expression_alias() {
     picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("sync")
         .assert()
         .success();
@@ -768,8 +807,8 @@ fn list_accepts_minus_tag_expression_alias() {
     let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("list")
         .arg("--query")
         .arg("tag:tech -tag:hot|rust")
@@ -794,8 +833,8 @@ fn list_filters_by_feed() {
     picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("sync")
         .assert()
         .success();
@@ -805,8 +844,8 @@ fn list_filters_by_feed() {
     let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("list")
         .arg("--query")
         .arg(format!("feed:{feed_id}"))
@@ -826,8 +865,8 @@ fn list_filters_by_feed() {
     let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("list")
         .arg("--query")
         .arg("feed:\"Example Feed\"")
@@ -854,8 +893,8 @@ fn list_filters_by_title() {
     picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("sync")
         .assert()
         .success();
@@ -863,8 +902,8 @@ fn list_filters_by_title() {
     let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("list")
         .arg("--query")
         .arg("title:\"First\"")
@@ -894,8 +933,8 @@ fn list_filters_by_date_range() {
     picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("sync")
         .assert()
         .success();
@@ -903,8 +942,8 @@ fn list_filters_by_date_range() {
     let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("list")
         .arg("--query")
         .arg("after:2024-01-02")
@@ -923,8 +962,8 @@ fn list_filters_by_date_range() {
     let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("list")
         .arg("--query")
         .arg("before:2024-01-02")
@@ -950,8 +989,8 @@ fn list_rejects_mismatched_cursor() {
     picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("sync")
         .assert()
         .success();
@@ -959,8 +998,8 @@ fn list_rejects_mismatched_cursor() {
     let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("list")
         .arg("--query")
         .arg("unread")
@@ -980,8 +1019,8 @@ fn list_rejects_mismatched_cursor() {
     let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("list")
         .arg("--query")
         .arg("tag:tech")
@@ -1010,8 +1049,8 @@ fn list_rejects_invalid_cursor_format() {
     picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("sync")
         .assert()
         .success();
@@ -1019,8 +1058,8 @@ fn list_rejects_invalid_cursor_format() {
     let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("list")
         .arg("--query")
         .arg("unread")
@@ -1050,8 +1089,8 @@ fn list_uses_config_default_limit_when_limit_omitted() {
     picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("sync")
         .assert()
         .success();
@@ -1059,8 +1098,8 @@ fn list_uses_config_default_limit_when_limit_omitted() {
     let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("list")
         .arg("--query")
         .arg("unread")
@@ -1087,8 +1126,8 @@ fn list_rejects_limit_over_max_limit() {
     picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("sync")
         .assert()
         .success();
@@ -1096,8 +1135,8 @@ fn list_rejects_limit_over_max_limit() {
     let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("list")
         .arg("--query")
         .arg("unread")
@@ -1122,8 +1161,8 @@ fn list_rejects_zero_limit() {
     picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("sync")
         .assert()
         .success();
@@ -1131,8 +1170,8 @@ fn list_rejects_zero_limit() {
     let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("list")
         .arg("--query")
         .arg("unread")
@@ -1157,8 +1196,8 @@ fn fatal_config_rejects_zero_default_limit() {
     let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("list")
         .arg("--query")
         .arg("unread")
@@ -1181,8 +1220,8 @@ fn fatal_config_rejects_zero_max_limit() {
     let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("list")
         .arg("--query")
         .arg("unread")
@@ -1205,8 +1244,8 @@ fn fatal_config_rejects_default_limit_over_max_limit() {
     let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("list")
         .arg("--query")
         .arg("unread")
@@ -1244,8 +1283,8 @@ fn db_locked_returns_retry_true() {
     let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("tags")
         .assert()
         .failure()
@@ -1264,8 +1303,8 @@ fn view_returns_entry_detail() {
     picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("sync")
         .assert()
         .success();
@@ -1275,8 +1314,8 @@ fn view_returns_entry_detail() {
     let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("view")
         .arg(entry_id.to_string())
         .assert()
@@ -1308,8 +1347,8 @@ fn mark_updates_tags() {
     picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("sync")
         .assert()
         .success();
@@ -1321,8 +1360,8 @@ fn mark_updates_tags() {
     picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("mark")
         .arg("read")
         .arg(entry_ids[0].to_string())
@@ -1336,8 +1375,8 @@ fn mark_updates_tags() {
     picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("mark")
         .arg("unread")
         .arg(entry_ids[0].to_string())
@@ -1350,8 +1389,8 @@ fn mark_updates_tags() {
     picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
-        .arg("--db")
-        .arg(&paths.db_path)
+        .arg("--root-dir")
+        .arg(db_root(&paths.db_path))
         .arg("mark")
         .arg("tag")
         .arg(entry_ids[0].to_string())
@@ -1374,8 +1413,8 @@ fn list_query_json(config_path: &str, db_path: &str, query: &str) -> serde_json:
     let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(config_path)
-        .arg("--db")
-        .arg(db_path)
+        .arg("--root-dir")
+        .arg(db_root(db_path))
         .arg("list")
         .arg("--query")
         .arg(query)
@@ -1409,6 +1448,15 @@ fn first_feed_id_from_list(config_path: &str, db_path: &str) -> i64 {
         .first()
         .and_then(|item| item["feed_id"].as_i64())
         .expect("feed id")
+}
+
+/// Resolves root_dir from a db path.
+fn db_root(db_path: &str) -> String {
+    Path::new(db_path)
+        .parent()
+        .expect("db path should include a parent directory")
+        .display()
+        .to_string()
 }
 
 /// Collects entry ids from list response items.

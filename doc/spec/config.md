@@ -11,8 +11,9 @@
 
 unread_tag = "unread"       # 未読タグ名（新規取り込み時に付与）
 
-[database]
-path = "~/.local/share/picofeedr/db.sqlite"
+[storage]
+root_dir = "~/.local/share/picofeedr"
+content_store = "db"      # db | fs | none
 
 [sync]
 parallel = 5              # 並列fetch数
@@ -20,10 +21,6 @@ timeout = 30              # HTTP timeout（秒）
 user_agent = "picofeedr/0.1.0"
 retry_count = 3
 retry_delay = 5
-
-[storage]
-content_store = "db"      # db | fs | none
-data_dir = "~/.local/share/picofeedr/data"
 
 [query]
 default_limit = 100
@@ -42,7 +39,10 @@ level = "info"            # error | warn | info | debug | trace（主にstderr�
 
 `content_store` は `entry_contents.storage` の値として扱うのだ。
 
-`content_store = "fs"` の場合、`entry_contents.ref` は hash key（例：sha256 hex）で、実際の保存パスは `storage.data_dir` と導出ルールから決めるのだ（レコードにはパスを持たない）。
+`storage.root_dir` から `db.sqlite` と `data/` を導出するのだ。  
+つまり DB は `storage.root_dir/db.sqlite`、ファイル保存先は `storage.root_dir/data` になるのだ。
+
+`content_store = "fs"` の場合、`entry_contents.ref` は hash key（例：sha256 hex）で、実際の保存パスは `storage.root_dir/data` と導出ルールから決めるのだ（レコードにはパスを持たない）。
 
 `unread_tag` は新規取り込み時に付与する未読タグ名なのだ（既読化はこのタグを外す）。
 

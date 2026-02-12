@@ -60,6 +60,8 @@ pub struct SyncConfig {
 /// Content storage configuration.
 #[derive(Debug, Clone)]
 pub struct StorageConfig {
+    /// Root directory that contains db.sqlite and data/.
+    pub root_dir: PathBuf,
     /// Storage mode for entry contents.
     pub content_store: ContentStore,
     /// Root directory for file storage.
@@ -114,19 +116,12 @@ pub enum ContentStore {
 #[derive(Debug, Deserialize)]
 struct AppConfigRaw {
     unread_tag: Option<String>,
-    database: DatabaseConfigRaw,
     feeds: FeedsSourceConfigRaw,
     sync: Option<SyncConfigRaw>,
-    storage: Option<StorageConfigRaw>,
+    storage: StorageConfigRaw,
     query: Option<QueryConfigRaw>,
     cli: Option<CliConfigRaw>,
     log: Option<LogConfigRaw>,
-}
-
-/// Raw database config representation.
-#[derive(Debug, Deserialize)]
-struct DatabaseConfigRaw {
-    path: String,
 }
 
 /// Raw feeds source config representation.
@@ -148,8 +143,8 @@ struct SyncConfigRaw {
 /// Raw storage config representation.
 #[derive(Debug, Deserialize)]
 struct StorageConfigRaw {
+    root_dir: String,
     content_store: Option<String>,
-    data_dir: Option<String>,
 }
 
 /// Raw query config representation.
@@ -179,7 +174,6 @@ impl AppConfig {
             .map_err(|error| AppError::config(format!("Failed to read config: {error}")))?;
         let raw: AppConfigRaw = toml::from_str(&content)?;
         let unread_tag = raw.unread_tag.unwrap_or_else(default_unread_tag);
-        let database_path = expand_path(&raw.database.path)?;
         let feeds_path = expand_path(&raw.feeds.source)?;
         let sync = SyncConfig::from_raw(raw.sync)?;
         let storage = StorageConfig::from_raw(raw.storage)?;
@@ -189,7 +183,7 @@ impl AppConfig {
         Ok(Self {
             unread_tag,
             database: DatabaseConfig {
-                path: database_path,
+                path: storage.root_dir.join("db.sqlite"),
             },
             feeds: FeedsSourceConfig { source: feeds_path },
             sync,
@@ -200,10 +194,12 @@ impl AppConfig {
         })
     }
 
-    /// Overrides the database path from CLI arguments.
-    pub fn override_db_path(&mut self, path: PathBuf) -> Result<(), AppError> {
-        let expanded = expand_path(&path.to_string_lossy())?;
-        self.database.path = expanded;
+    /// Overrides the storage root directory from CLI arguments.
+    pub fn override_root_dir(&mut self, path: PathBuf) -> Result<(), AppError> {
+        let root_dir = expand_path(&path.to_string_lossy())?;
+        self.storage.root_dir = root_dir;
+        self.storage.data_dir = self.storage.root_dir.join("data");
+        self.database.path = self.storage.root_dir.join("db.sqlite");
         Ok(())
     }
 }
@@ -251,18 +247,13 @@ impl SyncConfig {
 }
 
 impl StorageConfig {
-    /// Builds a StorageConfig from optional raw config.
-    fn from_raw(raw: Option<StorageConfigRaw>) -> Result<Self, AppError> {
-        let raw = raw.unwrap_or(StorageConfigRaw {
-            content_store: None,
-            data_dir: None,
-        });
+    /// Builds a StorageConfig from raw config.
+    fn from_raw(raw: StorageConfigRaw) -> Result<Self, AppError> {
         let store = parse_content_store(raw.content_store.as_deref())?;
-        let data_dir = match raw.data_dir {
-            Some(path) => expand_path(&path)?,
-            None => expand_path("~/.local/share/picofeedr/data")?,
-        };
+        let root_dir = expand_path(&raw.root_dir)?;
+        let data_dir = root_dir.join("data");
         Ok(Self {
+            root_dir,
             content_store: store,
             data_dir,
         })

@@ -155,18 +155,13 @@ impl SyncFixtureBuilder {
         let db_path = root.join("db.sqlite");
         let feed_path = root.join("feed.xml");
 
-        let data_dir = match self.content_store {
-            ContentStore::Db => None,
-            ContentStore::Fs => Some(root.join("data")),
-        };
-
         let config = render_sync_config(
             &db_path,
             &feeds_path,
             &self.unread_tag,
             self.default_limit,
             self.max_limit,
-            data_dir.as_deref(),
+            &self.content_store,
         );
 
         let feed_url = format!("file://{}", feed_path.display());
@@ -213,7 +208,7 @@ auto_tags:
             &self.unread_tag,
             self.default_limit,
             self.max_limit,
-            Some(data_dir.as_path()),
+            &self.content_store,
         );
 
         let feed_url = format!("file://{}", feed_path.display());
@@ -248,14 +243,14 @@ pub fn write_fixture_files(temp: &TempDir) -> FixturePaths {
     let config = format!(
         r#"unread_tag = "unread"
 
-[database]
-path = "{}"
-
 [feeds]
 source = "{}"
+
+[storage]
+root_dir = "{}"
 "#,
-        db_path.display(),
-        feeds_path.display()
+        feeds_path.display(),
+        temp.path().display()
     );
 
     let feeds = r#"feeds:
@@ -321,7 +316,14 @@ pub fn write_sync_failure_fixture_files(temp: &TempDir) -> SyncFixturePaths {
     let feed_ok_path = temp.path().join("feed_ok.xml");
     let feed_bad_path = temp.path().join("feed_bad.xml");
 
-    let config = render_sync_config(&db_path, &feeds_path, "unread", 100, 1000, None);
+    let config = render_sync_config(
+        &db_path,
+        &feeds_path,
+        "unread",
+        100,
+        1000,
+        &ContentStore::Db,
+    );
 
     let feed_ok_url = format!("file://{}", feed_ok_path.display());
     let feed_bad_url = format!("file://{}", feed_bad_path.display());
@@ -355,7 +357,14 @@ pub fn write_sync_all_failed_fixture_files(temp: &TempDir) -> SyncFixturePaths {
     let db_path = temp.path().join("db.sqlite");
     let feed_bad_path = temp.path().join("feed_bad.xml");
 
-    let config = render_sync_config(&db_path, &feeds_path, "unread", 100, 1000, None);
+    let config = render_sync_config(
+        &db_path,
+        &feeds_path,
+        "unread",
+        100,
+        1000,
+        &ContentStore::Db,
+    );
 
     let feed_bad_url = format!("file://{}", feed_bad_path.display());
     let feeds = format!(
@@ -391,22 +400,18 @@ fn render_sync_config(
     unread_tag: &str,
     default_limit: usize,
     max_limit: usize,
-    data_dir: Option<&Path>,
+    content_store: &ContentStore,
 ) -> String {
-    let storage_section = if let Some(path) = data_dir {
-        format!(
-            "[storage]\ncontent_store = \"fs\"\ndata_dir = \"{}\"\n",
-            path.display()
-        )
-    } else {
-        "[storage]\ncontent_store = \"db\"\n".to_string()
+    let content_store = match content_store {
+        ContentStore::Db => "db",
+        ContentStore::Fs => "fs",
     };
+    let root_dir = db_path
+        .parent()
+        .expect("db path should include a parent directory");
 
     format!(
         r#"unread_tag = "{unread_tag}"
-
-[database]
-path = "{}"
 
 [feeds]
 source = "{}"
@@ -418,12 +423,15 @@ user_agent = "picofeedr-test/0.1.0"
 retry_count = 0
 retry_delay = 0
 
-{storage_section}
+[storage]
+root_dir = "{}"
+content_store = "{content_store}"
+
 [query]
 default_limit = {default_limit}
 max_limit = {max_limit}
 "#,
-        db_path.display(),
-        feeds_path.display()
+        feeds_path.display(),
+        root_dir.display()
     )
 }
