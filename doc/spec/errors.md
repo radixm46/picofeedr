@@ -44,5 +44,5 @@
 
 - `DUPLICATE_FEED_URL` - 同一URLが複数feedとして定義されている
 - `EMPTY_FEED_URL` - feedのurlが空文字
-- `INVALID_AUTO_TAG_RULE` - `auto_tags` の定義不備（例：`add_tags` 空、条件未指定）
+- `INVALID_AUTO_TAG_RULE` - `feeds.auto_tags` の定義不備（例：`add_tags` 空、条件未指定）
 - `DUPLICATE_FEED_TAG` - 同一feed定義で同じtagが重複（warning）

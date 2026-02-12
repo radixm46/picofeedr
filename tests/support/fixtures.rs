@@ -167,15 +167,15 @@ impl SyncFixtureBuilder {
         let feed_url = format!("file://{}", feed_path.display());
         let feeds = format!(
             r#"feeds:
+  auto_tags:
+    - title_contains: [First]
+      add_tags: [hot]
+      priority: 1
   tech:
     tags: [tech]
     feeds:
       - url: {feed_url}
         title: Example Feed
-auto_tags:
-  - title_contains: [First]
-    add_tags: [hot]
-    priority: 1
 "#
         );
 

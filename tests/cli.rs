@@ -155,6 +155,40 @@ fn config_check_does_not_require_db() {
     assert_eq!(data["checked_feeds"], 1);
 }
 
+/// Ensures unknown top-level keys are ignored.
+#[test]
+fn config_check_ignores_unknown_top_level_keys() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_fixture_files(&temp);
+    let feeds = r#"feeds:
+  group:
+    feeds:
+      - url: https://example.com/feed
+        title: Example
+ended:
+  - https://example.com/feed
+"#;
+    fs::write(&paths.feeds_path, feeds).expect("rewrite feeds");
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("feeds")
+        .arg("--config-check")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let data = extract_ok_data(&output);
+    assert_eq!(data["valid"], true);
+    assert!(data["errors"].as_array().expect("errors").is_empty());
+    assert!(data["warnings"].as_array().expect("warnings").is_empty());
+}
+
 /// Ensures feeds command reconciles and returns tags.
 #[test]
 fn feeds_reconcile_returns_tags() {
@@ -541,6 +575,41 @@ fn sync_ingests_entries_and_tags() {
 
     let hot_data = list_query_json(&paths.config_path, &paths.db_path, "tag:hot");
     assert_eq!(hot_data["total_hits"], 1);
+}
+
+/// Ensures legacy top-level auto_tags are ignored without warnings.
+#[test]
+fn sync_ignores_legacy_top_level_auto_tags() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+    let feed_path = temp.path().join("feed.xml");
+    let feed_url = format!("file://{}", feed_path.display());
+    let feeds = format!(
+        r#"feeds:
+  tech:
+    tags: [tech]
+    feeds:
+      - url: {feed_url}
+        title: Example Feed
+auto_tags:
+  - title_contains: [First]
+    add_tags: [hot]
+    priority: 1
+"#
+    );
+    fs::write(temp.path().join("feeds.yaml"), feeds).expect("rewrite feeds");
+
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let hot_data = list_query_json(&paths.config_path, &paths.db_path, "tag:hot");
+    assert_eq!(hot_data["total_hits"], 0);
 }
 
 /// Ensures sync writes content to filesystem storage.

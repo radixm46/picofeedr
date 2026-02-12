@@ -28,9 +28,12 @@ impl FeedsConfig {
         let feeds_value = root
             .get("feeds")
             .ok_or_else(|| AppError::config("feeds.yaml missing top-level 'feeds'"))?;
+        let feeds_map = feeds_value
+            .as_mapping()
+            .ok_or_else(|| AppError::config("feeds.yaml 'feeds' must be a mapping"))?;
+        let auto_tags = parse_auto_tags(feeds_map.get(Value::String("auto_tags".to_string())))?;
         let mut feeds = Vec::new();
         flatten_groups(feeds_value, &[], "feeds", &mut feeds)?;
-        let auto_tags = parse_auto_tags(root.get("auto_tags"))?;
         Ok(Self { feeds, auto_tags })
     }
 
@@ -94,14 +97,14 @@ impl FeedsConfig {
                 errors.push(ValidationIssue {
                     code: "INVALID_AUTO_TAG_RULE".to_string(),
                     message: "auto tag rule requires at least one add_tags value".to_string(),
-                    path: Some(format!("auto_tags[{index}].add_tags")),
+                    path: Some(format!("feeds.auto_tags[{index}].add_tags")),
                 });
             }
             if rule.title_regex.is_none() && rule.title_contains.is_none() {
                 errors.push(ValidationIssue {
                     code: "INVALID_AUTO_TAG_RULE".to_string(),
                     message: "auto tag rule requires title_regex or title_contains".to_string(),
-                    path: Some(format!("auto_tags[{index}]")),
+                    path: Some(format!("feeds.auto_tags[{index}]")),
                 });
             }
         }
@@ -193,6 +196,9 @@ fn flatten_groups(
         .as_mapping()
         .ok_or_else(|| AppError::config("feeds.yaml 'feeds' must be a mapping"))?;
     for (key, group) in map {
+        if matches!(key, Value::String(name) if current_path == "feeds" && name == "auto_tags") {
+            continue;
+        }
         let key = key
             .as_str()
             .ok_or_else(|| AppError::config("feeds group key must be a string"))?;

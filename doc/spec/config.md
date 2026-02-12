@@ -60,6 +60,12 @@ level = "info"            # error | warn | info | debug | trace（主にstderr�
 # ~/.config/picofeedr/feeds.yaml
 
 feeds:
+  auto_tags:
+    - title_regex: '(?i)CVE-\d{4}-\d+'
+      add_tags: [cve, security-alert]
+    - title_contains: [vulnerability, exploit, 0-day]
+      add_tags: [security-alert]
+
   tech:
     tags: [tech]
     programming:
@@ -87,26 +93,21 @@ feeds:
         title: Hacker News
       - url: https://lobste.rs/rss
 
-auto_tags:
-  - title_regex: '(?i)CVE-\d{4}-\d+'
-    add_tags: [cve, security-alert]
-    priority: 10
-  - title_contains: [vulnerability, exploit, 0-day]
-    add_tags: [security-alert]
-    priority: 20
-
 ```
 
 **階層構造とタグ継承：**
 
 * 親グループのタグは子グループに継承される
 * 例：`tech.programming.rust` のフィードは `[tech, programming, rust]` タグを持つ
+* トップレベルは `feeds` のみを解釈し、それ以外のキーは無視する
 
 ## A9. 自動タグ（feeds.yaml）
 
 ### A9.1 ルール定義
 
-`auto_tags` は `feeds.yaml` のトップレベルに定義するのだ。
+`auto_tags` は `feeds.auto_tags` に定義するのだ。
+
+`priority` は任意項目なのだ。通常運用では指定しなくてもよく、未指定時は既定値（0）として扱うのだ。
 
 ### A9.2 適用タイミング
 
@@ -116,5 +117,5 @@ auto_tags:
 ### A9.3 タグ付与順序
 
 1. フィード階層から継承されたタグ
-2. `auto_tags` ルール（優先度順）
+2. `auto_tags` ルール（定義順。`priority` 指定時は優先度順）
 3. `unread_tag`（常に最後）

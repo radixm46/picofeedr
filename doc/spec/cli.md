@@ -107,14 +107,14 @@ picofeedr sync
 
 **sync の動作フロー：**
 
-1. `feeds.yaml` を読み込み、階層をフラット化（タグ継承・auto_tags をコンパイル）
+1. `feeds.yaml` を読み込み、`feeds` 配下を階層フラット化（タグ継承・`feeds.auto_tags` をコンパイル）
 2. `feeds` カタログを upsert（`feed_key` を算出し、`url`/`title`/`site_url`/`author`/`meta_json` を更新）
    - `meta_json` は拡張メタ用途であり、`feeds.yaml` の tags / ルールは保存しないのだ
    - YAMLから削除されたURL → **何もしない**（履歴保持。同期対象から外れるだけ）
 3. **YAMLに列挙されたURLのみ** を並列fetch（`sync.parallel` 設定）
 4. 新規エントリに自動タグ付与
    - フィード階層から継承されたタグ
-   - `auto_tags` ルールにマッチしたタグ
+   - `feeds.auto_tags` ルールにマッチしたタグ
    - `unread_tag`（常に付与）
 
 ### A6.4 一覧検索（軽量メタデータのみ）

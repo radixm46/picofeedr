@@ -14,8 +14,7 @@ It intentionally captures current contracts before introducing behavior changes.
 
 - `feeds` is required.
 - `feeds` must be a YAML mapping.
-- `auto_tags` is optional and, when present, is parsed as auto-tag rules.
-- Top-level keys other than `feeds` and `auto_tags` are currently ignored by the loader.
+- Top-level keys other than `feeds` are ignored by the loader.
 
 If top-level `feeds` is missing, loading fails with a configuration error.
 
@@ -23,13 +22,18 @@ If top-level `feeds` is missing, loading fails with a configuration error.
 
 The value under top-level `feeds` is a nested group tree.
 
-Each group is a YAML mapping. Within a group:
+At the root of `feeds`:
+
+- `auto_tags`: optional list of auto-tag rules
+- any other key: treated as a feed group name
+
+Each feed group is a YAML mapping. Within a group:
 
 - `tags`: optional list of strings inherited by descendants
 - `feeds`: optional list of feed entries
 - any other key: treated as a nested child group
 
-This means unknown keys inside a group are not ignored; they are interpreted as subgroup nodes.
+This means arbitrary group names remain supported.
 
 ## Feed Entry Contract
 
@@ -51,9 +55,10 @@ The loader trims surrounding whitespace from `url`.
 
 ## Auto Tags
 
-- Top-level `auto_tags` is parsed independently from the feed tree.
+- `auto_tags` is parsed from `feeds.auto_tags`.
 - `auto_tags` participates in validation and sync-time rule compilation.
 - Auto-tag application itself occurs during sync for newly ingested entries.
+- `priority` in auto-tag rules is optional. Default operation does not require specifying it.
 
 ## Validation (`feeds --config-check`)
 
@@ -74,4 +79,4 @@ Validation reports include logical YAML paths for issue locations.
 ## Non-Goals of This Document
 
 - This document does not define a future behavior change yet.
-- In particular, it does not redefine `auto_tags` handling or unknown-key policy beyond current behavior.
+- In particular, it does not include a strict mode (`--strict`) for warning escalation.
