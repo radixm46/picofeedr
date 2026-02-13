@@ -9,7 +9,7 @@ use std::path::Path;
 use std::process::{Command as ProcessCommand, Output, Stdio};
 use support::assertions::{
     assert_envelope_severity, assert_error_envelope, assert_plain_contract, extract_error_code,
-    extract_error_payload, extract_ok_data,
+    extract_error_details, extract_error_payload, extract_ok_data,
 };
 use support::fixtures::{
     acquire_exclusive_db_lock, write_fixture_files, write_sync_all_failed_fixture_files,
@@ -446,6 +446,29 @@ fn fatal_case_missing_feeds_yaml(temp: &TempDir) -> FatalEnvelopeInputs {
         db_path: Some(db_path.display().to_string()),
         command_args: vec!["feeds", "--config-check"],
     }
+}
+
+/// Ensures CONFIG_ERROR exposes structured details for missing feeds file.
+#[test]
+fn config_error_includes_details_for_missing_feeds_yaml() {
+    let temp = TempDir::new().expect("tempdir");
+    let inputs = fatal_case_missing_feeds_yaml(&temp);
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&inputs.config_path)
+        .arg("--storage-root")
+        .arg(db_root(inputs.db_path.as_deref().expect("db path")))
+        .args(&inputs.command_args)
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    let details = extract_error_details(&output);
+    assert_eq!(details["hint"], "failed_to_read_feeds_yaml");
+    assert!(details["path"].as_str().is_some());
 }
 
 /// Creates inputs for the invalid feeds YAML fatal-envelope case.
@@ -1227,8 +1250,12 @@ fn list_rejects_mismatched_cursor() {
         .stdout
         .clone();
 
-    let code = extract_error_code(&output);
-    assert_eq!(code, "INVALID_QUERY");
+    let error = extract_error_payload(&output);
+    assert_eq!(error["code"], "INVALID_QUERY");
+    let details = extract_error_details(&output);
+    assert_eq!(details["kind"], "invalid_cursor");
+    assert_eq!(details["field"], "cursor");
+    assert_eq!(details["hint"], "cursor_mismatch");
 }
 
 /// Ensures invalid cursors are rejected with fatal error.
@@ -1269,6 +1296,10 @@ fn list_rejects_invalid_cursor_format() {
     let error = extract_error_payload(&output);
     assert_eq!(error["code"], "INVALID_QUERY");
     assert_eq!(error["retryable"], false);
+    let details = extract_error_details(&output);
+    assert_eq!(details["kind"], "invalid_cursor");
+    assert_eq!(details["field"], "cursor");
+    assert_eq!(details["hint"], "cursor_json_decode_failed");
 }
 
 /// Ensures list uses config query.default_limit when --limit is omitted.
@@ -1339,8 +1370,12 @@ fn list_rejects_limit_over_max_limit() {
         .stdout
         .clone();
 
-    let code = extract_error_code(&output);
-    assert_eq!(code, "INVALID_QUERY");
+    let error = extract_error_payload(&output);
+    assert_eq!(error["code"], "INVALID_QUERY");
+    let details = extract_error_details(&output);
+    assert_eq!(details["kind"], "limit_out_of_range");
+    assert_eq!(details["field"], "limit");
+    assert_eq!(details["hint"], "limit_exceeds_configured_max_limit");
 }
 
 /// Ensures list rejects zero limit.
@@ -1374,8 +1409,12 @@ fn list_rejects_zero_limit() {
         .stdout
         .clone();
 
-    let code = extract_error_code(&output);
-    assert_eq!(code, "INVALID_QUERY");
+    let error = extract_error_payload(&output);
+    assert_eq!(error["code"], "INVALID_QUERY");
+    let details = extract_error_details(&output);
+    assert_eq!(details["kind"], "limit_out_of_range");
+    assert_eq!(details["field"], "limit");
+    assert_eq!(details["hint"], "limit_must_be_greater_than_zero");
 }
 
 /// Ensures config rejects query.default_limit = 0.
@@ -1561,6 +1600,12 @@ fn db_locked_returns_retry_true() {
         .stdout
         .clone();
     assert_error_envelope(&output, "DB_LOCKED", true);
+    let details = extract_error_details(&output);
+    assert_eq!(details["retry_after_ms"], 200);
+    assert!(
+        details["sqlite_code"].is_string() || details["sqlite_code"].is_null(),
+        "sqlite_code must be string|null"
+    );
 }
 
 /// Ensures view returns entry details with tags.
@@ -1605,6 +1650,41 @@ fn view_returns_entry_detail() {
         .collect();
     assert!(tag_values.contains(&"unread".to_string()));
     assert!(tag_values.contains(&"tech".to_string()));
+}
+
+/// Ensures missing entry view returns ENTRY_NOT_FOUND with details.
+#[test]
+fn view_missing_entry_returns_details() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("view")
+        .arg("999999")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    let error = extract_error_payload(&output);
+    assert_eq!(error["code"], "ENTRY_NOT_FOUND");
+    let details = extract_error_details(&output);
+    assert_eq!(details["resource"], "entry");
+    assert_eq!(details["entry_id"], 999999);
 }
 
 /// Ensures mark commands update tags.

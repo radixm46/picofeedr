@@ -1,32 +1,23 @@
 //! Picofeedr CLI entrypoint.
 
-mod cli;
-mod config;
-mod content_ref;
-mod db;
-mod entry;
-mod error;
-mod feed;
-mod identity;
-mod query;
-mod response;
-mod status;
-mod sync;
-mod tag;
-mod time;
-
-use crate::cli::{Cli, Command, MarkCommand, OutputFormat, SortOrder};
-use crate::config::feeds::ConfigCheckReport;
-use crate::entry::{EntryDetail, EntryListResponse};
-use crate::error::AppError;
-use crate::feed::FeedListResponse;
-use crate::query::EntryQuery;
-use crate::response::{Envelope, ResponseSeverity};
-use crate::status::StatusResponse;
-use crate::sync::SyncSummary;
-use crate::tag::TagManager;
 use clap::Parser;
-use serde_json::json;
+use picofeedr::cli::{Cli, Command, MarkCommand, OutputFormat, SortOrder};
+use picofeedr::config;
+use picofeedr::config::feeds::ConfigCheckReport;
+use picofeedr::db;
+use picofeedr::entry;
+use picofeedr::entry::{EntryDetail, EntryListResponse};
+use picofeedr::error::AppError;
+use picofeedr::feed;
+use picofeedr::feed::FeedListResponse;
+use picofeedr::query::EntryQuery;
+use picofeedr::response::{Envelope, ResponseSeverity};
+use picofeedr::status::StatusResponse;
+use picofeedr::sync;
+use picofeedr::sync::SyncSummary;
+use picofeedr::tag::TagManager;
+use picofeedr::time;
+use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::env;
 use std::error::Error;
@@ -272,15 +263,33 @@ fn execute_command(cli: &Cli) -> Result<CommandOutput, AppError> {
 fn resolve_list_limit(limit: Option<usize>, query: config::QueryConfig) -> Result<usize, AppError> {
     let resolved = limit.unwrap_or(query.default_limit);
     if resolved == 0 {
-        return Err(AppError::invalid_query("--limit must be greater than 0"));
+        return Err(AppError::invalid_query_with_details(
+            "--limit must be greater than 0",
+            limit_error_details("zero_or_negative", resolved, query.max_limit),
+        ));
     }
     if resolved > query.max_limit {
-        return Err(AppError::invalid_query(format!(
-            "--limit must be less than or equal to {}",
-            query.max_limit
-        )));
+        return Err(AppError::invalid_query_with_details(
+            format!("--limit must be less than or equal to {}", query.max_limit),
+            limit_error_details("exceeds_max_limit", resolved, query.max_limit),
+        ));
     }
     Ok(resolved)
+}
+
+/// Builds standardized details payload for limit validation failures.
+fn limit_error_details(kind: &str, value: usize, _max_limit: usize) -> Value {
+    let hint = match kind {
+        "zero_or_negative" => "limit_must_be_greater_than_zero",
+        "exceeds_max_limit" => "limit_exceeds_configured_max_limit",
+        _ => "invalid_limit",
+    };
+    json!({
+        "kind": "limit_out_of_range",
+        "field": "limit",
+        "value": value,
+        "hint": hint,
+    })
 }
 
 /// Renders JSON output for a command result.

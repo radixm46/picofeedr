@@ -1,9 +1,5 @@
 # 変更履歴
 
-> Note:
-> v0.6 以前の記述は履歴として残している旧仕様なのだ。
-> 現在の有効な JSON 契約は v0.7（`success/severity/result/error/meta`）を正として扱うのだ。
-
 ## v0.7（2026-02-13, breaking）
 
 - **CLI JSON envelope v1 へ全面刷新**

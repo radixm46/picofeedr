@@ -45,6 +45,9 @@ JSONレスポンスのトップレベル予約キーは以下の5つのみなの
 - `retryable: bool`
 - `details: object|null`
 
+`details` は段階導入とし、`error.code` ごとに shape を拡張していくのだ。  
+現時点の厳密shapeは `doc/spec/errors.md` を正本とするのだ。
+
 ## Meta Rules
 
 `meta` は常に返すのだ。固定キーは以下なのだ。

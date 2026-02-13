@@ -1,0 +1,182 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Envelope_for_StatusResponse",
+  "description": "CLI response envelope for `--output json`.\n\nThis format is stable and intended for UI/automation clients.",
+  "type": "object",
+  "required": [
+    "meta",
+    "severity",
+    "success"
+  ],
+  "properties": {
+    "error": {
+      "description": "Error payload when `success=false`, otherwise `null`.",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/ErrorPayload"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "meta": {
+      "description": "Response metadata.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/ResponseMeta"
+        }
+      ]
+    },
+    "result": {
+      "description": "Command payload when `success=true`, otherwise `null`.",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/StatusResponse"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "severity": {
+      "description": "Severity of the command outcome.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/ResponseSeverity"
+        }
+      ]
+    },
+    "success": {
+      "description": "Whether the command succeeded.",
+      "type": "boolean"
+    }
+  },
+  "definitions": {
+    "ErrorPayload": {
+      "description": "JSON error payload fields.",
+      "type": "object",
+      "required": [
+        "code",
+        "message",
+        "retryable"
+      ],
+      "properties": {
+        "code": {
+          "description": "Error code string.",
+          "type": "string"
+        },
+        "details": {
+          "description": "Optional machine-readable details for error-specific branching."
+        },
+        "message": {
+          "description": "Human-readable message.",
+          "type": "string"
+        },
+        "retryable": {
+          "description": "Whether the caller should retry.",
+          "type": "boolean"
+        }
+      }
+    },
+    "ResponseMeta": {
+      "description": "Metadata returned on every JSON response.",
+      "type": "object",
+      "required": [
+        "api_version",
+        "generated_at",
+        "schema_version"
+      ],
+      "properties": {
+        "api_version": {
+          "description": "Current CLI API version.",
+          "type": "string"
+        },
+        "generated_at": {
+          "description": "Epoch seconds when the response was generated.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "schema_version": {
+          "description": "Current database schema version.",
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    },
+    "ResponseSeverity": {
+      "description": "Severity level of the response.",
+      "oneOf": [
+        {
+          "description": "Command completed without warnings.",
+          "type": "string",
+          "enum": [
+            "ok"
+          ]
+        },
+        {
+          "description": "Command completed with non-fatal warnings.",
+          "type": "string",
+          "enum": [
+            "warn"
+          ]
+        },
+        {
+          "description": "Command failed fatally.",
+          "type": "string",
+          "enum": [
+            "error"
+          ]
+        }
+      ]
+    },
+    "StatusResponse": {
+      "description": "Status payload for lightweight database polling.",
+      "type": "object",
+      "required": [
+        "api_version",
+        "revision",
+        "schema_version"
+      ],
+      "properties": {
+        "api_version": {
+          "description": "Current CLI API version.",
+          "type": "string"
+        },
+        "last_sync_at": {
+          "description": "Epoch seconds for the latest successful sync command.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "last_sync_status": {
+          "description": "Latest successful sync status.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "last_write_at": {
+          "description": "Epoch seconds for the latest successful write command.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "revision": {
+          "description": "Monotonic revision incremented after successful write commands.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "schema_version": {
+          "description": "Current database schema version.",
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    }
+  }
+}

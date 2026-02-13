@@ -60,6 +60,19 @@ Run lint checks:
 cargo clippy --all-targets --all-features -- -D warnings
 ```
 
+Generate JSON Schema artifacts:
+
+```bash
+cargo run --bin schemas
+```
+
+## PR Checklist
+
+- [ ] `cargo fmt`
+- [ ] `cargo clippy --all-targets --all-features -- -D warnings`
+- [ ] `cargo test`
+- [ ] `cargo run --bin schemas` and commit `doc/spec/schema/*.schema.json`
+
 ## Project Structure
 
 - `src/`: application source code

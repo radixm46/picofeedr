@@ -95,14 +95,18 @@ impl EntryContentStorage {
             EntryContentStorage::None => "none",
         }
     }
+}
+
+impl std::str::FromStr for EntryContentStorage {
+    type Err = ();
 
     /// Parses the storage value from persistence.
-    pub fn from_str(value: &str) -> Option<Self> {
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
-            "db" => Some(EntryContentStorage::Db),
-            "fs" => Some(EntryContentStorage::Fs),
-            "none" => Some(EntryContentStorage::None),
-            _ => None,
+            "db" => Ok(EntryContentStorage::Db),
+            "fs" => Ok(EntryContentStorage::Fs),
+            "none" => Ok(EntryContentStorage::None),
+            _ => Err(()),
         }
     }
 }

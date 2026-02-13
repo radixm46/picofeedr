@@ -1,0 +1,233 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Envelope_for_EntryListResponse",
+  "description": "CLI response envelope for `--output json`.\n\nThis format is stable and intended for UI/automation clients.",
+  "type": "object",
+  "required": [
+    "meta",
+    "severity",
+    "success"
+  ],
+  "properties": {
+    "error": {
+      "description": "Error payload when `success=false`, otherwise `null`.",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/ErrorPayload"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "meta": {
+      "description": "Response metadata.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/ResponseMeta"
+        }
+      ]
+    },
+    "result": {
+      "description": "Command payload when `success=true`, otherwise `null`.",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/EntryListResponse"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "severity": {
+      "description": "Severity of the command outcome.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/ResponseSeverity"
+        }
+      ]
+    },
+    "success": {
+      "description": "Whether the command succeeded.",
+      "type": "boolean"
+    }
+  },
+  "definitions": {
+    "EntryListResponse": {
+      "description": "Entry list response payload.",
+      "type": "object",
+      "required": [
+        "items",
+        "revision",
+        "total_count"
+      ],
+      "properties": {
+        "items": {
+          "description": "Page items.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/EntrySummary"
+          }
+        },
+        "last_write_at": {
+          "description": "Write timestamp captured when the list was fetched.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "next_page_token": {
+          "description": "Cursor for the next page.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "revision": {
+          "description": "Revision captured when the list was fetched.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "total_count": {
+          "description": "Total hits for the query.",
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    },
+    "EntrySummary": {
+      "description": "Entry summary for list responses.",
+      "type": "object",
+      "required": [
+        "feed_id",
+        "first_seen_at",
+        "id",
+        "tags"
+      ],
+      "properties": {
+        "feed_id": {
+          "description": "Feed id.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "first_seen_at": {
+          "description": "First seen time.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "id": {
+          "description": "Entry id.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "link": {
+          "description": "Entry link.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "published_at": {
+          "description": "Published time.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "tags": {
+          "description": "Tags applied to the entry.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "title": {
+          "description": "Entry title.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "ErrorPayload": {
+      "description": "JSON error payload fields.",
+      "type": "object",
+      "required": [
+        "code",
+        "message",
+        "retryable"
+      ],
+      "properties": {
+        "code": {
+          "description": "Error code string.",
+          "type": "string"
+        },
+        "details": {
+          "description": "Optional machine-readable details for error-specific branching."
+        },
+        "message": {
+          "description": "Human-readable message.",
+          "type": "string"
+        },
+        "retryable": {
+          "description": "Whether the caller should retry.",
+          "type": "boolean"
+        }
+      }
+    },
+    "ResponseMeta": {
+      "description": "Metadata returned on every JSON response.",
+      "type": "object",
+      "required": [
+        "api_version",
+        "generated_at",
+        "schema_version"
+      ],
+      "properties": {
+        "api_version": {
+          "description": "Current CLI API version.",
+          "type": "string"
+        },
+        "generated_at": {
+          "description": "Epoch seconds when the response was generated.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "schema_version": {
+          "description": "Current database schema version.",
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    },
+    "ResponseSeverity": {
+      "description": "Severity level of the response.",
+      "oneOf": [
+        {
+          "description": "Command completed without warnings.",
+          "type": "string",
+          "enum": [
+            "ok"
+          ]
+        },
+        {
+          "description": "Command completed with non-fatal warnings.",
+          "type": "string",
+          "enum": [
+            "warn"
+          ]
+        },
+        {
+          "description": "Command failed fatally.",
+          "type": "string",
+          "enum": [
+            "error"
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -4,6 +4,7 @@ pub mod feeds;
 
 use crate::error::AppError;
 use serde::Deserialize;
+use serde_json::json;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -170,9 +171,24 @@ impl AppConfig {
     /// Loads configuration from the default path or an override path.
     pub fn load(path_override: Option<PathBuf>) -> Result<Self, AppError> {
         let config_path = resolve_config_path(path_override)?;
-        let content = fs::read_to_string(&config_path)
-            .map_err(|error| AppError::config(format!("Failed to read config: {error}")))?;
-        let raw: AppConfigRaw = toml::from_str(&content)?;
+        let content = fs::read_to_string(&config_path).map_err(|error| {
+            AppError::config_with_details(
+                format!("Failed to read config: {error}"),
+                json!({
+                    "path": config_path.to_string_lossy(),
+                    "hint": "failed_to_read_config"
+                }),
+            )
+        })?;
+        let raw: AppConfigRaw = toml::from_str(&content).map_err(|error| {
+            AppError::config_with_details(
+                error.to_string(),
+                json!({
+                    "path": config_path.to_string_lossy(),
+                    "hint": "invalid_toml"
+                }),
+            )
+        })?;
         let unread_tag = raw.unread_tag.unwrap_or_else(default_unread_tag);
         let feeds_path = expand_path(&raw.feeds.source)?;
         let sync = SyncConfig::from_raw(raw.sync)?;
@@ -279,16 +295,30 @@ impl QueryConfig {
         let default_limit = raw.default_limit.unwrap_or(100);
         let max_limit = raw.max_limit.unwrap_or(1000);
         if default_limit == 0 {
-            return Err(AppError::config(
+            return Err(AppError::config_with_details(
                 "query.default_limit must be greater than 0",
+                json!({
+                    "path": null,
+                    "hint": "query.default_limit must be >= 1"
+                }),
             ));
         }
         if max_limit == 0 {
-            return Err(AppError::config("query.max_limit must be greater than 0"));
+            return Err(AppError::config_with_details(
+                "query.max_limit must be greater than 0",
+                json!({
+                    "path": null,
+                    "hint": "query.max_limit must be >= 1"
+                }),
+            ));
         }
         if default_limit > max_limit {
-            return Err(AppError::config(
+            return Err(AppError::config_with_details(
                 "query.default_limit must be less than or equal to query.max_limit",
+                json!({
+                    "path": null,
+                    "hint": "query.default_limit must be <= query.max_limit"
+                }),
             ));
         }
         Ok(Self {
@@ -313,9 +343,13 @@ fn parse_content_store(value: Option<&str>) -> Result<ContentStore, AppError> {
         "db" => Ok(ContentStore::Db),
         "fs" => Ok(ContentStore::Fs),
         "none" => Ok(ContentStore::None),
-        other => Err(AppError::config(format!(
-            "Invalid storage.content_store value: {other}"
-        ))),
+        other => Err(AppError::config_with_details(
+            format!("Invalid storage.content_store value: {other}"),
+            json!({
+                "path": null,
+                "hint": "allowed values: db|fs|none"
+            }),
+        )),
     }
 }
 
@@ -324,9 +358,13 @@ fn parse_output_format(value: Option<&str>) -> Result<crate::cli::OutputFormat, 
     match value.unwrap_or("plain") {
         "json" => Ok(crate::cli::OutputFormat::Json),
         "plain" => Ok(crate::cli::OutputFormat::Plain),
-        other => Err(AppError::config(format!(
-            "Invalid cli.output value: {other}"
-        ))),
+        other => Err(AppError::config_with_details(
+            format!("Invalid cli.output value: {other}"),
+            json!({
+                "path": null,
+                "hint": "allowed values: json|plain"
+            }),
+        )),
     }
 }
 
@@ -338,8 +376,12 @@ fn parse_log_level(value: Option<&str>) -> Result<LogLevel, AppError> {
         "info" => Ok(LogLevel::Info),
         "debug" => Ok(LogLevel::Debug),
         "trace" => Ok(LogLevel::Trace),
-        other => Err(AppError::config(format!(
-            "Invalid log.level value: {other}"
-        ))),
+        other => Err(AppError::config_with_details(
+            format!("Invalid log.level value: {other}"),
+            json!({
+                "path": null,
+                "hint": "allowed values: error|warn|info|debug|trace"
+            }),
+        )),
     }
 }

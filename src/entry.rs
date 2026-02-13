@@ -10,14 +10,16 @@ use crate::query::{EntryQuery, FeedFilter, TagExpr};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use sha1::{Digest, Sha1};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
 /// Entry summary for list responses.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 pub struct EntrySummary {
     /// Entry id.
     pub id: i64,
@@ -36,7 +38,7 @@ pub struct EntrySummary {
 }
 
 /// Entry enclosure payload.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 pub struct EntryEnclosure {
     /// Enclosure URL.
     pub url: String,
@@ -47,7 +49,7 @@ pub struct EntryEnclosure {
 }
 
 /// Entry detail payload.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 pub struct EntryDetail {
     /// Entry id.
     pub id: i64,
@@ -76,7 +78,7 @@ pub struct EntryDetail {
 }
 
 /// Entry list response payload.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 pub struct EntryListResponse {
     /// Total hits for the query.
     pub total_count: i64,
@@ -156,8 +158,16 @@ pub fn view_entry(
             },
         )
         .optional()?;
-    let (id, feed_id, feed_title, title, link, author, published_at, first_seen_at) =
-        row.ok_or_else(|| AppError::entry_not_found(format!("Entry {entry_id} not found")))?;
+    let (id, feed_id, feed_title, title, link, author, published_at, first_seen_at) = row
+        .ok_or_else(|| {
+            AppError::entry_not_found_with_details(
+                format!("Entry {entry_id} not found"),
+                json!({
+                    "resource": "entry",
+                    "entry_id": entry_id
+                }),
+            )
+        })?;
 
     let tags = load_tags(conn, &[id])?.remove(&id).unwrap_or_default();
     let (content, content_type) = load_content(conn, &config.storage.data_dir, id)?;
@@ -435,8 +445,9 @@ fn load_content(
     let Some((storage, reference, content_type, content)) = row else {
         return Ok((None, None));
     };
-    let storage = EntryContentStorage::from_str(&storage)
-        .ok_or_else(|| AppError::internal(format!("Unknown content storage: {storage}")))?;
+    let storage = storage
+        .parse::<EntryContentStorage>()
+        .map_err(|_| AppError::internal(format!("Unknown content storage: {storage}")))?;
     match storage {
         Storage::Db => Ok((content, content_type)),
         Storage::Fs => {
@@ -522,14 +533,37 @@ fn encode_cursor_with_query(
 
 /// Decodes and validates pagination cursor.
 fn decode_cursor(raw: &str, sort: SortOrder, query_hash: &str) -> Result<Cursor, AppError> {
-    let bytes = URL_SAFE_NO_PAD
-        .decode(raw.as_bytes())
-        .map_err(|error| AppError::invalid_query(format!("Invalid cursor: {error}")))?;
-    let cursor: Cursor = serde_json::from_slice(&bytes)
-        .map_err(|error| AppError::invalid_query(format!("Invalid cursor: {error}")))?;
+    let bytes = URL_SAFE_NO_PAD.decode(raw.as_bytes()).map_err(|error| {
+        AppError::invalid_query_with_details(
+            format!("Invalid cursor: {error}"),
+            json!({
+                "kind": "invalid_cursor",
+                "field": "cursor",
+                "value": raw,
+                "hint": "base64url_decode_failed"
+            }),
+        )
+    })?;
+    let cursor: Cursor = serde_json::from_slice(&bytes).map_err(|error| {
+        AppError::invalid_query_with_details(
+            format!("Invalid cursor: {error}"),
+            json!({
+                "kind": "invalid_cursor",
+                "field": "cursor",
+                "value": raw,
+                "hint": "cursor_json_decode_failed"
+            }),
+        )
+    })?;
     if cursor.sort != sort.as_str() || cursor.query_hash != query_hash {
-        return Err(AppError::invalid_query(
+        return Err(AppError::invalid_query_with_details(
             "Cursor does not match the current query",
+            json!({
+                "kind": "invalid_cursor",
+                "field": "cursor",
+                "value": raw,
+                "hint": "cursor_mismatch",
+            }),
         ));
     }
     Ok(cursor)

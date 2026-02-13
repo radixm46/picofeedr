@@ -2,20 +2,21 @@
 
 use crate::config::feeds::{FeedConfig, FeedsConfig};
 use crate::db::FeedRow;
+use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::HashMap;
 
 use super::identity::feed_key_from_url;
 
 /// Feed list JSON response.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 pub struct FeedListResponse {
     /// Feed rows including config-derived tags.
     pub feeds: Vec<FeedListItem>,
 }
 
 /// Feed list item for JSON output.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 pub struct FeedListItem {
     /// Internal database ID.
     pub id: i64,

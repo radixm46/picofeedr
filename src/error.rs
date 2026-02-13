@@ -2,8 +2,10 @@
 
 use rusqlite::Error as SqlError;
 use rusqlite::ErrorCode as SqlErrorCode;
+use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::Value;
+use serde_json::json;
 use std::error::Error as StdError;
 use thiserror::Error;
 
@@ -54,6 +56,8 @@ pub enum AppError {
     Config {
         /// Human-readable message.
         message: String,
+        /// Optional machine-readable details.
+        details: Option<Value>,
         /// Source error when available.
         #[source]
         source: Option<BoxError>,
@@ -63,6 +67,8 @@ pub enum AppError {
     InvalidQuery {
         /// Human-readable message.
         message: String,
+        /// Optional machine-readable details.
+        details: Option<Value>,
         /// Source error when available.
         #[source]
         source: Option<BoxError>,
@@ -72,6 +78,8 @@ pub enum AppError {
     EntryNotFound {
         /// Human-readable message.
         message: String,
+        /// Optional machine-readable details.
+        details: Option<Value>,
         /// Source error when available.
         #[source]
         source: Option<BoxError>,
@@ -81,6 +89,8 @@ pub enum AppError {
     DbLocked {
         /// Human-readable message.
         message: String,
+        /// Optional machine-readable details.
+        details: Option<Value>,
         /// Source error when available.
         #[source]
         source: Option<BoxError>,
@@ -90,6 +100,8 @@ pub enum AppError {
     Db {
         /// Human-readable message.
         message: String,
+        /// Optional machine-readable details.
+        details: Option<Value>,
         /// Source error when available.
         #[source]
         source: Option<BoxError>,
@@ -100,6 +112,8 @@ pub enum AppError {
     Internal {
         /// Human-readable message.
         message: String,
+        /// Optional machine-readable details.
+        details: Option<Value>,
         /// Source error when available.
         #[source]
         source: Option<BoxError>,
@@ -109,6 +123,8 @@ pub enum AppError {
     Io {
         /// Human-readable message.
         message: String,
+        /// Optional machine-readable details.
+        details: Option<Value>,
         /// Source error when available.
         #[source]
         source: Option<BoxError>,
@@ -118,6 +134,8 @@ pub enum AppError {
     Serialization {
         /// Human-readable message.
         message: String,
+        /// Optional machine-readable details.
+        details: Option<Value>,
         /// Source error when available.
         #[source]
         source: Option<BoxError>,
@@ -162,6 +180,16 @@ impl AppError {
     pub fn config(message: impl Into<String>) -> Self {
         Self::Config {
             message: message.into(),
+            details: None,
+            source: None,
+        }
+    }
+
+    /// Creates a configuration error with details.
+    pub fn config_with_details(message: impl Into<String>, details: Value) -> Self {
+        Self::Config {
+            message: message.into(),
+            details: Some(details),
             source: None,
         }
     }
@@ -173,6 +201,7 @@ impl AppError {
     ) -> Self {
         Self::Config {
             message: message.into(),
+            details: None,
             source: Some(Box::new(source)),
         }
     }
@@ -181,14 +210,25 @@ impl AppError {
     pub fn invalid_query(message: impl Into<String>) -> Self {
         Self::InvalidQuery {
             message: message.into(),
+            details: None,
             source: None,
         }
     }
 
-    /// Creates an entry not found error.
-    pub fn entry_not_found(message: impl Into<String>) -> Self {
+    /// Creates an invalid query error with details.
+    pub fn invalid_query_with_details(message: impl Into<String>, details: Value) -> Self {
+        Self::InvalidQuery {
+            message: message.into(),
+            details: Some(details),
+            source: None,
+        }
+    }
+
+    /// Creates an entry not found error with details.
+    pub fn entry_not_found_with_details(message: impl Into<String>, details: Value) -> Self {
         Self::EntryNotFound {
             message: message.into(),
+            details: Some(details),
             source: None,
         }
     }
@@ -197,6 +237,7 @@ impl AppError {
     pub fn io(message: impl Into<String>) -> Self {
         Self::Io {
             message: message.into(),
+            details: None,
             source: None,
         }
     }
@@ -208,6 +249,7 @@ impl AppError {
     ) -> Self {
         Self::Io {
             message: message.into(),
+            details: None,
             source: Some(Box::new(source)),
         }
     }
@@ -219,6 +261,7 @@ impl AppError {
     ) -> Self {
         Self::Serialization {
             message: message.into(),
+            details: None,
             source: Some(Box::new(source)),
         }
     }
@@ -227,6 +270,7 @@ impl AppError {
     pub fn db(message: impl Into<String>) -> Self {
         Self::Db {
             message: message.into(),
+            details: None,
             source: None,
         }
     }
@@ -238,17 +282,20 @@ impl AppError {
     ) -> Self {
         Self::Db {
             message: message.into(),
+            details: None,
             source: Some(Box::new(source)),
         }
     }
 
-    /// Creates a locked database error with source.
-    pub fn db_locked_with_source(
+    /// Creates a locked database error with details and source.
+    pub fn db_locked_with_details(
         message: impl Into<String>,
+        details: Value,
         source: impl StdError + Send + Sync + 'static,
     ) -> Self {
         Self::DbLocked {
             message: message.into(),
+            details: Some(details),
             source: Some(Box::new(source)),
         }
     }
@@ -258,7 +305,22 @@ impl AppError {
     pub fn internal(message: impl Into<String>) -> Self {
         Self::Internal {
             message: message.into(),
+            details: None,
             source: None,
+        }
+    }
+
+    /// Returns optional machine-readable error details.
+    pub fn details(&self) -> Option<&Value> {
+        match self {
+            AppError::Config { details, .. }
+            | AppError::InvalidQuery { details, .. }
+            | AppError::EntryNotFound { details, .. }
+            | AppError::DbLocked { details, .. }
+            | AppError::Db { details, .. }
+            | AppError::Internal { details, .. }
+            | AppError::Io { details, .. }
+            | AppError::Serialization { details, .. } => details.as_ref(),
         }
     }
 }
@@ -303,7 +365,18 @@ impl From<SqlError> for AppError {
                 )
         );
         if is_locked {
-            AppError::db_locked_with_source(error.to_string(), error)
+            let sqlite_code = match &error {
+                SqlError::SqliteFailure(sql_error, _) => Some(format!("{:?}", sql_error.code)),
+                _ => None,
+            };
+            AppError::db_locked_with_details(
+                error.to_string(),
+                json!({
+                    "sqlite_code": sqlite_code,
+                    "retry_after_ms": 200
+                }),
+                error,
+            )
         } else {
             AppError::db_with_source(error.to_string(), error)
         }
@@ -311,7 +384,7 @@ impl From<SqlError> for AppError {
 }
 
 /// JSON error payload fields.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 pub struct ErrorPayload {
     /// Error code string.
     pub code: String,
@@ -330,7 +403,7 @@ impl ErrorPayload {
             code: error.code().as_str().to_string(),
             message: error.message().to_string(),
             retryable: error.retry(),
-            details: None,
+            details: error.details().cloned(),
         }
     }
 }

@@ -42,6 +42,17 @@ pub fn extract_error_payload(output: &[u8]) -> Value {
     value.get("error").cloned().expect("error")
 }
 
+/// Extracts machine-readable error details from a failed JSON envelope.
+pub fn extract_error_details(output: &[u8]) -> Value {
+    let error = extract_error_payload(output);
+    let details = error.get("details").cloned().expect("details");
+    assert!(
+        details.is_object(),
+        "expected error.details to be an object, got {details}"
+    );
+    details
+}
+
 /// Asserts the envelope severity value.
 pub fn assert_envelope_severity(output: &[u8], severity: &str) {
     let value = parse_envelope(output);

@@ -1,0 +1,195 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Envelope_for_ConfigCheckReport",
+  "description": "CLI response envelope for `--output json`.\n\nThis format is stable and intended for UI/automation clients.",
+  "type": "object",
+  "required": [
+    "meta",
+    "severity",
+    "success"
+  ],
+  "properties": {
+    "error": {
+      "description": "Error payload when `success=false`, otherwise `null`.",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/ErrorPayload"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "meta": {
+      "description": "Response metadata.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/ResponseMeta"
+        }
+      ]
+    },
+    "result": {
+      "description": "Command payload when `success=true`, otherwise `null`.",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/ConfigCheckReport"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "severity": {
+      "description": "Severity of the command outcome.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/ResponseSeverity"
+        }
+      ]
+    },
+    "success": {
+      "description": "Whether the command succeeded.",
+      "type": "boolean"
+    }
+  },
+  "definitions": {
+    "ConfigCheckReport": {
+      "description": "Static validation report for `feeds --config-check`.",
+      "type": "object",
+      "required": [
+        "checked_feeds",
+        "errors",
+        "valid",
+        "warnings"
+      ],
+      "properties": {
+        "checked_feeds": {
+          "description": "Number of feed entries checked.",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "errors": {
+          "description": "Validation errors that should fail the command.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ValidationIssue"
+          }
+        },
+        "valid": {
+          "description": "True when no validation errors are present.",
+          "type": "boolean"
+        },
+        "warnings": {
+          "description": "Validation warnings that do not fail the command.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ValidationIssue"
+          }
+        }
+      }
+    },
+    "ErrorPayload": {
+      "description": "JSON error payload fields.",
+      "type": "object",
+      "required": [
+        "code",
+        "message",
+        "retryable"
+      ],
+      "properties": {
+        "code": {
+          "description": "Error code string.",
+          "type": "string"
+        },
+        "details": {
+          "description": "Optional machine-readable details for error-specific branching."
+        },
+        "message": {
+          "description": "Human-readable message.",
+          "type": "string"
+        },
+        "retryable": {
+          "description": "Whether the caller should retry.",
+          "type": "boolean"
+        }
+      }
+    },
+    "ResponseMeta": {
+      "description": "Metadata returned on every JSON response.",
+      "type": "object",
+      "required": [
+        "api_version",
+        "generated_at",
+        "schema_version"
+      ],
+      "properties": {
+        "api_version": {
+          "description": "Current CLI API version.",
+          "type": "string"
+        },
+        "generated_at": {
+          "description": "Epoch seconds when the response was generated.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "schema_version": {
+          "description": "Current database schema version.",
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    },
+    "ResponseSeverity": {
+      "description": "Severity level of the response.",
+      "oneOf": [
+        {
+          "description": "Command completed without warnings.",
+          "type": "string",
+          "enum": [
+            "ok"
+          ]
+        },
+        {
+          "description": "Command completed with non-fatal warnings.",
+          "type": "string",
+          "enum": [
+            "warn"
+          ]
+        },
+        {
+          "description": "Command failed fatally.",
+          "type": "string",
+          "enum": [
+            "error"
+          ]
+        }
+      ]
+    },
+    "ValidationIssue": {
+      "description": "Static validation issue for feeds config check.",
+      "type": "object",
+      "required": [
+        "code",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "description": "Machine-readable issue code.",
+          "type": "string"
+        },
+        "message": {
+          "description": "Human-readable issue details.",
+          "type": "string"
+        },
+        "path": {
+          "description": "Logical path in feeds.yaml where the issue was detected.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

@@ -35,6 +35,18 @@ picofeedr ping
 # → {"success": true, "severity": "ok", "result": {"status": "ok"}, "error": null, "meta": {...}}
 ```
 
+失敗例（`INVALID_QUERY`）:
+
+```json
+{ "success": false, "severity": "error", "result": null, "error": { "code": "INVALID_QUERY", "message": "--limit must be greater than 0", "retryable": false, "details": { "kind": "limit_out_of_range", "field": "limit", "value": 0, "hint": "limit_must_be_greater_than_zero" } }, "meta": { "api_version": "<string>", "schema_version": <int>, "generated_at": <epoch> } }
+```
+
+失敗例（`ENTRY_NOT_FOUND`）:
+
+```json
+{ "success": false, "severity": "error", "result": null, "error": { "code": "ENTRY_NOT_FOUND", "message": "Entry 999999 not found", "retryable": false, "details": { "resource": "entry", "entry_id": 999999 } }, "meta": { "api_version": "<string>", "schema_version": <int>, "generated_at": <epoch> } }
+```
+
 ### A6.2 フィード管理
 
 ```

@@ -28,7 +28,9 @@
 - `doc/spec/tech-selection.md`：技術選定（Rust前提・ドラフト）
 - `doc/spec/references.md`：比較・参考リンク
 - `doc/spec/changelog.md`：変更履歴
+- `doc/spec/schema/`：`schemas` バイナリで自動生成するコマンド別JSON Schema成果物
 
 ## Notes
 
 - FTS5（全文検索）は日本語トークナイズ等の検討が必要なので後回し（仕様ではPhase拡張として扱う）のだ。
+- JSON Schema は `cargo run --bin schemas` で再生成し、差分をコミットするのだ。

@@ -1,0 +1,112 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FatalErrorEnvelope",
+  "description": "Fatal-only envelope schema.",
+  "type": "object",
+  "required": [
+    "error",
+    "meta",
+    "result",
+    "severity",
+    "success"
+  ],
+  "properties": {
+    "error": {
+      "description": "Fatal error payload.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/ErrorPayload"
+        }
+      ]
+    },
+    "meta": {
+      "description": "Common response metadata.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/ResponseMeta"
+        }
+      ]
+    },
+    "result": {
+      "description": "Always null for fatal responses.",
+      "type": "null"
+    },
+    "severity": {
+      "description": "Always error for fatal responses.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/FatalSeverity"
+        }
+      ]
+    },
+    "success": {
+      "description": "Always false for fatal responses.",
+      "type": "boolean"
+    }
+  },
+  "definitions": {
+    "ErrorPayload": {
+      "description": "JSON error payload fields.",
+      "type": "object",
+      "required": [
+        "code",
+        "message",
+        "retryable"
+      ],
+      "properties": {
+        "code": {
+          "description": "Error code string.",
+          "type": "string"
+        },
+        "details": {
+          "description": "Optional machine-readable details for error-specific branching."
+        },
+        "message": {
+          "description": "Human-readable message.",
+          "type": "string"
+        },
+        "retryable": {
+          "description": "Whether the caller should retry.",
+          "type": "boolean"
+        }
+      }
+    },
+    "FatalSeverity": {
+      "description": "Fatal severity fixed literal.",
+      "oneOf": [
+        {
+          "description": "Fixed severity string.",
+          "type": "string",
+          "enum": [
+            "error"
+          ]
+        }
+      ]
+    },
+    "ResponseMeta": {
+      "description": "Metadata returned on every JSON response.",
+      "type": "object",
+      "required": [
+        "api_version",
+        "generated_at",
+        "schema_version"
+      ],
+      "properties": {
+        "api_version": {
+          "description": "Current CLI API version.",
+          "type": "string"
+        },
+        "generated_at": {
+          "description": "Epoch seconds when the response was generated.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "schema_version": {
+          "description": "Current database schema version.",
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    }
+  }
+}

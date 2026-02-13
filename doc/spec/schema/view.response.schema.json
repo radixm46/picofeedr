@@ -1,0 +1,254 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Envelope_for_EntryDetail",
+  "description": "CLI response envelope for `--output json`.\n\nThis format is stable and intended for UI/automation clients.",
+  "type": "object",
+  "required": [
+    "meta",
+    "severity",
+    "success"
+  ],
+  "properties": {
+    "error": {
+      "description": "Error payload when `success=false`, otherwise `null`.",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/ErrorPayload"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "meta": {
+      "description": "Response metadata.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/ResponseMeta"
+        }
+      ]
+    },
+    "result": {
+      "description": "Command payload when `success=true`, otherwise `null`.",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/EntryDetail"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "severity": {
+      "description": "Severity of the command outcome.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/ResponseSeverity"
+        }
+      ]
+    },
+    "success": {
+      "description": "Whether the command succeeded.",
+      "type": "boolean"
+    }
+  },
+  "definitions": {
+    "EntryDetail": {
+      "description": "Entry detail payload.",
+      "type": "object",
+      "required": [
+        "enclosures",
+        "feed_id",
+        "first_seen_at",
+        "id",
+        "tags"
+      ],
+      "properties": {
+        "author": {
+          "description": "Entry author.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "content": {
+          "description": "Entry content body.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "content_type": {
+          "description": "Content type.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "enclosures": {
+          "description": "Enclosure list.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/EntryEnclosure"
+          }
+        },
+        "feed_id": {
+          "description": "Feed id.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "feed_title": {
+          "description": "Feed title.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "first_seen_at": {
+          "description": "First seen time.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "id": {
+          "description": "Entry id.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "link": {
+          "description": "Entry link.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "published_at": {
+          "description": "Published time.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "tags": {
+          "description": "Tags applied to the entry.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "title": {
+          "description": "Entry title.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "EntryEnclosure": {
+      "description": "Entry enclosure payload.",
+      "type": "object",
+      "required": [
+        "url"
+      ],
+      "properties": {
+        "length": {
+          "description": "Length in bytes.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "mime_type": {
+          "description": "MIME type.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "url": {
+          "description": "Enclosure URL.",
+          "type": "string"
+        }
+      }
+    },
+    "ErrorPayload": {
+      "description": "JSON error payload fields.",
+      "type": "object",
+      "required": [
+        "code",
+        "message",
+        "retryable"
+      ],
+      "properties": {
+        "code": {
+          "description": "Error code string.",
+          "type": "string"
+        },
+        "details": {
+          "description": "Optional machine-readable details for error-specific branching."
+        },
+        "message": {
+          "description": "Human-readable message.",
+          "type": "string"
+        },
+        "retryable": {
+          "description": "Whether the caller should retry.",
+          "type": "boolean"
+        }
+      }
+    },
+    "ResponseMeta": {
+      "description": "Metadata returned on every JSON response.",
+      "type": "object",
+      "required": [
+        "api_version",
+        "generated_at",
+        "schema_version"
+      ],
+      "properties": {
+        "api_version": {
+          "description": "Current CLI API version.",
+          "type": "string"
+        },
+        "generated_at": {
+          "description": "Epoch seconds when the response was generated.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "schema_version": {
+          "description": "Current database schema version.",
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    },
+    "ResponseSeverity": {
+      "description": "Severity level of the response.",
+      "oneOf": [
+        {
+          "description": "Command completed without warnings.",
+          "type": "string",
+          "enum": [
+            "ok"
+          ]
+        },
+        {
+          "description": "Command completed with non-fatal warnings.",
+          "type": "string",
+          "enum": [
+            "warn"
+          ]
+        },
+        {
+          "description": "Command failed fatally.",
+          "type": "string",
+          "enum": [
+            "error"
+          ]
+        }
+      ]
+    }
+  }
+}

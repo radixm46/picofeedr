@@ -2,10 +2,11 @@
 
 use crate::db::EntryContentInput;
 use crate::error::AppError;
+use schemars::JsonSchema;
 use serde::Serialize;
 
 /// Sync result summary.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 pub struct SyncSummary {
     /// Sync status.
     pub status: SyncStatus,
@@ -22,7 +23,7 @@ pub struct SyncSummary {
 }
 
 /// Sync error entry for failed feeds.
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, JsonSchema, Clone)]
 pub struct SyncError {
     /// Feed URL that failed.
     pub feed_url: String,
@@ -35,7 +36,7 @@ pub struct SyncError {
 }
 
 /// Sync status values.
-#[derive(Debug, Serialize, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Serialize, JsonSchema, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SyncStatus {
     Completed,
@@ -55,7 +56,7 @@ impl SyncStatus {
 }
 
 /// Sync error code values.
-#[derive(Debug, Serialize, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Serialize, JsonSchema, Clone, Copy, PartialEq, Eq)]
 pub enum SyncErrorCode {
     #[serde(rename = "FETCH_FAILED")]
     FetchFailed,

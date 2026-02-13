@@ -1,10 +1,11 @@
 //! Status response payload helpers.
 
 use crate::db::sqlite::SystemMeta;
+use schemars::JsonSchema;
 use serde::Serialize;
 
 /// Status payload for lightweight database polling.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 pub struct StatusResponse {
     /// Monotonic revision incremented after successful write commands.
     pub revision: i64,

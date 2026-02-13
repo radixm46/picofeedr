@@ -1,8 +1,10 @@
 //! Feeds configuration parser for feeds.yaml.
 
 use crate::error::AppError;
+use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
+use serde_json::json;
 use serde_yaml_ng::Value;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -22,15 +24,42 @@ pub struct FeedsConfig {
 impl FeedsConfig {
     /// Loads feeds.yaml and returns a flattened configuration.
     pub fn load(path: &Path) -> Result<Self, AppError> {
-        let content = fs::read_to_string(path)
-            .map_err(|error| AppError::config(format!("Failed to read feeds.yaml: {error}")))?;
-        let root: Value = serde_yaml_ng::from_str(&content)?;
-        let feeds_value = root
-            .get("feeds")
-            .ok_or_else(|| AppError::config("feeds.yaml missing top-level 'feeds'"))?;
-        let feeds_map = feeds_value
-            .as_mapping()
-            .ok_or_else(|| AppError::config("feeds.yaml 'feeds' must be a mapping"))?;
+        let content = fs::read_to_string(path).map_err(|error| {
+            AppError::config_with_details(
+                format!("Failed to read feeds.yaml: {error}"),
+                json!({
+                    "path": path.to_string_lossy(),
+                    "hint": "failed_to_read_feeds_yaml"
+                }),
+            )
+        })?;
+        let root: Value = serde_yaml_ng::from_str(&content).map_err(|error| {
+            AppError::config_with_details(
+                error.to_string(),
+                json!({
+                    "path": path.to_string_lossy(),
+                    "hint": "invalid_yaml"
+                }),
+            )
+        })?;
+        let feeds_value = root.get("feeds").ok_or_else(|| {
+            AppError::config_with_details(
+                "feeds.yaml missing top-level 'feeds'",
+                json!({
+                    "path": path.to_string_lossy(),
+                    "hint": "missing_top_level_feeds"
+                }),
+            )
+        })?;
+        let feeds_map = feeds_value.as_mapping().ok_or_else(|| {
+            AppError::config_with_details(
+                "feeds.yaml 'feeds' must be a mapping",
+                json!({
+                    "path": path.to_string_lossy(),
+                    "hint": "feeds_must_be_mapping"
+                }),
+            )
+        })?;
         let auto_tags = parse_auto_tags(feeds_map.get(Value::String("auto_tags".to_string())))?;
         let mut feeds = Vec::new();
         flatten_groups(feeds_value, &[], "feeds", &mut feeds)?;
@@ -151,7 +180,7 @@ pub struct AutoTagRule {
 }
 
 /// Static validation issue for feeds config check.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct ValidationIssue {
     /// Machine-readable issue code.
     pub code: String,
@@ -162,7 +191,7 @@ pub struct ValidationIssue {
 }
 
 /// Static validation report for `feeds --config-check`.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct ConfigCheckReport {
     /// True when no validation errors are present.
     pub valid: bool,

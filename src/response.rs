@@ -2,10 +2,11 @@
 
 use crate::error::{AppError, ErrorPayload};
 use crate::time;
+use schemars::JsonSchema;
 use serde::Serialize;
 
 /// Severity level of the response.
-#[derive(Debug, Serialize, Clone, Copy)]
+#[derive(Debug, Serialize, JsonSchema, Clone, Copy)]
 #[serde(rename_all = "snake_case")]
 pub enum ResponseSeverity {
     /// Command completed without warnings.
@@ -17,7 +18,7 @@ pub enum ResponseSeverity {
 }
 
 /// Metadata returned on every JSON response.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 pub struct ResponseMeta {
     /// Current CLI API version.
     pub api_version: &'static str,
@@ -41,7 +42,8 @@ impl ResponseMeta {
 /// CLI response envelope for `--output json`.
 ///
 /// This format is stable and intended for UI/automation clients.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
+#[schemars(bound = "T: JsonSchema")]
 pub struct Envelope<T> {
     /// Whether the command succeeded.
     pub success: bool,
