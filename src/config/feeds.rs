@@ -17,7 +17,6 @@ pub struct FeedsConfig {
     /// Flattened feed list with inherited tags.
     pub feeds: Vec<FeedConfig>,
     /// Auto-tag rules defined in feeds.yaml.
-    #[allow(dead_code)]
     pub auto_tags: Vec<AutoTagRule>,
 }
 
@@ -166,16 +165,12 @@ pub struct FeedConfig {
 #[derive(Debug, Clone, Deserialize)]
 pub struct AutoTagRule {
     /// Title regex pattern.
-    #[allow(dead_code)]
     pub title_regex: Option<String>,
     /// Title contains tokens.
-    #[allow(dead_code)]
     pub title_contains: Option<Vec<String>>,
     /// Tags to add when matched.
-    #[allow(dead_code)]
     pub add_tags: Vec<String>,
     /// Priority for rule ordering.
-    #[allow(dead_code)]
     pub priority: Option<i64>,
 }
 

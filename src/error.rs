@@ -107,7 +107,6 @@ pub enum AppError {
         source: Option<BoxError>,
     },
     /// Internal unexpected error.
-    #[allow(dead_code)]
     #[error("{message}")]
     Internal {
         /// Human-readable message.
@@ -310,7 +309,6 @@ impl AppError {
     }
 
     /// Creates an internal error.
-    #[allow(dead_code)]
     pub fn internal(message: impl Into<String>) -> Self {
         Self::Internal {
             message: message.into(),
