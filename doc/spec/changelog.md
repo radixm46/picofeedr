@@ -1,5 +1,28 @@
 # 変更履歴
 
+> Note:
+> v0.6 以前の記述は履歴として残している旧仕様なのだ。
+> 現在の有効な JSON 契約は v0.7（`success/result/error/meta`）を正として扱うのだ。
+
+## v0.7（2026-02-13, breaking）
+
+- **CLI JSON envelope v1 へ全面刷新**
+  - `ok/data/error` を `success/result/error/meta` に変更
+  - `meta` に `api_version`/`schema_version`/`generated_at` を追加
+- **エラーpayloadを明確化**
+  - `retry` を `retriable` に変更
+  - `details` フィールドを追加（nullable）
+- **同期レスポンスの単位を明示**
+  - `fetched` -> `fetched_feed_count`
+  - `failed` -> `failed_feed_count`
+  - `new_entries` -> `new_entry_count`
+  - `elapsed` -> `duration_ms`
+- **一覧/状態更新レスポンスを命名統一**
+  - `total_hits` -> `total_count`
+  - `next_cursor` -> `next_page_token`
+  - `updated` -> `updated_entry_count`
+  - `updated_at`/`sync_at`/`sync_status` -> `last_write_at`/`last_sync_at`/`last_sync_status`
+
 ## v0.6（2026-02-09）
 
 - **仕様追随: `list` カーソル内部仕様とページング例を現行実装へ同期**

@@ -28,7 +28,7 @@ picofeedr sync
 emacs -f picofeedr
 
 # または CLI で確認
-picofeedr --output json list --query "unread tag:security" | jq '.data.items[] | {id, title}'
+picofeedr --output json list --query "unread tag:security" | jq '.result.items[] | {id, title}'
 picofeedr --output json view 123
 picofeedr --output json mark read 123
 

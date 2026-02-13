@@ -35,24 +35,24 @@ pub fn run_sync(
 
     let tx = store.transaction()?;
     crate::feed::reconcile_feeds_with_conn(&tx, feeds_config, &config.unread_tag)?;
-    let new_entries = ingest_results(&tx, config, results)?;
+    let new_entry_count = ingest_results(&tx, config, results)?;
     tx.commit()?;
 
-    let elapsed = start.elapsed().as_secs_f64();
-    let failed = errors.len();
-    let status = if failed > 0 && failed == targets.len() {
+    let duration_ms = start.elapsed().as_millis() as u64;
+    let failed_feed_count = errors.len();
+    let status = if failed_feed_count > 0 && failed_feed_count == targets.len() {
         SyncStatus::Failed
-    } else if failed > 0 {
+    } else if failed_feed_count > 0 {
         SyncStatus::PartialFailed
     } else {
         SyncStatus::Completed
     };
     Ok(SyncSummary {
         status,
-        fetched: targets.len(),
-        failed,
-        new_entries,
-        elapsed,
+        fetched_feed_count: targets.len(),
+        failed_feed_count,
+        new_entry_count,
+        duration_ms,
         errors,
     })
 }

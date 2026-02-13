@@ -79,15 +79,15 @@ pub struct EntryDetail {
 #[derive(Debug, Serialize)]
 pub struct EntryListResponse {
     /// Total hits for the query.
-    pub total_hits: i64,
+    pub total_count: i64,
     /// Page items.
     pub items: Vec<EntrySummary>,
     /// Cursor for the next page.
-    pub next_cursor: Option<String>,
+    pub next_page_token: Option<String>,
     /// Revision captured when the list was fetched.
     pub revision: i64,
     /// Write timestamp captured when the list was fetched.
-    pub updated_at: Option<i64>,
+    pub last_write_at: Option<i64>,
 }
 
 /// Cursor payload for pagination.
@@ -111,9 +111,9 @@ pub fn list_entries(
     let system_meta = store.read_system_meta()?;
     let query_hash = compute_query_hash(query);
     let (count_where_sql, count_params) = build_where_clause(query, sort, None, &query_hash)?;
-    let total_hits = count_entries(conn, &count_where_sql, &count_params)?;
+    let total_count = count_entries(conn, &count_where_sql, &count_params)?;
     let (page_where_sql, page_params) = build_where_clause(query, sort, cursor, &query_hash)?;
-    let (items, next_cursor) = fetch_entries(
+    let (items, next_page_token) = fetch_entries(
         conn,
         &page_where_sql,
         &page_params,
@@ -122,11 +122,11 @@ pub fn list_entries(
         &query_hash,
     )?;
     Ok(EntryListResponse {
-        total_hits,
+        total_count,
         items,
-        next_cursor,
+        next_page_token,
         revision: system_meta.revision,
-        updated_at: system_meta.updated_at,
+        last_write_at: system_meta.updated_at,
     })
 }
 
@@ -353,7 +353,7 @@ fn fetch_entries(
     for entry in &mut entries {
         entry.tags = tags.get(&entry.id).cloned().unwrap_or_default();
     }
-    let next_cursor = if has_next {
+    let next_page_token = if has_next {
         match (entries.last(), sort_keys.last()) {
             (Some(entry), Some(key)) => {
                 Some(encode_cursor_with_query(*key, entry.id, sort, query_hash)?)
@@ -363,7 +363,7 @@ fn fetch_entries(
     } else {
         None
     };
-    Ok((entries, next_cursor))
+    Ok((entries, next_page_token))
 }
 
 fn sort_key_expr(sort: SortOrder) -> &'static str {

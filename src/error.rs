@@ -3,6 +3,7 @@
 use rusqlite::Error as SqlError;
 use rusqlite::ErrorCode as SqlErrorCode;
 use serde::Serialize;
+use serde_json::Value;
 use std::error::Error as StdError;
 use thiserror::Error;
 
@@ -317,7 +318,9 @@ pub struct ErrorPayload {
     /// Human-readable message.
     pub message: String,
     /// Whether the caller should retry.
-    pub retry: bool,
+    pub retriable: bool,
+    /// Optional machine-readable details for error-specific branching.
+    pub details: Option<Value>,
 }
 
 impl ErrorPayload {
@@ -326,7 +329,8 @@ impl ErrorPayload {
         Self {
             code: error.code().as_str().to_string(),
             message: error.message().to_string(),
-            retry: error.retry(),
+            retriable: error.retry(),
+            details: None,
         }
     }
 }

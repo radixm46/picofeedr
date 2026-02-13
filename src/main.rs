@@ -278,7 +278,7 @@ fn resolve_list_limit(limit: Option<usize>, query: config::QueryConfig) -> Resul
 /// Renders JSON output for a command result.
 fn render_json(result: &CommandOutput) -> Result<(), RunFailure> {
     let data = match result {
-        CommandOutput::Ping => json!({ "ok": true }),
+        CommandOutput::Ping => json!({ "status": "ok" }),
         CommandOutput::Version {
             api_version,
             schema_version,
@@ -294,7 +294,7 @@ fn render_json(result: &CommandOutput) -> Result<(), RunFailure> {
         CommandOutput::Sync { summary } => serde_json::to_value(summary)?,
         CommandOutput::List { list } => serde_json::to_value(list)?,
         CommandOutput::View { detail } => serde_json::to_value(detail)?,
-        CommandOutput::Mark { updated } => json!({ "updated": updated }),
+        CommandOutput::Mark { updated } => json!({ "updated_entry_count": updated }),
     };
 
     print_json_or_fallback(&Envelope::ok(data))?;
@@ -324,9 +324,9 @@ fn render_plain(result: &CommandOutput) -> io::Result<()> {
             writeln!(writer, "revision: {}", status.revision)?;
             writeln!(
                 writer,
-                "updated_at: {}",
+                "last_write_at: {}",
                 status
-                    .updated_at
+                    .last_write_at
                     .map(|value| value.to_string())
                     .unwrap_or_else(|| "null".to_string())
             )?;
@@ -334,16 +334,16 @@ fn render_plain(result: &CommandOutput) -> io::Result<()> {
             writeln!(writer, "api_version: {}", status.api_version)?;
             writeln!(
                 writer,
-                "sync_at: {}",
+                "last_sync_at: {}",
                 status
-                    .sync_at
+                    .last_sync_at
                     .map(|value| value.to_string())
                     .unwrap_or_else(|| "null".to_string())
             )?;
             writeln!(
                 writer,
-                "sync_status: {}",
-                status.sync_status.as_deref().unwrap_or("null")
+                "last_sync_status: {}",
+                status.last_sync_status.as_deref().unwrap_or("null")
             )?;
         }
         CommandOutput::FeedsList { feeds } => {
@@ -372,27 +372,30 @@ fn render_plain(result: &CommandOutput) -> io::Result<()> {
             writeln!(writer, "status: {}", summary.status.as_str())?;
             writeln!(
                 writer,
-                "fetched: {} failed: {} new_entries: {} elapsed: {:.2}s",
-                summary.fetched, summary.failed, summary.new_entries, summary.elapsed
+                "fetched_feed_count: {} failed_feed_count: {} new_entry_count: {} duration_ms: {}",
+                summary.fetched_feed_count,
+                summary.failed_feed_count,
+                summary.new_entry_count,
+                summary.duration_ms
             )?;
             if !summary.errors.is_empty() {
                 writeln!(writer, "errors: {}", summary.errors.len())?;
                 for error in &summary.errors {
                     writeln!(
                         writer,
-                        "  {} {} retry={}",
+                        "  {} {} retriable={}",
                         error.feed_url,
                         error.code.as_str(),
-                        error.retry
+                        error.retriable
                     )?;
                     writeln!(writer, "    {}", error.message)?;
                 }
             }
         }
         CommandOutput::List { list } => {
-            writeln!(writer, "total: {}", list.total_hits)?;
-            if let Some(cursor) = &list.next_cursor {
-                writeln!(writer, "next_cursor: {cursor}")?;
+            writeln!(writer, "total_count: {}", list.total_count)?;
+            if let Some(cursor) = &list.next_page_token {
+                writeln!(writer, "next_page_token: {cursor}")?;
             }
             for entry in &list.items {
                 let title = entry.title.as_deref().unwrap_or("(untitled)");
@@ -430,7 +433,9 @@ fn render_plain(result: &CommandOutput) -> io::Result<()> {
                 writeln!(writer, "{content}")?;
             }
         }
-        CommandOutput::Mark { updated } => writeln!(writer, "updated: {updated}")?,
+        CommandOutput::Mark { updated } => {
+            writeln!(writer, "updated_entry_count: {updated}")?
+        }
     }
     writer.flush()?;
     Ok(())
@@ -479,7 +484,7 @@ fn print_json_or_fallback<T: serde::Serialize>(value: &T) -> io::Result<()> {
 }
 
 /// Fallback JSON printed when JSON serialization fails unexpectedly.
-const FALLBACK_INTERNAL_ERROR_JSON: &str = "{\"ok\":false,\"data\":null,\"error\":{\"code\":\"INTERNAL\",\"message\":\"Failed to serialize response\",\"retry\":false}}";
+const FALLBACK_INTERNAL_ERROR_JSON: &str = "{\"success\":false,\"result\":null,\"error\":{\"code\":\"INTERNAL\",\"message\":\"Failed to serialize response\",\"retriable\":false,\"details\":null},\"meta\":{\"api_version\":\"unknown\",\"schema_version\":0,\"generated_at\":0}}";
 
 /// Loads config and applies CLI overrides.
 fn load_config(cli: &Cli) -> Result<config::AppConfig, AppError> {

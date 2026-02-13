@@ -10,13 +10,13 @@ pub struct SyncSummary {
     /// Sync status.
     pub status: SyncStatus,
     /// Number of feeds fetched.
-    pub fetched: usize,
+    pub fetched_feed_count: usize,
     /// Number of failed feeds.
-    pub failed: usize,
+    pub failed_feed_count: usize,
     /// Number of new entries ingested.
-    pub new_entries: usize,
-    /// Elapsed time in seconds.
-    pub elapsed: f64,
+    pub new_entry_count: usize,
+    /// Elapsed time in milliseconds.
+    pub duration_ms: u64,
     /// Sync errors for failed feeds.
     pub errors: Vec<SyncError>,
 }
@@ -31,7 +31,7 @@ pub struct SyncError {
     /// Error message.
     pub message: String,
     /// Whether the caller should retry.
-    pub retry: bool,
+    pub retriable: bool,
 }
 
 /// Sync status values.
@@ -80,7 +80,7 @@ impl SyncError {
             feed_url: feed_url.to_string(),
             code: SyncErrorCode::FetchFailed,
             message,
-            retry: !feed_url.starts_with("file://"),
+            retriable: !feed_url.starts_with("file://"),
         }
     }
 
@@ -90,7 +90,7 @@ impl SyncError {
             feed_url: feed_url.to_string(),
             code: SyncErrorCode::ParseFailed,
             message,
-            retry: false,
+            retriable: false,
         }
     }
 }

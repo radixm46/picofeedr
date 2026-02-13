@@ -269,11 +269,11 @@ fn status_returns_default_metadata() {
 
     let status = status_json(&paths.config_path, &paths.db_path);
     assert_eq!(status["revision"], 0);
-    assert!(status["updated_at"].is_null());
+    assert!(status["last_write_at"].is_null());
     assert_eq!(status["schema_version"], 1);
     assert!(status["api_version"].as_str().is_some());
-    assert!(status["sync_at"].is_null());
-    assert!(status["sync_status"].is_null());
+    assert!(status["last_sync_at"].is_null());
+    assert!(status["last_sync_status"].is_null());
 }
 
 /// Ensures feeds reconciliation increments revision metadata.
@@ -293,7 +293,7 @@ fn status_tracks_feeds_write_revision() {
 
     let status = status_json(&paths.config_path, &paths.db_path);
     assert_eq!(status["revision"], 1);
-    assert!(status["updated_at"].as_i64().is_some());
+    assert!(status["last_write_at"].as_i64().is_some());
 }
 
 /// Ensures status tracks sync and mark writes and ignores read-only commands.
@@ -313,9 +313,9 @@ fn status_tracks_revision_and_sync_metadata() {
 
     let after_sync = status_json(&paths.config_path, &paths.db_path);
     assert_eq!(after_sync["revision"], 1);
-    assert!(after_sync["updated_at"].as_i64().is_some());
-    assert!(after_sync["sync_at"].as_i64().is_some());
-    assert_eq!(after_sync["sync_status"], "completed");
+    assert!(after_sync["last_write_at"].as_i64().is_some());
+    assert!(after_sync["last_sync_at"].as_i64().is_some());
+    assert_eq!(after_sync["last_sync_status"], "completed");
 
     let _ = list_query_json(&paths.config_path, &paths.db_path, "unread");
     let entry_id = entry_id_by_title(&paths.config_path, &paths.db_path, "First");
@@ -335,7 +335,7 @@ fn status_tracks_revision_and_sync_metadata() {
 
     let after_reads = status_json(&paths.config_path, &paths.db_path);
     assert_eq!(after_reads["revision"], after_sync["revision"]);
-    assert_eq!(after_reads["updated_at"], after_sync["updated_at"]);
+    assert_eq!(after_reads["last_write_at"], after_sync["last_write_at"]);
 
     picofeedr_cmd_json()
         .arg("--config")
@@ -350,7 +350,7 @@ fn status_tracks_revision_and_sync_metadata() {
 
     let after_mark = status_json(&paths.config_path, &paths.db_path);
     assert_eq!(after_mark["revision"], 2);
-    assert_eq!(after_mark["sync_status"], "completed");
+    assert_eq!(after_mark["last_sync_status"], "completed");
 }
 
 /// Case definition for fatal configuration envelope validation.
@@ -655,19 +655,19 @@ fn sync_ingests_entries_and_tags() {
 
     let data = extract_ok_data(&output);
     assert_eq!(data["status"], "completed");
-    assert_eq!(data["fetched"], 1);
-    assert_eq!(data["failed"], 0);
-    assert_eq!(data["new_entries"], 2);
+    assert_eq!(data["fetched_feed_count"], 1);
+    assert_eq!(data["failed_feed_count"], 0);
+    assert_eq!(data["new_entry_count"], 2);
     assert!(data["errors"].as_array().expect("errors array").is_empty());
 
     let unread_data = list_query_json(&paths.config_path, &paths.db_path, "unread");
-    assert_eq!(unread_data["total_hits"], 2);
+    assert_eq!(unread_data["total_count"], 2);
 
     let tech_data = list_query_json(&paths.config_path, &paths.db_path, "tag:tech");
-    assert_eq!(tech_data["total_hits"], 2);
+    assert_eq!(tech_data["total_count"], 2);
 
     let hot_data = list_query_json(&paths.config_path, &paths.db_path, "tag:hot");
-    assert_eq!(hot_data["total_hits"], 1);
+    assert_eq!(hot_data["total_count"], 1);
 }
 
 /// Ensures legacy top-level auto_tags are ignored without warnings.
@@ -702,7 +702,7 @@ auto_tags:
         .success();
 
     let hot_data = list_query_json(&paths.config_path, &paths.db_path, "tag:hot");
-    assert_eq!(hot_data["total_hits"], 0);
+    assert_eq!(hot_data["total_count"], 0);
 }
 
 /// Ensures sync writes content to filesystem storage.
@@ -793,8 +793,8 @@ fn sync_reports_partial_failed() {
 
     let data = extract_ok_data(&output);
     assert_eq!(data["status"], "partial_failed");
-    assert_eq!(data["fetched"], 2);
-    assert_eq!(data["failed"], 1);
+    assert_eq!(data["fetched_feed_count"], 2);
+    assert_eq!(data["failed_feed_count"], 1);
     let errors = data["errors"].as_array().expect("errors array");
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0]["code"], "PARSE_FAILED");
@@ -820,8 +820,8 @@ fn sync_reports_failed_when_all_feeds_fail() {
 
     let data = extract_ok_data(&output);
     assert_eq!(data["status"], "failed");
-    assert_eq!(data["fetched"], 1);
-    assert_eq!(data["failed"], 1);
+    assert_eq!(data["fetched_feed_count"], 1);
+    assert_eq!(data["failed_feed_count"], 1);
     let errors = data["errors"].as_array().expect("errors array");
     assert_eq!(errors.len(), 1);
 }
@@ -860,11 +860,11 @@ fn list_returns_paginated_results() {
         .clone();
 
     let data = extract_ok_data(&output);
-    assert_eq!(data["total_hits"], 2);
+    assert_eq!(data["total_count"], 2);
     assert_eq!(data["items"].as_array().expect("items array").len(), 1);
     assert!(data["revision"].as_i64().is_some());
-    assert!(data["updated_at"].as_i64().is_some());
-    let cursor = data["next_cursor"].as_str().expect("next_cursor");
+    assert!(data["last_write_at"].as_i64().is_some());
+    let cursor = data["next_page_token"].as_str().expect("next_cursor");
 
     let output = picofeedr_cmd_json()
         .arg("--config")
@@ -887,11 +887,11 @@ fn list_returns_paginated_results() {
         .clone();
 
     let data = extract_ok_data(&output);
-    assert_eq!(data["total_hits"], 2);
+    assert_eq!(data["total_count"], 2);
     assert_eq!(data["items"].as_array().expect("items array").len(), 1);
     assert!(data["revision"].as_i64().is_some());
-    assert!(data["updated_at"].as_i64().is_some());
-    assert!(data["next_cursor"].is_null());
+    assert!(data["last_write_at"].as_i64().is_some());
+    assert!(data["next_page_token"].is_null());
 }
 
 /// Ensures list snapshot metadata is consistent with status metadata.
@@ -912,7 +912,7 @@ fn list_snapshot_matches_status_metadata() {
     let status = status_json(&paths.config_path, &paths.db_path);
     let data = list_query_json(&paths.config_path, &paths.db_path, "unread");
     assert_eq!(data["revision"], status["revision"]);
-    assert_eq!(data["updated_at"], status["updated_at"]);
+    assert_eq!(data["last_write_at"], status["last_write_at"]);
 }
 
 /// Ensures tag expression operators and precedence are applied.
@@ -949,7 +949,7 @@ fn list_filters_by_tag_expression() {
         .clone();
 
     let data = extract_ok_data(&output);
-    assert_eq!(data["total_hits"], 1);
+    assert_eq!(data["total_count"], 1);
     let items = data["items"].as_array().expect("items array");
     assert_eq!(items.len(), 1);
     assert_eq!(items[0]["title"], "Second Entry");
@@ -973,7 +973,7 @@ fn list_filters_by_tag_expression() {
         .clone();
 
     let data = extract_ok_data(&output);
-    assert_eq!(data["total_hits"], 2);
+    assert_eq!(data["total_count"], 2);
 }
 
 /// Ensures -tag expression alias applies top-level NOT.
@@ -1005,7 +1005,7 @@ fn list_accepts_minus_tag_expression_alias() {
         .stdout
         .clone();
     let data = extract_ok_data(&output);
-    assert_eq!(data["total_hits"], 1);
+    assert_eq!(data["total_count"], 1);
     let items = data["items"].as_array().expect("items array");
     assert_eq!(items.len(), 1);
     assert_eq!(items[0]["title"], "Second Entry");
@@ -1047,7 +1047,7 @@ fn list_filters_by_feed() {
         .clone();
 
     let data = extract_ok_data(&output);
-    assert_eq!(data["total_hits"], 2);
+    assert_eq!(data["total_count"], 2);
 
     let output = picofeedr_cmd_json()
         .arg("--config")
@@ -1068,7 +1068,7 @@ fn list_filters_by_feed() {
         .clone();
 
     let data = extract_ok_data(&output);
-    assert_eq!(data["total_hits"], 2);
+    assert_eq!(data["total_count"], 2);
 }
 
 /// Ensures title filters work.
@@ -1105,7 +1105,7 @@ fn list_filters_by_title() {
         .clone();
 
     let data = extract_ok_data(&output);
-    assert_eq!(data["total_hits"], 1);
+    assert_eq!(data["total_count"], 1);
     let items = data["items"].as_array().expect("items array");
     assert_eq!(items.len(), 1);
     assert_eq!(items[0]["title"], "First Entry");
@@ -1144,7 +1144,7 @@ fn list_filters_by_date_range() {
         .stdout
         .clone();
     let data = extract_ok_data(&output);
-    assert_eq!(data["total_hits"], 1);
+    assert_eq!(data["total_count"], 1);
 
     let output = picofeedr_cmd_json()
         .arg("--config")
@@ -1164,7 +1164,7 @@ fn list_filters_by_date_range() {
         .stdout
         .clone();
     let data = extract_ok_data(&output);
-    assert_eq!(data["total_hits"], 1);
+    assert_eq!(data["total_count"], 1);
 }
 
 /// Ensures cursor mismatches are rejected.
@@ -1201,7 +1201,7 @@ fn list_rejects_mismatched_cursor() {
         .clone();
 
     let data = extract_ok_data(&output);
-    let cursor = data["next_cursor"].as_str().expect("cursor");
+    let cursor = data["next_page_token"].as_str().expect("cursor");
 
     let output = picofeedr_cmd_json()
         .arg("--config")
@@ -1264,7 +1264,7 @@ fn list_rejects_invalid_cursor_format() {
 
     let error = extract_error_payload(&output);
     assert_eq!(error["code"], "INVALID_QUERY");
-    assert_eq!(error["retry"], false);
+    assert_eq!(error["retriable"], false);
 }
 
 /// Ensures list uses config query.default_limit when --limit is omitted.
@@ -1301,7 +1301,7 @@ fn list_uses_config_default_limit_when_limit_omitted() {
     let data = extract_ok_data(&output);
     let items = data["items"].as_array().expect("items array");
     assert_eq!(items.len(), 1);
-    assert!(data["next_cursor"].is_string());
+    assert!(data["next_page_token"].is_string());
 }
 
 /// Ensures list rejects limits over config query.max_limit.
@@ -1635,7 +1635,7 @@ fn mark_updates_tags() {
         .success();
 
     let unread_after_read = list_query_json(&paths.config_path, &paths.db_path, "unread");
-    assert_eq!(unread_after_read["total_hits"], 0);
+    assert_eq!(unread_after_read["total_count"], 0);
 
     picofeedr_cmd_json()
         .arg("--config")
@@ -1649,7 +1649,7 @@ fn mark_updates_tags() {
         .success();
 
     let unread_after_unread = list_query_json(&paths.config_path, &paths.db_path, "unread");
-    assert_eq!(unread_after_unread["total_hits"], 1);
+    assert_eq!(unread_after_unread["total_count"], 1);
 
     picofeedr_cmd_json()
         .arg("--config")
@@ -1667,10 +1667,10 @@ fn mark_updates_tags() {
         .success();
 
     let foo_data = list_query_json(&paths.config_path, &paths.db_path, "tag:foo");
-    assert_eq!(foo_data["total_hits"], 1);
+    assert_eq!(foo_data["total_count"], 1);
 
     let tech_data = list_query_json(&paths.config_path, &paths.db_path, "tag:tech");
-    assert_eq!(tech_data["total_hits"], 1);
+    assert_eq!(tech_data["total_count"], 1);
 }
 
 /// Runs `list` in JSON mode and returns its `data` object.
