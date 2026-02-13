@@ -31,7 +31,7 @@ use std::collections::HashSet;
 use std::env;
 use std::error::Error;
 use std::ffi::OsString;
-use std::io;
+use std::io::{self, Write};
 use std::process::ExitCode;
 use tracing::{debug, trace};
 
@@ -66,6 +66,35 @@ enum CommandOutput {
     },
 }
 
+/// Runtime failure category for command execution and output rendering.
+enum RunFailure {
+    /// Domain/application level failure.
+    App(AppError),
+    /// Stdout write failure while rendering output.
+    Io(io::Error),
+}
+
+impl From<AppError> for RunFailure {
+    /// Converts an [`AppError`] into [`RunFailure`].
+    fn from(error: AppError) -> Self {
+        Self::App(error)
+    }
+}
+
+impl From<io::Error> for RunFailure {
+    /// Converts an [`io::Error`] into [`RunFailure`].
+    fn from(error: io::Error) -> Self {
+        Self::Io(error)
+    }
+}
+
+impl From<serde_json::Error> for RunFailure {
+    /// Converts a JSON serialization error into [`RunFailure`].
+    fn from(error: serde_json::Error) -> Self {
+        Self::App(AppError::from(error))
+    }
+}
+
 /// Runs the CLI and prints JSON output or error to stdout.
 fn main() -> ExitCode {
     let args: Vec<OsString> = env::args_os().collect();
@@ -79,11 +108,16 @@ fn main() -> ExitCode {
     if matches!(cli.command, Command::Feeds { config_check: true }) {
         match run_config_check(&cli, output) {
             Ok(exit_code) => return exit_code,
-            Err(error) => {
+            Err(RunFailure::Io(error)) => return handle_output_error(&cli, error),
+            Err(RunFailure::App(error)) => {
                 maybe_print_diagnostics(&cli, &error);
                 match output {
                     OutputFormat::Json => {
-                        print_json_or_fallback(&Envelope::<serde_json::Value>::fatal(&error))
+                        match print_json_or_fallback(&Envelope::<serde_json::Value>::fatal(&error))
+                        {
+                            Ok(()) => {}
+                            Err(write_error) => return handle_output_error(&cli, write_error),
+                        }
                     }
                     OutputFormat::Plain => eprintln!("{error}"),
                 }
@@ -92,38 +126,47 @@ fn main() -> ExitCode {
         }
     }
     if let Err(error) = run(&cli, output) {
-        maybe_print_diagnostics(&cli, &error);
-        match output {
-            OutputFormat::Json => {
-                print_json_or_fallback(&Envelope::<serde_json::Value>::fatal(&error))
+        match error {
+            RunFailure::Io(error) => return handle_output_error(&cli, error),
+            RunFailure::App(error) => {
+                maybe_print_diagnostics(&cli, &error);
+                match output {
+                    OutputFormat::Json => {
+                        match print_json_or_fallback(&Envelope::<serde_json::Value>::fatal(&error))
+                        {
+                            Ok(()) => {}
+                            Err(write_error) => return handle_output_error(&cli, write_error),
+                        }
+                    }
+                    OutputFormat::Plain => eprintln!("{error}"),
+                }
+                return ExitCode::from(1);
             }
-            OutputFormat::Plain => eprintln!("{error}"),
         }
-        return ExitCode::from(1);
     }
     ExitCode::SUCCESS
 }
 
 /// Executes the CLI command and prints a JSON response.
-fn run(cli: &Cli, output: OutputFormat) -> Result<(), AppError> {
+fn run(cli: &Cli, output: OutputFormat) -> Result<(), RunFailure> {
     let result = execute_command(cli)?;
     match output {
         OutputFormat::Json => render_json(&result)?,
-        OutputFormat::Plain => render_plain(&result),
+        OutputFormat::Plain => render_plain(&result)?,
     }
     Ok(())
 }
 
 /// Runs static feeds config validation without touching the database.
-fn run_config_check(cli: &Cli, output: OutputFormat) -> Result<ExitCode, AppError> {
+fn run_config_check(cli: &Cli, output: OutputFormat) -> Result<ExitCode, RunFailure> {
     let config = load_config(cli)?;
     let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
     let report = feeds_config.validate();
     match output {
         OutputFormat::Json => {
-            print_json_or_fallback(&Envelope::ok(serde_json::to_value(&report)?));
+            print_json_or_fallback(&Envelope::ok(serde_json::to_value(&report)?))?;
         }
-        OutputFormat::Plain => render_config_check_plain(&report),
+        OutputFormat::Plain => render_config_check_plain(&report)?,
     }
     Ok(if report.valid {
         ExitCode::SUCCESS
@@ -233,7 +276,7 @@ fn resolve_list_limit(limit: Option<usize>, query: config::QueryConfig) -> Resul
 }
 
 /// Renders JSON output for a command result.
-fn render_json(result: &CommandOutput) -> Result<(), AppError> {
+fn render_json(result: &CommandOutput) -> Result<(), RunFailure> {
     let data = match result {
         CommandOutput::Ping => json!({ "ok": true }),
         CommandOutput::Version {
@@ -254,161 +297,185 @@ fn render_json(result: &CommandOutput) -> Result<(), AppError> {
         CommandOutput::Mark { updated } => json!({ "updated": updated }),
     };
 
-    print_json_or_fallback(&Envelope::ok(data));
+    print_json_or_fallback(&Envelope::ok(data))?;
     Ok(())
 }
 
 /// Renders human-readable output for a command result.
-fn render_plain(result: &CommandOutput) {
+fn render_plain(result: &CommandOutput) -> io::Result<()> {
+    let stdout = io::stdout();
+    let mut writer = io::BufWriter::new(stdout.lock());
     match result {
-        CommandOutput::Ping => println!("ok"),
+        CommandOutput::Ping => writeln!(writer, "ok")?,
         CommandOutput::Version {
             api_version,
             schema_version,
             build,
-        } => println!("api_version={api_version} schema_version={schema_version} build={build}"),
+        } => writeln!(
+            writer,
+            "api_version={api_version} schema_version={schema_version} build={build}"
+        )?,
         CommandOutput::Tags { tags } => {
             for tag in tags {
-                println!("{tag}");
+                writeln!(writer, "{tag}")?;
             }
         }
         CommandOutput::Status { status } => {
-            println!("db_revision: {}", status.db_revision);
-            println!(
+            writeln!(writer, "db_revision: {}", status.db_revision)?;
+            writeln!(
+                writer,
                 "last_write_at: {}",
                 status
                     .last_write_at
                     .map(|value| value.to_string())
                     .unwrap_or_else(|| "null".to_string())
-            );
-            println!("schema_version: {}", status.schema_version);
-            println!("api_version: {}", status.api_version);
-            println!(
+            )?;
+            writeln!(writer, "schema_version: {}", status.schema_version)?;
+            writeln!(writer, "api_version: {}", status.api_version)?;
+            writeln!(
+                writer,
                 "last_sync_at: {}",
                 status
                     .last_sync_at
                     .map(|value| value.to_string())
                     .unwrap_or_else(|| "null".to_string())
-            );
-            println!(
+            )?;
+            writeln!(
+                writer,
                 "last_sync_status: {}",
                 status.last_sync_status.as_deref().unwrap_or("null")
-            );
+            )?;
         }
         CommandOutput::FeedsList { feeds } => {
             for feed in &feeds.feeds {
                 let title = feed.title.as_deref().unwrap_or("(untitled)");
                 let tags = format_tags(&feed.tags);
                 if tags.is_empty() {
-                    println!("[{}] {} ({})", feed.id, title, feed.feed_key);
+                    writeln!(writer, "[{}] {} ({})", feed.id, title, feed.feed_key)?;
                 } else {
-                    println!("[{}] {} ({}) [{}]", feed.id, title, feed.feed_key, tags);
+                    writeln!(
+                        writer,
+                        "[{}] {} ({}) [{}]",
+                        feed.id, title, feed.feed_key, tags
+                    )?;
                 }
-                println!("  url: {}", feed.url);
+                writeln!(writer, "  url: {}", feed.url)?;
                 if let Some(site_url) = &feed.site_url {
-                    println!("  site: {site_url}");
+                    writeln!(writer, "  site: {site_url}")?;
                 }
                 if let Some(author) = &feed.author {
-                    println!("  author: {author}");
+                    writeln!(writer, "  author: {author}")?;
                 }
             }
         }
         CommandOutput::Sync { summary } => {
-            println!("status: {}", summary.status.as_str());
-            println!(
+            writeln!(writer, "status: {}", summary.status.as_str())?;
+            writeln!(
+                writer,
                 "fetched: {} failed: {} new_entries: {} elapsed: {:.2}s",
                 summary.fetched, summary.failed, summary.new_entries, summary.elapsed
-            );
+            )?;
             if !summary.errors.is_empty() {
-                println!("errors: {}", summary.errors.len());
+                writeln!(writer, "errors: {}", summary.errors.len())?;
                 for error in &summary.errors {
-                    println!(
+                    writeln!(
+                        writer,
                         "  {} {} retry={}",
                         error.feed_url,
                         error.code.as_str(),
                         error.retry
-                    );
-                    println!("    {}", error.message);
+                    )?;
+                    writeln!(writer, "    {}", error.message)?;
                 }
             }
         }
         CommandOutput::List { list } => {
-            println!("total: {}", list.total_hits);
+            writeln!(writer, "total: {}", list.total_hits)?;
             if let Some(cursor) = &list.next_cursor {
-                println!("next_cursor: {cursor}");
+                writeln!(writer, "next_cursor: {cursor}")?;
             }
             for entry in &list.items {
                 let title = entry.title.as_deref().unwrap_or("(untitled)");
                 let tags = format_tags(&entry.tags);
                 if tags.is_empty() {
-                    println!("[{}] {title}", entry.id);
+                    writeln!(writer, "[{}] {title}", entry.id)?;
                 } else {
-                    println!("[{}] {title} [{tags}]", entry.id);
+                    writeln!(writer, "[{}] {title} [{tags}]", entry.id)?;
                 }
             }
         }
         CommandOutput::View { detail } => {
             let title = detail.title.as_deref().unwrap_or("(untitled)");
-            println!("[{}] {title}", detail.id);
+            writeln!(writer, "[{}] {title}", detail.id)?;
             if let Some(feed_title) = &detail.feed_title {
-                println!("feed: {feed_title} (id: {})", detail.feed_id);
+                writeln!(writer, "feed: {feed_title} (id: {})", detail.feed_id)?;
             } else {
-                println!("feed_id: {}", detail.feed_id);
+                writeln!(writer, "feed_id: {}", detail.feed_id)?;
             }
             if let Some(author) = &detail.author {
-                println!("author: {author}");
+                writeln!(writer, "author: {author}")?;
             }
             if let Some(link) = &detail.link {
-                println!("link: {link}");
+                writeln!(writer, "link: {link}")?;
             }
             if !detail.tags.is_empty() {
-                println!("tags: {}", format_tags(&detail.tags));
+                writeln!(writer, "tags: {}", format_tags(&detail.tags))?;
             }
             if let Some(published) = detail.published_at {
-                println!("published_at: {published}");
+                writeln!(writer, "published_at: {published}")?;
             }
-            println!("first_seen_at: {}", detail.first_seen_at);
+            writeln!(writer, "first_seen_at: {}", detail.first_seen_at)?;
             if let Some(content) = &detail.content {
-                println!();
-                println!("{content}");
+                writeln!(writer)?;
+                writeln!(writer, "{content}")?;
             }
         }
-        CommandOutput::Mark { updated } => println!("updated: {updated}"),
+        CommandOutput::Mark { updated } => writeln!(writer, "updated: {updated}")?,
     }
+    writer.flush()?;
+    Ok(())
 }
 
 /// Renders human-readable output for feeds config validation.
-fn render_config_check_plain(report: &ConfigCheckReport) {
-    println!("valid: {}", report.valid);
-    println!("checked_feeds: {}", report.checked_feeds);
-    println!("errors: {}", report.errors.len());
+fn render_config_check_plain(report: &ConfigCheckReport) -> io::Result<()> {
+    let stdout = io::stdout();
+    let mut writer = io::BufWriter::new(stdout.lock());
+    writeln!(writer, "valid: {}", report.valid)?;
+    writeln!(writer, "checked_feeds: {}", report.checked_feeds)?;
+    writeln!(writer, "errors: {}", report.errors.len())?;
     for issue in &report.errors {
         if let Some(path) = &issue.path {
-            println!("  {} {} ({path})", issue.code, issue.message);
+            writeln!(writer, "  {} {} ({path})", issue.code, issue.message)?;
         } else {
-            println!("  {} {}", issue.code, issue.message);
+            writeln!(writer, "  {} {}", issue.code, issue.message)?;
         }
     }
-    println!("warnings: {}", report.warnings.len());
+    writeln!(writer, "warnings: {}", report.warnings.len())?;
     for issue in &report.warnings {
         if let Some(path) = &issue.path {
-            println!("  {} {} ({path})", issue.code, issue.message);
+            writeln!(writer, "  {} {} ({path})", issue.code, issue.message)?;
         } else {
-            println!("  {} {}", issue.code, issue.message);
+            writeln!(writer, "  {} {}", issue.code, issue.message)?;
         }
     }
+    writer.flush()?;
+    Ok(())
 }
 
+/// Formats tags for plain output.
 fn format_tags(tags: &[String]) -> String {
     tags.join(", ")
 }
 
 /// Prints JSON to stdout, falling back to a hard-coded INTERNAL error JSON on failure.
-fn print_json_or_fallback<T: serde::Serialize>(value: &T) {
+fn print_json_or_fallback<T: serde::Serialize>(value: &T) -> io::Result<()> {
+    let stdout = io::stdout();
+    let mut writer = io::BufWriter::new(stdout.lock());
     match serde_json::to_string(value) {
-        Ok(json) => println!("{json}"),
-        Err(_) => println!("{FALLBACK_INTERNAL_ERROR_JSON}"),
+        Ok(json) => writeln!(writer, "{json}")?,
+        Err(_) => writeln!(writer, "{FALLBACK_INTERNAL_ERROR_JSON}")?,
     }
+    writer.flush()
 }
 
 /// Fallback JSON printed when JSON serialization fails unexpectedly.
@@ -461,13 +528,39 @@ fn handle_cli_parse_error(args: &[OsString], error: clap::Error) -> ExitCode {
             match output {
                 OutputFormat::Json => {
                     let app_error = AppError::config(error.to_string());
-                    print_json_or_fallback(&Envelope::<serde_json::Value>::fatal(&app_error));
+                    if let Err(write_error) =
+                        print_json_or_fallback(&Envelope::<serde_json::Value>::fatal(&app_error))
+                    {
+                        if is_broken_pipe_error(&write_error) {
+                            return ExitCode::SUCCESS;
+                        }
+                        eprintln!("failed to write CLI output: {write_error}");
+                    }
                 }
                 OutputFormat::Plain => eprintln!("{error}"),
             }
             ExitCode::from(1)
         }
     }
+}
+
+/// Handles stdout output errors and maps broken pipes to successful termination.
+fn handle_output_error(cli: &Cli, error: io::Error) -> ExitCode {
+    if is_broken_pipe_error(&error) {
+        if should_emit_diagnostics(resolve_effective_log_level(cli)) {
+            eprintln!("stdout closed by downstream consumer (broken pipe)");
+        }
+        return ExitCode::SUCCESS;
+    }
+    let app_error = AppError::io_with_source("failed to write CLI output", error);
+    maybe_print_diagnostics(cli, &app_error);
+    eprintln!("{app_error}");
+    ExitCode::from(1)
+}
+
+/// Returns true when the I/O error was caused by a broken stdout pipe.
+fn is_broken_pipe_error(error: &io::Error) -> bool {
+    error.kind() == io::ErrorKind::BrokenPipe
 }
 
 /// Detects output format from raw CLI args.

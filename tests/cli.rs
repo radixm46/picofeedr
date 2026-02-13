@@ -6,6 +6,7 @@ use assert_cmd::cargo::cargo_bin_cmd;
 use rusqlite::Connection;
 use std::fs;
 use std::path::Path;
+use std::process::{Command as ProcessCommand, Output, Stdio};
 use support::assertions::{
     assert_error_envelope, assert_plain_contract, extract_error_code, extract_error_payload,
     extract_ok_data,
@@ -1445,6 +1446,84 @@ fn fatal_config_rejects_default_limit_over_max_limit() {
     assert_eq!(code, "CONFIG_ERROR");
 }
 
+/// Ensures plain output exits successfully when stdout is closed by downstream.
+#[test]
+fn plain_output_succeeds_when_stdout_is_closed() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_fixture_files(&temp);
+    let storage_root = db_root(&paths.db_path);
+
+    let output = run_with_closed_stdout(vec![
+        "--output".to_string(),
+        "plain".to_string(),
+        "--config".to_string(),
+        paths.config_path.clone(),
+        "--storage-root".to_string(),
+        storage_root,
+        "feeds".to_string(),
+    ]);
+
+    assert!(
+        output.status.success(),
+        "expected success, stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// Ensures json output exits successfully when stdout is closed by downstream.
+#[test]
+fn json_output_succeeds_when_stdout_is_closed() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_fixture_files(&temp);
+    let storage_root = db_root(&paths.db_path);
+
+    let output = run_with_closed_stdout(vec![
+        "--output".to_string(),
+        "json".to_string(),
+        "--config".to_string(),
+        paths.config_path.clone(),
+        "--storage-root".to_string(),
+        storage_root,
+        "feeds".to_string(),
+    ]);
+
+    assert!(
+        output.status.success(),
+        "expected success, stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// Ensures debug mode prints broken-pipe diagnostics to stderr.
+#[test]
+fn broken_pipe_emits_debug_diagnostic() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_fixture_files(&temp);
+    let storage_root = db_root(&paths.db_path);
+
+    let output = run_with_closed_stdout(vec![
+        "--output".to_string(),
+        "plain".to_string(),
+        "--debug".to_string(),
+        "--config".to_string(),
+        paths.config_path.clone(),
+        "--storage-root".to_string(),
+        storage_root,
+        "feeds".to_string(),
+    ]);
+
+    assert!(
+        output.status.success(),
+        "expected success, stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("broken pipe"),
+        "expected broken pipe diagnostics, got stderr={stderr}"
+    );
+}
+
 /// Ensures CLI parse errors keep JSON envelope when using --output=json form.
 #[test]
 fn parse_error_with_output_equals_json_is_enveloped() {
@@ -1669,4 +1748,17 @@ fn collect_item_ids(data: &serde_json::Value) -> Vec<i64> {
         .iter()
         .map(|item| item["id"].as_i64().expect("item id"))
         .collect()
+}
+
+/// Runs picofeedr with stdout closed to simulate downstream early exit.
+fn run_with_closed_stdout(args: Vec<String>) -> Output {
+    let bin = cargo_bin_cmd!("picofeedr").get_program().to_owned();
+    let mut command = ProcessCommand::new(bin);
+    command
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = command.spawn().expect("spawn picofeedr");
+    drop(child.stdout.take());
+    child.wait_with_output().expect("wait for picofeedr")
 }

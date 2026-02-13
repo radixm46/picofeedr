@@ -24,6 +24,7 @@ CLI の主要な出力は stdout に出すのだ。`--output` で形式を切り
 ```
 
 `data` の中身（payload）はコマンドごとに定義するのだ。致命では `error` を埋め、exit code も !=0 にするのだ（詳細は `doc/spec/errors.md`）。
+`stdout` が `BrokenPipe` になった場合は、下流コマンドの早期終了とみなして非致命（exit code 0）で終了するのだ。
 
 **TODO（将来拡張の候補）：**
 

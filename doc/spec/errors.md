@@ -15,6 +15,7 @@
 - 致命（fatal）は **exit code != 0** + 上記 JSON なのだ。
 - `sync` の fetch/parse 失敗は致命ではなく、exit code は 0 のまま `data.errors` に積むのだ（A10.3）。
 - `feeds --config-check` は validation report を `ok=true` で返し、`data.valid=false` のときのみ exit code 1 を返すのだ。
+- `stdout` への書き込みで `BrokenPipe` が起きた場合は、下流の早期終了として扱い、exit code 0 で終了するのだ（通常は無出力、debug/trace時のみ stderr 診断）。
 
 **TODO（将来拡張の候補）：**
 
@@ -29,7 +30,7 @@
 - `SYNC_IN_PROGRESS` - 既に同期中
 - `CONFIG_ERROR` - 設定ファイルエラー
 - `DB_ERROR` - DBエラー（リトライ不要の想定）
-- `IO_ERROR` - I/Oエラー
+- `IO_ERROR` - I/Oエラー（`BrokenPipe` は除外し、非致命扱い）
 - `SERIALIZATION_ERROR` - シリアライズ/パース系のエラー
 - `INTERNAL` - 想定外の致命（panic含む）。詳細は stderr（debug/trace時）に出してよいのだ
 

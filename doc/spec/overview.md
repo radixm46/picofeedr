@@ -39,9 +39,11 @@
 * `--output json`（機械可読）
   - 成功：exit code 0 + JSON（共通envelope）
   - 致命：exit code != 0 + JSON（共通envelopeの `error`）
+  - パイプ先が早期終了して `stdout` が `BrokenPipe` になった場合は、致命扱いにせず exit code 0 で終了するのだ
   - デバッグ/トレース等の詳細は **標準エラー（stderr）** に寄せるのだ（通常は出さない）
 * `--output plain`（対話向け）
   - 成功/失敗ともに、人間向け表示を stdout/stderr に出してよいのだ（契約は緩め）
+  - `stdout` の `BrokenPipe` は非致命として扱い、通常は無出力で終了するのだ（`--debug`/`--trace` 時のみ stderr に診断を出してよい）
   - `--help` は plain 前提でよい（機械可読契約の対象外）なのだ
 
 **コマンド一覧：**
