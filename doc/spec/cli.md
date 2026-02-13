@@ -122,13 +122,13 @@ picofeedr sync
 
 ```
 picofeedr status
-# → {"ok": true, "data": {"db_revision": 1284, "last_write_at": 1705420900, "schema_version": 1, "api_version": "0.5.0", "last_sync_at": 1705420800, "last_sync_status": "completed"}, "error": null}
+# → {"ok": true, "data": {"revision": 1284, "updated_at": 1705420900, "schema_version": 1, "api_version": "0.5.0", "sync_at": 1705420800, "sync_status": "completed"}, "error": null}
 ```
 
 **StatusResponse：**
 
 ```
-{ "db_revision": <int>, "last_write_at": <epoch|null>, "schema_version": <int>, "api_version": "<string>", "last_sync_at": <epoch|null>, "last_sync_status": "completed|partial_failed|failed|null" }
+{ "revision": <int>, "updated_at": <epoch|null>, "schema_version": <int>, "api_version": "<string>", "sync_at": <epoch|null>, "sync_status": "completed|partial_failed|failed|null" }
 ```
 
 ### A6.5 一覧検索（軽量メタデータのみ）
@@ -137,7 +137,7 @@ picofeedr status
 
 picofeedr list --query <q> --sort <date_desc|date_asc|first_seen_desc|first_seen_asc> --limit <n> [--cursor <cursor>]
 
-# → {"ok": true, "data": {"total_hits": 342, "items": [EntrySummary...], "next_cursor": "eyJ...", "snapshot_revision": 1284, "snapshot_at": 1705420900}, "error": null}
+# → {"ok": true, "data": {"total_hits": 342, "items": [EntrySummary...], "next_cursor": "eyJ...", "revision": 1284, "updated_at": 1705420900}, "error": null}
 
 ```
 
@@ -164,10 +164,10 @@ picofeedr list --query 'tag:A&B&C -tag:D|E' --sort first_seen_desc --limit 20
 **ListResponse：**
 
 ```
-{ "total_hits": <int>, "items": [EntrySummary...], "next_cursor": "<cursor|null>", "snapshot_revision": <int>, "snapshot_at": <epoch|null> }
+{ "total_hits": <int>, "items": [EntrySummary...], "next_cursor": "<cursor|null>", "revision": <int>, "updated_at": <epoch|null> }
 ```
 
-`snapshot_revision` / `snapshot_at` は `status` の `db_revision` / `last_write_at` と同系統の DB メタデータなのだ。  
+`revision` / `updated_at` は `status` と `list` で共通の DB メタデータなのだ。  
 同一時点の比較・診断用途に使い、ページ継続のキーは常に `next_cursor` を使うのだ。
 
 ### A6.6 詳細取得（遅延）

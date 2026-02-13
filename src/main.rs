@@ -321,12 +321,12 @@ fn render_plain(result: &CommandOutput) -> io::Result<()> {
             }
         }
         CommandOutput::Status { status } => {
-            writeln!(writer, "db_revision: {}", status.db_revision)?;
+            writeln!(writer, "revision: {}", status.revision)?;
             writeln!(
                 writer,
-                "last_write_at: {}",
+                "updated_at: {}",
                 status
-                    .last_write_at
+                    .updated_at
                     .map(|value| value.to_string())
                     .unwrap_or_else(|| "null".to_string())
             )?;
@@ -334,16 +334,16 @@ fn render_plain(result: &CommandOutput) -> io::Result<()> {
             writeln!(writer, "api_version: {}", status.api_version)?;
             writeln!(
                 writer,
-                "last_sync_at: {}",
+                "sync_at: {}",
                 status
-                    .last_sync_at
+                    .sync_at
                     .map(|value| value.to_string())
                     .unwrap_or_else(|| "null".to_string())
             )?;
             writeln!(
                 writer,
-                "last_sync_status: {}",
-                status.last_sync_status.as_deref().unwrap_or("null")
+                "sync_status: {}",
+                status.sync_status.as_deref().unwrap_or("null")
             )?;
         }
         CommandOutput::FeedsList { feeds } => {

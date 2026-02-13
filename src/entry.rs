@@ -84,10 +84,10 @@ pub struct EntryListResponse {
     pub items: Vec<EntrySummary>,
     /// Cursor for the next page.
     pub next_cursor: Option<String>,
-    /// Snapshot revision captured when the list was fetched.
-    pub snapshot_revision: i64,
-    /// Snapshot write timestamp captured when the list was fetched.
-    pub snapshot_at: Option<i64>,
+    /// Revision captured when the list was fetched.
+    pub revision: i64,
+    /// Write timestamp captured when the list was fetched.
+    pub updated_at: Option<i64>,
 }
 
 /// Cursor payload for pagination.
@@ -125,8 +125,8 @@ pub fn list_entries(
         total_hits,
         items,
         next_cursor,
-        snapshot_revision: system_meta.db_revision,
-        snapshot_at: system_meta.last_write_at,
+        revision: system_meta.db_revision,
+        updated_at: system_meta.last_write_at,
     })
 }
 

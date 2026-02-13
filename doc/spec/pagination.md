@@ -43,7 +43,7 @@
 ```
 # 初回
 picofeedr --output json list --query unread --sort first_seen_desc --limit 100
-# → {"ok": true, "data": {"total_hits": 342, "items": [...], "next_cursor": "eyJrIjoxNzA1NDIwODAwLCJpZCI6MTIzLCJzb3J0IjoiZmlyc3Rfc2Vlbl9kZXNjIiwicXVlcnlfaGFzaCI6IjA5ZjAuLi4ifQ", "snapshot_revision": 1284, "snapshot_at": 1705420900}, "error": null}
+# → {"ok": true, "data": {"total_hits": 342, "items": [...], "next_cursor": "eyJrIjoxNzA1NDIwODAwLCJpZCI6MTIzLCJzb3J0IjoiZmlyc3Rfc2Vlbl9kZXNjIiwicXVlcnlfaGFzaCI6IjA5ZjAuLi4ifQ", "revision": 1284, "updated_at": 1705420900}, "error": null}
 
 # 2ページ目
 picofeedr --output json list --query unread --sort first_seen_desc --limit 100 --cursor "eyJrIjoxNzA1NDIwODAwLCJpZCI6MTIzLCJzb3J0IjoiZmlyc3Rfc2Vlbl9kZXNjIiwicXVlcnlfaGFzaCI6IjA5ZjAuLi4ifQ"

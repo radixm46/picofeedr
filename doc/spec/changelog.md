@@ -5,7 +5,7 @@
 - **仕様追随: `list` カーソル内部仕様とページング例を現行実装へ同期**
   - `next_cursor` の内部仕様を `k/id/sort/query_hash`（JSON→base64url）として明記
   - カーソル不一致時の失敗コードを `INVALID_QUERY` に統一して明文化
-  - `pagination` のJSON例を `ListResponse`（`total_hits`, `snapshot_revision`, `snapshot_at` を含む）に合わせて更新
+  - `pagination` のJSON例を `ListResponse`（`total_hits`, `revision`, `updated_at` を含む）に合わせて更新
 - **Breaking: `feeds --config-check` を差分表示から静的妥当性検証へ変更**
   - 出力を `{valid, errors, warnings, checked_feeds}` に変更
   - `new_in_config` / `removed_from_config` / `tag_changes` を廃止

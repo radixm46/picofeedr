@@ -268,12 +268,12 @@ fn status_returns_default_metadata() {
     let paths = write_fixture_files(&temp);
 
     let status = status_json(&paths.config_path, &paths.db_path);
-    assert_eq!(status["db_revision"], 0);
-    assert!(status["last_write_at"].is_null());
+    assert_eq!(status["revision"], 0);
+    assert!(status["updated_at"].is_null());
     assert_eq!(status["schema_version"], 1);
     assert!(status["api_version"].as_str().is_some());
-    assert!(status["last_sync_at"].is_null());
-    assert!(status["last_sync_status"].is_null());
+    assert!(status["sync_at"].is_null());
+    assert!(status["sync_status"].is_null());
 }
 
 /// Ensures feeds reconciliation increments revision metadata.
@@ -292,8 +292,8 @@ fn status_tracks_feeds_write_revision() {
         .success();
 
     let status = status_json(&paths.config_path, &paths.db_path);
-    assert_eq!(status["db_revision"], 1);
-    assert!(status["last_write_at"].as_i64().is_some());
+    assert_eq!(status["revision"], 1);
+    assert!(status["updated_at"].as_i64().is_some());
 }
 
 /// Ensures status tracks sync and mark writes and ignores read-only commands.
@@ -312,10 +312,10 @@ fn status_tracks_revision_and_sync_metadata() {
         .success();
 
     let after_sync = status_json(&paths.config_path, &paths.db_path);
-    assert_eq!(after_sync["db_revision"], 1);
-    assert!(after_sync["last_write_at"].as_i64().is_some());
-    assert!(after_sync["last_sync_at"].as_i64().is_some());
-    assert_eq!(after_sync["last_sync_status"], "completed");
+    assert_eq!(after_sync["revision"], 1);
+    assert!(after_sync["updated_at"].as_i64().is_some());
+    assert!(after_sync["sync_at"].as_i64().is_some());
+    assert_eq!(after_sync["sync_status"], "completed");
 
     let _ = list_query_json(&paths.config_path, &paths.db_path, "unread");
     let entry_id = entry_id_by_title(&paths.config_path, &paths.db_path, "First");
@@ -334,8 +334,8 @@ fn status_tracks_revision_and_sync_metadata() {
     let _ = extract_ok_data(&output);
 
     let after_reads = status_json(&paths.config_path, &paths.db_path);
-    assert_eq!(after_reads["db_revision"], after_sync["db_revision"]);
-    assert_eq!(after_reads["last_write_at"], after_sync["last_write_at"]);
+    assert_eq!(after_reads["revision"], after_sync["revision"]);
+    assert_eq!(after_reads["updated_at"], after_sync["updated_at"]);
 
     picofeedr_cmd_json()
         .arg("--config")
@@ -349,8 +349,8 @@ fn status_tracks_revision_and_sync_metadata() {
         .success();
 
     let after_mark = status_json(&paths.config_path, &paths.db_path);
-    assert_eq!(after_mark["db_revision"], 2);
-    assert_eq!(after_mark["last_sync_status"], "completed");
+    assert_eq!(after_mark["revision"], 2);
+    assert_eq!(after_mark["sync_status"], "completed");
 }
 
 /// Case definition for fatal configuration envelope validation.
@@ -862,8 +862,8 @@ fn list_returns_paginated_results() {
     let data = extract_ok_data(&output);
     assert_eq!(data["total_hits"], 2);
     assert_eq!(data["items"].as_array().expect("items array").len(), 1);
-    assert!(data["snapshot_revision"].as_i64().is_some());
-    assert!(data["snapshot_at"].as_i64().is_some());
+    assert!(data["revision"].as_i64().is_some());
+    assert!(data["updated_at"].as_i64().is_some());
     let cursor = data["next_cursor"].as_str().expect("next_cursor");
 
     let output = picofeedr_cmd_json()
@@ -889,8 +889,8 @@ fn list_returns_paginated_results() {
     let data = extract_ok_data(&output);
     assert_eq!(data["total_hits"], 2);
     assert_eq!(data["items"].as_array().expect("items array").len(), 1);
-    assert!(data["snapshot_revision"].as_i64().is_some());
-    assert!(data["snapshot_at"].as_i64().is_some());
+    assert!(data["revision"].as_i64().is_some());
+    assert!(data["updated_at"].as_i64().is_some());
     assert!(data["next_cursor"].is_null());
 }
 
@@ -911,8 +911,8 @@ fn list_snapshot_matches_status_metadata() {
 
     let status = status_json(&paths.config_path, &paths.db_path);
     let data = list_query_json(&paths.config_path, &paths.db_path, "unread");
-    assert_eq!(data["snapshot_revision"], status["db_revision"]);
-    assert_eq!(data["snapshot_at"], status["last_write_at"]);
+    assert_eq!(data["revision"], status["revision"]);
+    assert_eq!(data["updated_at"], status["updated_at"]);
 }
 
 /// Ensures tag expression operators and precedence are applied.
