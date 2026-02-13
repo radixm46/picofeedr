@@ -123,16 +123,16 @@ fn enforce_envelope_contract(schema: &mut Value) -> Result<(), Box<dyn std::erro
             .cloned()
             .unwrap_or_else(|| json!({})),
     );
-    if let Some(properties) = target.get_mut("properties").and_then(Value::as_object_mut) {
-        if !properties.contains_key("status") {
-            properties.insert(
-                "status".to_string(),
-                json!({
-                    "type": "string",
-                    "enum": ["ok", "warning", "error"]
-                }),
-            );
-        }
+    if let Some(properties) = target.get_mut("properties").and_then(Value::as_object_mut)
+        && !properties.contains_key("status")
+    {
+        properties.insert(
+            "status".to_string(),
+            json!({
+                "type": "string",
+                "enum": ["ok", "warning", "error"]
+            }),
+        );
     }
     target.insert(
         "allOf".to_string(),
