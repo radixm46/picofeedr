@@ -1,4 +1,4 @@
-//! Entry repository for SQLite-backed listing and mutation operations.
+//! Entry repositories for SQLite-backed listing and mutation operations.
 
 use crate::db::EntryContentStorage as Storage;
 use crate::db::sqlite::query::entries as q;
@@ -23,13 +23,13 @@ pub(crate) type EntryDetailRow = (
     i64,
 );
 
-/// Repository for entry read and write operations.
-pub struct EntryRepo<'a> {
+/// Read-only repository for entry query operations.
+pub struct EntryReadRepo<'a> {
     conn: &'a Connection,
 }
 
-impl<'a> EntryRepo<'a> {
-    /// Creates a repository bound to one SQLite connection.
+impl<'a> EntryReadRepo<'a> {
+    /// Creates a read repository bound to one SQLite connection.
     pub fn new(conn: &'a Connection) -> Self {
         Self { conn }
     }
@@ -202,6 +202,23 @@ impl<'a> EntryRepo<'a> {
             });
         }
         Ok(enclosures)
+    }
+}
+
+/// Write-oriented repository for entry mutations.
+pub struct EntryWriteRepo<'a> {
+    conn: &'a Connection,
+}
+
+impl<'a> EntryWriteRepo<'a> {
+    /// Creates a write repository bound to one SQLite transaction connection.
+    pub fn new(conn: &'a Connection) -> Self {
+        Self { conn }
+    }
+
+    /// Ensures all requested entry ids exist.
+    pub fn ensure_all_entry_ids_exist(&self, entry_ids: &[i64]) -> Result<(), AppError> {
+        EntryReadRepo::new(self.conn).ensure_all_entry_ids_exist(entry_ids)
     }
 
     /// Ensures and resolves tag ids for add operation.

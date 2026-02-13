@@ -218,7 +218,7 @@ fn execute_command(cli: &Cli) -> Result<CommandOutput, AppError> {
                 Command::Feeds { config_check } => {
                     let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
                     debug_assert!(!config_check);
-                    feed::reconcile_feeds(&store, &feeds_config, &config.unread_tag)?;
+                    feed::reconcile_feeds(&mut store, &feeds_config, &config.unread_tag)?;
                     let db_feeds = store.list_feeds()?;
                     let feeds = feed::render_feed_list(&feeds_config, &db_feeds);
                     store.bump_revision(time::current_epoch())?;

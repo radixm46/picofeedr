@@ -1,4 +1,7 @@
-//! Tag queries for SQLite store.
+//! Tag DAO for SQLite store.
+//!
+//! This module intentionally stays at single-statement query execution level.
+//! Multi-step workflows must live in repository modules.
 
 use crate::db::sqlite::query::tags as q;
 use crate::error::AppError;

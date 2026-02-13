@@ -1,8 +1,8 @@
-//! Sync repository for SQLite-backed ingest workflows.
+//! Sync repositories for SQLite-backed ingest workflows.
 
 use crate::config::AppConfig;
 use crate::db::EntryContentStorage;
-use crate::db::sqlite::repo::feed_repo::FeedRepo;
+use crate::db::sqlite::repo::feed_repo::FeedReadRepo;
 use crate::db::sqlite::{entries, meta};
 use crate::error::AppError;
 use crate::sync::content::{remove_content_fs, write_content_fs};
@@ -10,13 +10,13 @@ use crate::sync::model::SyncResult;
 use rusqlite::Connection;
 use std::collections::HashSet;
 
-/// Repository that owns ingest-oriented persistence operations.
-pub struct SyncRepo<'a> {
+/// Read-only repository for sync metadata queries.
+pub struct SyncReadRepo<'a> {
     conn: &'a Connection,
 }
 
-impl<'a> SyncRepo<'a> {
-    /// Creates a repository bound to one SQLite connection.
+impl<'a> SyncReadRepo<'a> {
+    /// Creates a read repository bound to one SQLite connection.
     pub fn new(conn: &'a Connection) -> Self {
         Self { conn }
     }
@@ -24,6 +24,18 @@ impl<'a> SyncRepo<'a> {
     /// Loads database-wide sync metadata.
     pub fn read_system_meta(&self) -> Result<meta::SystemMeta, AppError> {
         meta::read_meta_with_conn(self.conn)
+    }
+}
+
+/// Write-oriented repository for sync metadata updates and ingest workflows.
+pub struct SyncWriteRepo<'a> {
+    conn: &'a Connection,
+}
+
+impl<'a> SyncWriteRepo<'a> {
+    /// Creates a write repository bound to one SQLite transaction connection.
+    pub fn new(conn: &'a Connection) -> Self {
+        Self { conn }
     }
 
     /// Increments write revision in metadata.
@@ -43,7 +55,7 @@ impl<'a> SyncRepo<'a> {
         results: Vec<SyncResult>,
     ) -> Result<usize, AppError> {
         let feed_keys = collect_unique_feed_keys(&results);
-        let feed_ids = FeedRepo::new(self.conn).find_feed_ids(&feed_keys)?;
+        let feed_ids = FeedReadRepo::new(self.conn).find_feed_ids(&feed_keys)?;
         let mut new_entries = 0;
         for result in results {
             for entry in result.entries {

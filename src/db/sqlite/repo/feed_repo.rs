@@ -1,4 +1,4 @@
-//! Feed repository for SQLite-backed operations.
+//! Feed repositories for SQLite-backed operations.
 
 use crate::config::feeds::{FeedConfig, FeedsConfig};
 use crate::db::sqlite::{feeds, tags};
@@ -9,13 +9,13 @@ use crate::time::current_epoch;
 use rusqlite::Connection;
 use std::collections::{HashMap, HashSet};
 
-/// Repository for feed and feed-adjacent write operations.
-pub struct FeedRepo<'a> {
+/// Read-only repository for feed query operations.
+pub struct FeedReadRepo<'a> {
     conn: &'a Connection,
 }
 
-impl<'a> FeedRepo<'a> {
-    /// Creates a repository bound to one SQLite connection.
+impl<'a> FeedReadRepo<'a> {
+    /// Creates a read repository bound to one SQLite connection.
     pub fn new(conn: &'a Connection) -> Self {
         Self { conn }
     }
@@ -25,14 +25,26 @@ impl<'a> FeedRepo<'a> {
         feeds::list_feeds_with_conn(self.conn)
     }
 
-    /// Upserts one feed row.
-    pub fn upsert_feed(&self, feed: &FeedInput, now: i64) -> Result<(), AppError> {
-        feeds::upsert_feed_with_conn(self.conn, feed, now)
-    }
-
     /// Resolves feed ids by feed keys.
     pub fn find_feed_ids(&self, feed_keys: &[String]) -> Result<HashMap<String, i64>, AppError> {
         feeds::find_feed_ids_with_conn(self.conn, feed_keys)
+    }
+}
+
+/// Write-oriented repository for feed and tag reconciliation operations.
+pub struct FeedWriteRepo<'a> {
+    conn: &'a Connection,
+}
+
+impl<'a> FeedWriteRepo<'a> {
+    /// Creates a write repository bound to one SQLite transaction connection.
+    pub fn new(conn: &'a Connection) -> Self {
+        Self { conn }
+    }
+
+    /// Upserts one feed row.
+    pub fn upsert_feed(&self, feed: &FeedInput, now: i64) -> Result<(), AppError> {
+        feeds::upsert_feed_with_conn(self.conn, feed, now)
     }
 
     /// Ensures one tag exists.

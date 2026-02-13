@@ -4,7 +4,7 @@ use crate::cli::SortOrder;
 use crate::config::AppConfig;
 use crate::db::sqlite::SqliteStore;
 use crate::db::sqlite::query::entries as q;
-use crate::db::sqlite::repo::EntryRepo;
+use crate::db::sqlite::repo::EntryReadRepo;
 use crate::error::AppError;
 use crate::query::{EntryQuery, FeedFilter, TagExpr};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -106,8 +106,8 @@ pub fn list_entries(
     limit: usize,
     cursor: Option<&str>,
 ) -> Result<EntryListResponse, AppError> {
-    let entry_repo = store.entry_repo();
-    let system_meta = store.sync_repo().read_system_meta()?;
+    let entry_repo = store.entry_read_repo();
+    let system_meta = store.sync_read_repo().read_system_meta()?;
     let query_hash = compute_query_hash(query);
     let (count_where_sql, count_params) = build_where_clause(query, sort, None, &query_hash)?;
     let total_count = entry_repo.count_entries(&count_where_sql, &count_params)?;
@@ -135,7 +135,7 @@ pub fn view_entry(
     config: &AppConfig,
     entry_id: i64,
 ) -> Result<EntryDetail, AppError> {
-    let entry_repo = store.entry_repo();
+    let entry_repo = store.entry_read_repo();
     let row = entry_repo.view_entry_row(entry_id)?;
     let (id, feed_id, feed_title, title, link, author, published_at, first_seen_at) = row
         .ok_or_else(|| {
@@ -192,9 +192,9 @@ pub fn mark_entries(
     if unique_ids.is_empty() {
         return Ok(0);
     }
-    store.entry_repo().ensure_all_entry_ids_exist(&unique_ids)?;
     let tx = store.tx()?;
-    let tx_entry_repo = tx.entry_repo();
+    let tx_entry_repo = tx.entry_write_repo();
+    tx_entry_repo.ensure_all_entry_ids_exist(&unique_ids)?;
     let add_ids = tx_entry_repo.ensure_tag_ids(add_tags)?;
     let remove_ids = tx_entry_repo.lookup_tag_ids(remove_tags)?;
     let mut updated = 0usize;
@@ -282,7 +282,7 @@ fn build_where_clause(
 }
 
 fn fetch_entries(
-    entry_repo: &EntryRepo<'_>,
+    entry_repo: &EntryReadRepo<'_>,
     where_sql: &str,
     params: &[Value],
     sort: SortOrder,

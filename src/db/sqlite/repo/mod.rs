@@ -4,6 +4,6 @@ pub(crate) mod entry_repo;
 pub(crate) mod feed_repo;
 pub(crate) mod sync_repo;
 
-pub use entry_repo::EntryRepo;
-pub use feed_repo::FeedRepo;
-pub use sync_repo::SyncRepo;
+pub use entry_repo::{EntryReadRepo, EntryWriteRepo};
+pub use feed_repo::{FeedReadRepo, FeedWriteRepo};
+pub use sync_repo::{SyncReadRepo, SyncWriteRepo};

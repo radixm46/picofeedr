@@ -1,4 +1,7 @@
-//! Feed queries for SQLite store.
+//! Feed DAO for SQLite store.
+//!
+//! This module intentionally stays at single-statement query execution level.
+//! Multi-step workflows must live in repository modules.
 
 use crate::db::sqlite::query::feeds as q;
 use crate::db::{FeedInput, FeedRow};

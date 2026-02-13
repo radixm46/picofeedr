@@ -32,9 +32,9 @@ pub fn run_sync(
     let (results, errors) = fetch_parallel(&targets, config, Arc::clone(&compiled_rules))?;
 
     let tx = store.tx()?;
-    tx.feed_repo()
+    tx.feed_write_repo()
         .reconcile_feeds(feeds_config, &config.unread_tag)?;
-    let new_entry_count = tx.sync_repo().ingest_results(config, results)?;
+    let new_entry_count = tx.sync_write_repo().ingest_results(config, results)?;
     tx.commit()?;
 
     let duration_ms = start.elapsed().as_millis() as u64;

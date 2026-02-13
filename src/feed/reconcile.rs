@@ -6,9 +6,12 @@ use crate::error::AppError;
 
 /// Reconciles configured feeds and known tags into SQLite.
 pub fn reconcile_feeds(
-    store: &SqliteStore,
+    store: &mut SqliteStore,
     config: &FeedsConfig,
     unread_tag: &str,
 ) -> Result<(), AppError> {
-    store.feed_repo().reconcile_feeds(config, unread_tag)
+    let tx = store.tx()?;
+    tx.feed_write_repo().reconcile_feeds(config, unread_tag)?;
+    tx.commit()?;
+    Ok(())
 }
