@@ -3,7 +3,7 @@
 use crate::cli::SortOrder;
 use crate::config::AppConfig;
 use crate::content_ref;
-use crate::db::sqlite::{SqliteStore, ensure_tag_with_conn};
+use crate::db::sqlite::{SqliteStore, ensure_tag_ids_with_conn, lookup_tag_ids_with_conn};
 use crate::db::{EntryContentStorage, EntryContentStorage as Storage};
 use crate::error::AppError;
 use crate::query::{EntryQuery, FeedFilter, TagExpr};
@@ -215,8 +215,8 @@ pub fn mark_entries(
     }
     ensure_all_entry_ids_exist(store.connection(), &unique_ids)?;
     let tx = store.transaction()?;
-    let add_ids = ensure_tag_ids(&tx, add_tags)?;
-    let remove_ids = lookup_tag_ids(&tx, remove_tags)?;
+    let add_ids = ensure_tag_ids_with_conn(&tx, add_tags)?;
+    let remove_ids = lookup_tag_ids_with_conn(&tx, remove_tags)?;
     let mut updated = 0usize;
     for entry_id in unique_ids {
         let mut changed = false;
@@ -506,39 +506,6 @@ fn load_enclosures(conn: &Connection, entry_id: i64) -> Result<Vec<EntryEnclosur
         });
     }
     Ok(enclosures)
-}
-
-fn ensure_tag_ids(conn: &Connection, tags: &[String]) -> Result<HashMap<String, i64>, AppError> {
-    let mut unique = Vec::new();
-    let mut seen = HashSet::new();
-    for tag in tags {
-        if seen.insert(tag.clone()) {
-            unique.push(tag.clone());
-        }
-    }
-    for tag in &unique {
-        ensure_tag_with_conn(conn, tag)?;
-    }
-    lookup_tag_ids(conn, &unique)
-}
-
-fn lookup_tag_ids(conn: &Connection, tags: &[String]) -> Result<HashMap<String, i64>, AppError> {
-    if tags.is_empty() {
-        return Ok(HashMap::new());
-    }
-    let placeholders = std::iter::repeat_n("?", tags.len())
-        .collect::<Vec<_>>()
-        .join(",");
-    let sql = format!("SELECT id, name FROM tags WHERE name IN ({placeholders})");
-    let mut stmt = conn.prepare(&sql)?;
-    let mut rows = stmt.query(params_from_iter(tags.iter()))?;
-    let mut map = HashMap::new();
-    while let Some(row) = rows.next()? {
-        let id: i64 = row.get(0)?;
-        let name: String = row.get(1)?;
-        map.insert(name, id);
-    }
-    Ok(map)
 }
 
 /// Encodes pagination cursor with query metadata.

@@ -36,11 +36,15 @@ pub(crate) fn insert_entry_with_conn(
             entry.meta_json
         ],
     )? > 0;
-    let entry_id: i64 = conn.query_row(
-        "SELECT id FROM entries WHERE entry_key = ?1",
-        params![entry.entry_key],
-        |row| row.get(0),
-    )?;
+    let entry_id: i64 = if inserted {
+        conn.last_insert_rowid()
+    } else {
+        conn.query_row(
+            "SELECT id FROM entries WHERE entry_key = ?1",
+            params![entry.entry_key],
+            |row| row.get(0),
+        )?
+    };
     Ok(EntryInsertResult { entry_id, inserted })
 }
 
@@ -80,11 +84,9 @@ pub(crate) fn insert_entry_tags_with_conn(
             unique.push(tag.clone());
         }
     }
+    let mut insert_tag_stmt = conn.prepare("INSERT OR IGNORE INTO tags (name) VALUES (?1)")?;
     for tag in &unique {
-        conn.execute(
-            "INSERT OR IGNORE INTO tags (name) VALUES (?1)",
-            params![tag],
-        )?;
+        insert_tag_stmt.execute(params![tag])?;
     }
     let placeholders = std::iter::repeat_n("?", unique.len())
         .collect::<Vec<_>>()
@@ -98,14 +100,117 @@ pub(crate) fn insert_entry_tags_with_conn(
         let name: String = row.get(1)?;
         tag_ids.insert(name, id);
     }
+    let mut insert_entry_tag_stmt =
+        conn.prepare("INSERT OR IGNORE INTO entry_tags (entry_id, tag_id) VALUES (?1, ?2)")?;
     for tag in &unique {
         let tag_id = tag_ids
             .get(tag)
             .ok_or_else(|| AppError::db(format!("Missing tag id for {tag}")))?;
-        conn.execute(
-            "INSERT OR IGNORE INTO entry_tags (entry_id, tag_id) VALUES (?1, ?2)",
-            params![entry_id, tag_id],
-        )?;
+        insert_entry_tag_stmt.execute(params![entry_id, tag_id])?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{insert_entry_tags_with_conn, insert_entry_with_conn};
+    use crate::db::sqlite::upsert_feed_with_conn;
+    use crate::db::{EntryInput, FeedInput};
+    use rusqlite::{Connection, params};
+
+    /// Returns in-memory connection with migrated schema.
+    fn test_conn() -> Connection {
+        let conn = Connection::open_in_memory().expect("in-memory sqlite");
+        crate::db::migrate::migrate(&conn).expect("migrate");
+        conn
+    }
+
+    /// Inserts a feed and returns its id.
+    fn insert_feed(conn: &Connection, feed_key: &str) -> i64 {
+        upsert_feed_with_conn(
+            conn,
+            &FeedInput {
+                feed_key: feed_key.to_string(),
+                url: format!("https://example.com/{feed_key}"),
+                title: Some(feed_key.to_string()),
+                author: None,
+                site_url: None,
+                meta_json: None,
+            },
+            1,
+        )
+        .expect("upsert feed");
+        conn.query_row(
+            "SELECT id FROM feeds WHERE feed_key = ?1",
+            params![feed_key],
+            |row| row.get(0),
+        )
+        .expect("feed id")
+    }
+
+    /// Keeps entry id stable when inserting duplicate entry_key.
+    #[test]
+    fn insert_entry_returns_existing_id_on_conflict() {
+        let conn = test_conn();
+        let feed_id = insert_feed(&conn, "feed-a");
+        let input = EntryInput {
+            entry_key: "entry-a".to_string(),
+            feed_id,
+            source_id: Some("src-a".to_string()),
+            link: Some("https://example.com/a".to_string()),
+            title: Some("A".to_string()),
+            author: None,
+            published_at: None,
+            updated_at: None,
+            first_seen_at: 10,
+            meta_json: None,
+        };
+        let first = insert_entry_with_conn(&conn, &input).expect("first insert");
+        assert!(first.inserted);
+        assert!(first.entry_id > 0);
+
+        let second = insert_entry_with_conn(&conn, &input).expect("second insert");
+        assert!(!second.inserted);
+        assert_eq!(second.entry_id, first.entry_id);
+    }
+
+    /// Deduplicates input tags before writing tags and entry_tags.
+    #[test]
+    fn insert_entry_tags_deduplicates_tag_inputs() {
+        let conn = test_conn();
+        let feed_id = insert_feed(&conn, "feed-a");
+        let input = EntryInput {
+            entry_key: "entry-a".to_string(),
+            feed_id,
+            source_id: Some("src-a".to_string()),
+            link: Some("https://example.com/a".to_string()),
+            title: Some("A".to_string()),
+            author: None,
+            published_at: None,
+            updated_at: None,
+            first_seen_at: 10,
+            meta_json: None,
+        };
+        let inserted = insert_entry_with_conn(&conn, &input).expect("insert entry");
+        let tags = vec![
+            "tech".to_string(),
+            "tech".to_string(),
+            "hot".to_string(),
+            "hot".to_string(),
+        ];
+        insert_entry_tags_with_conn(&conn, inserted.entry_id, &tags).expect("insert tags");
+
+        let tag_count: i64 = conn
+            .query_row("SELECT COUNT(1) FROM tags", [], |row| row.get(0))
+            .expect("tag count");
+        assert_eq!(tag_count, 2);
+        let entry_tag_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(1) FROM entry_tags WHERE entry_id = ?1",
+                params![inserted.entry_id],
+                |row| row.get(0),
+            )
+            .expect("entry_tag count");
+        assert_eq!(entry_tag_count, 2);
+    }
 }

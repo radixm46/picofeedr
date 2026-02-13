@@ -14,9 +14,9 @@ use std::time::Duration;
 pub(crate) use entries::{
     insert_entry_content_with_conn, insert_entry_tags_with_conn, insert_entry_with_conn,
 };
-pub(crate) use feeds::{find_feed_id_with_conn, upsert_feed_with_conn};
+pub(crate) use feeds::{find_feed_ids_with_conn, upsert_feed_with_conn};
 pub(crate) use meta::SystemMeta;
-pub(crate) use tags::ensure_tag_with_conn;
+pub(crate) use tags::{ensure_tag_ids_with_conn, ensure_tag_with_conn, lookup_tag_ids_with_conn};
 
 /// SQLite store wrapper.
 pub struct SqliteStore {
