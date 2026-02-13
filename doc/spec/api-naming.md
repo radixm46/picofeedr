@@ -7,12 +7,16 @@
 
 ## Reserved Envelope Keys
 
-JSONレスポンスのトップレベル予約キーは以下の4つのみなのだ。
+JSONレスポンスのトップレベル予約キーは以下の5つのみなのだ。
 
 - `success`
+- `severity`
 - `result`
 - `error`
 - `meta`
+
+`success` は「致命エラーなく応答を返せたか」を意味するのだ。  
+部分失敗や注意がある成功は `severity = "warn"` で表現するのだ。
 
 ## Naming Principles
 
@@ -22,7 +26,7 @@ JSONレスポンスのトップレベル予約キーは以下の4つのみなの
   - 件数: `*_count`
   - 期間: `*_ms`
   - 時刻: `*_at`（epoch seconds）
-- 真偽値は意味語にするのだ（例: `retriable`）。
+- 真偽値は意味語にするのだ（例: `retryable`）。
 - ページング継続トークンは `*_token` を使うのだ。
 
 ## Type Stability Rules
@@ -30,6 +34,7 @@ JSONレスポンスのトップレベル予約キーは以下の4つのみなの
 - 構造を安定させるため、キー省略より `null` を優先するのだ。
 - リストは常に配列で返すのだ（空は `[]`）。
 - 失敗時は `result = null`、成功時は `error = null` を必須にするのだ。
+- `severity` は常に付与し、`ok|warn|error` のいずれかにするのだ。
 
 ## Error Rules
 
@@ -37,7 +42,7 @@ JSONレスポンスのトップレベル予約キーは以下の4つのみなの
 
 - `code: string`（SCREAMING_SNAKE_CASE）
 - `message: string`
-- `retriable: bool`
+- `retryable: bool`
 - `details: object|null`
 
 ## Meta Rules
@@ -70,7 +75,7 @@ v1では次のキーをレスポンス契約で使用しないのだ。
 
 - `ok` -> `success`
 - `data` -> `result`
-- `retry` -> `retriable`
+- `retry` -> `retryable`
 - `fetched` -> `fetched_feed_count`
 - `failed` -> `failed_feed_count`
 - `new_entries` -> `new_entry_count`

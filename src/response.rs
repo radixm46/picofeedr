@@ -4,6 +4,18 @@ use crate::error::{AppError, ErrorPayload};
 use crate::time;
 use serde::Serialize;
 
+/// Severity level of the response.
+#[derive(Debug, Serialize, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
+pub enum ResponseSeverity {
+    /// Command completed without warnings.
+    Ok,
+    /// Command completed with non-fatal warnings.
+    Warn,
+    /// Command failed fatally.
+    Error,
+}
+
 /// Metadata returned on every JSON response.
 #[derive(Debug, Serialize)]
 pub struct ResponseMeta {
@@ -33,6 +45,8 @@ impl ResponseMeta {
 pub struct Envelope<T> {
     /// Whether the command succeeded.
     pub success: bool,
+    /// Severity of the command outcome.
+    pub severity: ResponseSeverity,
     /// Command payload when `success=true`, otherwise `null`.
     pub result: Option<T>,
     /// Error payload when `success=false`, otherwise `null`.
@@ -42,10 +56,11 @@ pub struct Envelope<T> {
 }
 
 impl<T> Envelope<T> {
-    /// Builds a success envelope with payload.
-    pub fn ok(data: T) -> Self {
+    /// Builds a success envelope with payload and explicit severity.
+    pub fn ok_with_severity(data: T, severity: ResponseSeverity) -> Self {
         Self {
             success: true,
+            severity,
             result: Some(data),
             error: None,
             meta: ResponseMeta::current(),
@@ -56,6 +71,7 @@ impl<T> Envelope<T> {
     pub fn fatal(error: &AppError) -> Self {
         Self {
             success: false,
+            severity: ResponseSeverity::Error,
             result: None,
             error: Some(ErrorPayload::from_error(error)),
             meta: ResponseMeta::current(),

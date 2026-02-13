@@ -17,31 +17,32 @@ CLI の主要な出力は stdout に出すのだ。`--output` で形式を切り
 
 ```json
 // success
-{ "success": true,  "result": <payload>, "error": null, "meta": {"api_version": "<string>", "schema_version": <int>, "generated_at": <epoch>} }
+{ "success": true,  "severity": "ok|warn", "result": <payload>, "error": null, "meta": {"api_version": "<string>", "schema_version": <int>, "generated_at": <epoch>} }
 
 // fatal
-{ "success": false, "result": null,      "error": { "code": "<CODE>", "message": "<string>", "retriable": <bool>, "details": <object|null> }, "meta": {"api_version": "<string>", "schema_version": <int>, "generated_at": <epoch>} }
+{ "success": false, "severity": "error", "result": null,      "error": { "code": "<CODE>", "message": "<string>", "retryable": <bool>, "details": <object|null> }, "meta": {"api_version": "<string>", "schema_version": <int>, "generated_at": <epoch>} }
 ```
 
 `result` の中身（payload）はコマンドごとに定義するのだ。致命では `error` を埋め、exit code も !=0 にするのだ（詳細は `doc/spec/errors.md`）。
 `stdout` が `BrokenPipe` になった場合は、下流コマンドの早期終了とみなして非致命（exit code 0）で終了するのだ。
+`success` は「致命エラーがないこと」を示し、部分失敗や注意は `severity=warn` で表現するのだ。
 
 ```
 picofeedr version
-# → {"success": true, "result": {"api_version": "0.5.0", "schema_version": 1, "build": "dev"}, "error": null, "meta": {...}}
+# → {"success": true, "severity": "ok", "result": {"api_version": "0.5.0", "schema_version": 1, "build": "dev"}, "error": null, "meta": {...}}
 
 picofeedr ping
-# → {"success": true, "result": {"status": "ok"}, "error": null, "meta": {...}}
+# → {"success": true, "severity": "ok", "result": {"status": "ok"}, "error": null, "meta": {...}}
 ```
 
 ### A6.2 フィード管理
 
 ```
 picofeedr feeds
-# → {"success": true, "result": {"feeds": [{id, feed_key, url, title, site_url, author, tags}]}, "error": null, "meta": {...}}
+# → {"success": true, "severity": "ok", "result": {"feeds": [{id, feed_key, url, title, site_url, author, tags}]}, "error": null, "meta": {...}}
 
 picofeedr feeds --config-check
-# → {"success": true, "result": {"valid": true, "errors": [], "warnings": [], "checked_feeds": 12}, "error": null, "meta": {...}}
+# → {"success": true, "severity": "ok", "result": {"valid": true, "errors": [], "warnings": [], "checked_feeds": 12}, "error": null, "meta": {...}}
 ```
 
 **ConfigCheckResult：**
@@ -54,10 +55,10 @@ picofeedr feeds --config-check
 
 ```
 picofeedr sync
-# → {"success": true, "result": {"status": "completed", "fetched_feed_count": 120, "failed_feed_count": 0, "new_entry_count": 42, "duration_ms": 245300, "errors": []}, "error": null, "meta": {...}}
+# → {"success": true, "severity": "ok", "result": {"status": "completed", "fetched_feed_count": 120, "failed_feed_count": 0, "new_entry_count": 42, "duration_ms": 245300, "errors": []}, "error": null, "meta": {...}}
 
 # 一部失敗時の例
-# → {"success": true, "result": {"status": "partial_failed", "fetched_feed_count": 120, "failed_feed_count": 3, "new_entry_count": 42, "duration_ms": 245300, "errors": [{"feed_url": "...", "code": "FETCH_FAILED", "message": "...", "retriable": true}]}, "error": null, "meta": {...}}
+# → {"success": true, "severity": "warn", "result": {"status": "partial_failed", "fetched_feed_count": 120, "failed_feed_count": 3, "new_entry_count": 42, "duration_ms": 245300, "errors": [{"feed_url": "...", "code": "FETCH_FAILED", "message": "...", "retryable": true}]}, "error": null, "meta": {...}}
 ```
 
 **SyncResult：**
@@ -69,14 +70,14 @@ picofeedr sync
 **SyncError：**
 
 ```json
-{ "feed_url": "<url>", "code": "FETCH_FAILED|PARSE_FAILED", "message": "<string>", "retriable": <bool> }
+{ "feed_url": "<url>", "code": "FETCH_FAILED|PARSE_FAILED", "message": "<string>", "retryable": <bool> }
 ```
 
 ### A6.4 DB状態メタデータ（軽量）
 
 ```
 picofeedr status
-# → {"success": true, "result": {"revision": 1284, "last_write_at": 1705420900, "schema_version": 1, "api_version": "0.5.0", "last_sync_at": 1705420800, "last_sync_status": "completed"}, "error": null, "meta": {...}}
+# → {"success": true, "severity": "ok", "result": {"revision": 1284, "last_write_at": 1705420900, "schema_version": 1, "api_version": "0.5.0", "last_sync_at": 1705420800, "last_sync_status": "completed"}, "error": null, "meta": {...}}
 ```
 
 **StatusResponse：**
@@ -89,7 +90,7 @@ picofeedr status
 
 ```
 picofeedr list --query <q> --sort <date_desc|date_asc|first_seen_desc|first_seen_asc> --limit <n> [--cursor <cursor>]
-# → {"success": true, "result": {"total_count": 342, "items": [EntrySummary...], "next_page_token": "eyJ...", "revision": 1284, "last_write_at": 1705420900}, "error": null, "meta": {...}}
+# → {"success": true, "severity": "ok", "result": {"total_count": 342, "items": [EntrySummary...], "next_page_token": "eyJ...", "revision": 1284, "last_write_at": 1705420900}, "error": null, "meta": {...}}
 ```
 
 **ListResponse：**
@@ -102,19 +103,19 @@ picofeedr list --query <q> --sort <date_desc|date_asc|first_seen_desc|first_seen
 
 ```
 picofeedr view <id>
-# → {"success": true, "result": EntryDetail, "error": null, "meta": {...}}
+# → {"success": true, "severity": "ok", "result": EntryDetail, "error": null, "meta": {...}}
 ```
 
 ### A6.7 状態更新
 
 ```
 picofeedr mark read ...
-# → {"success": true, "result": {"updated_entry_count": 2}, "error": null, "meta": {...}}
+# → {"success": true, "severity": "ok", "result": {"updated_entry_count": 2}, "error": null, "meta": {...}}
 ```
 
 ### A6.8 タグ
 
 ```
 picofeedr tags
-# → {"success": true, "result": {"tags": ["unread", "tech", "security", "rust", ...]}, "error": null, "meta": {...}}
+# → {"success": true, "severity": "ok", "result": {"tags": ["unread", "tech", "security", "rust", ...]}, "error": null, "meta": {...}}
 ```

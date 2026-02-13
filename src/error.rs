@@ -318,7 +318,7 @@ pub struct ErrorPayload {
     /// Human-readable message.
     pub message: String,
     /// Whether the caller should retry.
-    pub retriable: bool,
+    pub retryable: bool,
     /// Optional machine-readable details for error-specific branching.
     pub details: Option<Value>,
 }
@@ -329,7 +329,7 @@ impl ErrorPayload {
         Self {
             code: error.code().as_str().to_string(),
             message: error.message().to_string(),
-            retriable: error.retry(),
+            retryable: error.retry(),
             details: None,
         }
     }

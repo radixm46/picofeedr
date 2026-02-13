@@ -15,12 +15,12 @@ use crate::feed::feed_key_from_url;
 use std::sync::Arc;
 use std::time::Instant;
 
-pub use model::SyncSummary;
+pub use model::{SyncStatus, SyncSummary};
 
 use autotag::compile_auto_tags;
 use fetch::fetch_parallel;
 use ingest::ingest_results;
-use model::{SyncStatus, SyncTarget};
+use model::SyncTarget;
 
 /// Runs a sync for all feeds in config.
 pub fn run_sync(

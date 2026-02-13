@@ -31,7 +31,7 @@ pub struct SyncError {
     /// Error message.
     pub message: String,
     /// Whether the caller should retry.
-    pub retriable: bool,
+    pub retryable: bool,
 }
 
 /// Sync status values.
@@ -80,7 +80,7 @@ impl SyncError {
             feed_url: feed_url.to_string(),
             code: SyncErrorCode::FetchFailed,
             message,
-            retriable: !feed_url.starts_with("file://"),
+            retryable: !feed_url.starts_with("file://"),
         }
     }
 
@@ -90,7 +90,7 @@ impl SyncError {
             feed_url: feed_url.to_string(),
             code: SyncErrorCode::ParseFailed,
             message,
-            retriable: false,
+            retryable: false,
         }
     }
 }

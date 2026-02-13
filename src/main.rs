@@ -21,7 +21,7 @@ use crate::entry::{EntryDetail, EntryListResponse};
 use crate::error::AppError;
 use crate::feed::FeedListResponse;
 use crate::query::EntryQuery;
-use crate::response::Envelope;
+use crate::response::{Envelope, ResponseSeverity};
 use crate::status::StatusResponse;
 use crate::sync::SyncSummary;
 use crate::tag::TagManager;
@@ -164,7 +164,15 @@ fn run_config_check(cli: &Cli, output: OutputFormat) -> Result<ExitCode, RunFail
     let report = feeds_config.validate();
     match output {
         OutputFormat::Json => {
-            print_json_or_fallback(&Envelope::ok(serde_json::to_value(&report)?))?;
+            let severity = if report.valid {
+                ResponseSeverity::Ok
+            } else {
+                ResponseSeverity::Warn
+            };
+            print_json_or_fallback(&Envelope::ok_with_severity(
+                serde_json::to_value(&report)?,
+                severity,
+            ))?;
         }
         OutputFormat::Plain => render_config_check_plain(&report)?,
     }
@@ -277,6 +285,14 @@ fn resolve_list_limit(limit: Option<usize>, query: config::QueryConfig) -> Resul
 
 /// Renders JSON output for a command result.
 fn render_json(result: &CommandOutput) -> Result<(), RunFailure> {
+    let severity = match result {
+        CommandOutput::Sync { summary }
+            if !matches!(summary.status, sync::SyncStatus::Completed) =>
+        {
+            ResponseSeverity::Warn
+        }
+        _ => ResponseSeverity::Ok,
+    };
     let data = match result {
         CommandOutput::Ping => json!({ "status": "ok" }),
         CommandOutput::Version {
@@ -297,7 +313,7 @@ fn render_json(result: &CommandOutput) -> Result<(), RunFailure> {
         CommandOutput::Mark { updated } => json!({ "updated_entry_count": updated }),
     };
 
-    print_json_or_fallback(&Envelope::ok(data))?;
+    print_json_or_fallback(&Envelope::ok_with_severity(data, severity))?;
     Ok(())
 }
 
@@ -383,10 +399,10 @@ fn render_plain(result: &CommandOutput) -> io::Result<()> {
                 for error in &summary.errors {
                     writeln!(
                         writer,
-                        "  {} {} retriable={}",
+                        "  {} {} retryable={}",
                         error.feed_url,
                         error.code.as_str(),
-                        error.retriable
+                        error.retryable
                     )?;
                     writeln!(writer, "    {}", error.message)?;
                 }
@@ -482,7 +498,7 @@ fn print_json_or_fallback<T: serde::Serialize>(value: &T) -> io::Result<()> {
 }
 
 /// Fallback JSON printed when JSON serialization fails unexpectedly.
-const FALLBACK_INTERNAL_ERROR_JSON: &str = "{\"success\":false,\"result\":null,\"error\":{\"code\":\"INTERNAL\",\"message\":\"Failed to serialize response\",\"retriable\":false,\"details\":null},\"meta\":{\"api_version\":\"unknown\",\"schema_version\":0,\"generated_at\":0}}";
+const FALLBACK_INTERNAL_ERROR_JSON: &str = "{\"success\":false,\"severity\":\"error\",\"result\":null,\"error\":{\"code\":\"INTERNAL\",\"message\":\"Failed to serialize response\",\"retryable\":false,\"details\":null},\"meta\":{\"api_version\":\"unknown\",\"schema_version\":0,\"generated_at\":0}}";
 
 /// Loads config and applies CLI overrides.
 fn load_config(cli: &Cli) -> Result<config::AppConfig, AppError> {

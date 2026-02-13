@@ -2,15 +2,16 @@
 
 > Note:
 > v0.6 以前の記述は履歴として残している旧仕様なのだ。
-> 現在の有効な JSON 契約は v0.7（`success/result/error/meta`）を正として扱うのだ。
+> 現在の有効な JSON 契約は v0.7（`success/severity/result/error/meta`）を正として扱うのだ。
 
 ## v0.7（2026-02-13, breaking）
 
 - **CLI JSON envelope v1 へ全面刷新**
   - `ok/data/error` を `success/result/error/meta` に変更
+  - `severity`（`ok|warn|error`）を追加
   - `meta` に `api_version`/`schema_version`/`generated_at` を追加
 - **エラーpayloadを明確化**
-  - `retry` を `retriable` に変更
+  - `retry` を `retryable` に変更
   - `details` フィールドを追加（nullable）
 - **同期レスポンスの単位を明示**
   - `fetched` -> `fetched_feed_count`

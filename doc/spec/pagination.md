@@ -31,7 +31,7 @@
 ```bash
 # 初回
 picofeedr --output json list --query unread --sort first_seen_desc --limit 100
-# → {"success": true, "result": {"total_count": 342, "items": [...], "next_page_token": "eyJ...", "revision": 1284, "last_write_at": 1705420900}, "error": null, "meta": {...}}
+# → {"success": true, "severity": "ok", "result": {"total_count": 342, "items": [...], "next_page_token": "eyJ...", "revision": 1284, "last_write_at": 1705420900}, "error": null, "meta": {...}}
 
 # 2ページ目
 picofeedr --output json list --query unread --sort first_seen_desc --limit 100 --cursor "eyJ..."

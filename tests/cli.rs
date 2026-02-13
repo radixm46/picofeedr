@@ -8,8 +8,8 @@ use std::fs;
 use std::path::Path;
 use std::process::{Command as ProcessCommand, Output, Stdio};
 use support::assertions::{
-    assert_error_envelope, assert_plain_contract, extract_error_code, extract_error_payload,
-    extract_ok_data,
+    assert_envelope_severity, assert_error_envelope, assert_plain_contract, extract_error_code,
+    extract_error_payload, extract_ok_data,
 };
 use support::fixtures::{
     acquire_exclusive_db_lock, write_fixture_files, write_sync_all_failed_fixture_files,
@@ -87,6 +87,7 @@ fn config_check_fails_on_duplicate_url() {
         .clone();
 
     let data = extract_ok_data(&output);
+    assert_envelope_severity(&output, "warn");
     assert_eq!(data["valid"], false);
     let errors = data["errors"].as_array().expect("errors array");
     assert!(
@@ -124,6 +125,7 @@ fn config_check_fails_on_empty_url() {
         .clone();
 
     let data = extract_ok_data(&output);
+    assert_envelope_severity(&output, "warn");
     assert_eq!(data["valid"], false);
     let errors = data["errors"].as_array().expect("errors array");
     assert!(
@@ -792,6 +794,7 @@ fn sync_reports_partial_failed() {
         .clone();
 
     let data = extract_ok_data(&output);
+    assert_envelope_severity(&output, "warn");
     assert_eq!(data["status"], "partial_failed");
     assert_eq!(data["fetched_feed_count"], 2);
     assert_eq!(data["failed_feed_count"], 1);
@@ -819,6 +822,7 @@ fn sync_reports_failed_when_all_feeds_fail() {
         .clone();
 
     let data = extract_ok_data(&output);
+    assert_envelope_severity(&output, "warn");
     assert_eq!(data["status"], "failed");
     assert_eq!(data["fetched_feed_count"], 1);
     assert_eq!(data["failed_feed_count"], 1);
@@ -1264,7 +1268,7 @@ fn list_rejects_invalid_cursor_format() {
 
     let error = extract_error_payload(&output);
     assert_eq!(error["code"], "INVALID_QUERY");
-    assert_eq!(error["retriable"], false);
+    assert_eq!(error["retryable"], false);
 }
 
 /// Ensures list uses config query.default_limit when --limit is omitted.
