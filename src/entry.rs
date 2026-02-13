@@ -125,8 +125,8 @@ pub fn list_entries(
         total_hits,
         items,
         next_cursor,
-        revision: system_meta.db_revision,
-        updated_at: system_meta.last_write_at,
+        revision: system_meta.revision,
+        updated_at: system_meta.updated_at,
     })
 }
 

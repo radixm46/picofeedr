@@ -60,16 +60,16 @@ impl SqliteStore {
 
     /// Returns database status metadata stored in `es_meta`.
     pub fn read_system_meta(&self) -> Result<SystemMeta, AppError> {
-        meta::read_system_meta_with_conn(&self.conn)
+        meta::read_meta_with_conn(&self.conn)
     }
 
-    /// Increments database revision and updates last write timestamp.
-    pub fn bump_system_revision(&self, now: i64) -> Result<SystemMeta, AppError> {
-        meta::bump_system_revision_with_conn(&self.conn, now)
+    /// Increments database revision and updates write timestamp.
+    pub fn bump_revision(&self, now: i64) -> Result<SystemMeta, AppError> {
+        meta::bump_revision_with_conn(&self.conn, now)
     }
 
     /// Updates the latest sync timestamp and status metadata.
-    pub fn update_last_sync(&self, now: i64, status: &str) -> Result<SystemMeta, AppError> {
-        meta::update_last_sync_with_conn(&self.conn, now, status)
+    pub fn update_sync(&self, now: i64, status: &str) -> Result<SystemMeta, AppError> {
+        meta::update_sync_with_conn(&self.conn, now, status)
     }
 }

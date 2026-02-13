@@ -222,15 +222,15 @@ fn execute_command(cli: &Cli) -> Result<CommandOutput, AppError> {
                     feed::reconcile_feeds(&store, &feeds_config, &config.unread_tag)?;
                     let db_feeds = store.list_feeds()?;
                     let feeds = feed::render_feed_list(&feeds_config, &db_feeds);
-                    store.bump_system_revision(time::current_epoch())?;
+                    store.bump_revision(time::current_epoch())?;
                     Ok(CommandOutput::FeedsList { feeds })
                 }
                 Command::Sync => {
                     let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
                     let summary = sync::run_sync(&mut store, &config, &feeds_config)?;
                     let now = time::current_epoch();
-                    store.bump_system_revision(now)?;
-                    store.update_last_sync(now, summary.status.as_str())?;
+                    store.bump_revision(now)?;
+                    store.update_sync(now, summary.status.as_str())?;
                     Ok(CommandOutput::Sync { summary })
                 }
                 Command::List {
@@ -251,7 +251,7 @@ fn execute_command(cli: &Cli) -> Result<CommandOutput, AppError> {
                 }
                 Command::Mark { command } => {
                     let updated = execute_mark(&mut store, &config, command)?;
-                    store.bump_system_revision(time::current_epoch())?;
+                    store.bump_revision(time::current_epoch())?;
                     Ok(CommandOutput::Mark { updated })
                 }
                 Command::Ping | Command::Version => unreachable!("handled above"),

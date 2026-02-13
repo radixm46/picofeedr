@@ -24,12 +24,12 @@ impl StatusResponse {
     /// Builds status payload from persisted metadata and build-time versions.
     pub fn from_meta(meta: &SystemMeta, schema_version: i64, api_version: &'static str) -> Self {
         Self {
-            revision: meta.db_revision,
-            updated_at: meta.last_write_at,
+            revision: meta.revision,
+            updated_at: meta.updated_at,
             schema_version,
             api_version,
-            sync_at: meta.last_sync_at,
-            sync_status: meta.last_sync_status.clone(),
+            sync_at: meta.sync_at,
+            sync_status: meta.sync_status.clone(),
         }
     }
 }
