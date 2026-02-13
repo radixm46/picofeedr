@@ -190,6 +190,8 @@ pub fn view_entry(
 }
 
 /// Updates entry tags and returns the number of affected entries.
+///
+/// Returns `ENTRY_NOT_FOUND` when any requested entry id does not exist.
 pub fn mark_entries(
     store: &mut SqliteStore,
     entry_ids: &[i64],
@@ -211,6 +213,7 @@ pub fn mark_entries(
     if unique_ids.is_empty() {
         return Ok(0);
     }
+    ensure_all_entry_ids_exist(store.connection(), &unique_ids)?;
     let tx = store.transaction()?;
     let add_ids = ensure_tag_ids(&tx, add_tags)?;
     let remove_ids = lookup_tag_ids(&tx, remove_tags)?;
@@ -241,6 +244,30 @@ pub fn mark_entries(
     }
     tx.commit()?;
     Ok(updated)
+}
+
+/// Ensures all requested entry ids exist.
+fn ensure_all_entry_ids_exist(conn: &Connection, entry_ids: &[i64]) -> Result<(), AppError> {
+    const ENTRY_ID_CHECK_CHUNK_SIZE: usize = 500;
+
+    let mut existing = HashSet::new();
+    for chunk in entry_ids.chunks(ENTRY_ID_CHECK_CHUNK_SIZE) {
+        let placeholders = std::iter::repeat_n("?", chunk.len())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!("SELECT id FROM entries WHERE id IN ({placeholders})");
+        let mut stmt = conn.prepare(&sql)?;
+        let mut rows = stmt.query(params_from_iter(chunk.iter()))?;
+        while let Some(row) = rows.next()? {
+            existing.insert(row.get::<_, i64>(0)?);
+        }
+    }
+    for entry_id in entry_ids {
+        if !existing.contains(entry_id) {
+            return Err(AppError::entry_not_found("some entries not found"));
+        }
+    }
+    Ok(())
 }
 
 fn build_where_clause(

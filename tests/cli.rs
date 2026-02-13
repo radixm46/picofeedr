@@ -1757,6 +1757,201 @@ fn mark_updates_tags() {
     assert_eq!(tech_data["total_count"], 1);
 }
 
+/// Ensures mark read fails when any entry id is missing and leaves state unchanged.
+#[test]
+fn mark_read_fails_when_any_entry_is_missing() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let unread_data = list_query_json(&paths.config_path, &paths.db_path, "unread");
+    let entry_ids = collect_item_ids(&unread_data);
+    assert_eq!(entry_ids.len(), 2);
+    assert_eq!(unread_data["total_count"], 2);
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("mark")
+        .arg("read")
+        .arg(entry_ids[0].to_string())
+        .arg("999999")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    assert_error_envelope(&output, "ENTRY_NOT_FOUND", false);
+    let error = extract_error_payload(&output);
+    assert_eq!(error["message"], "some entries not found");
+    assert!(error["details"].is_null(), "expected details=null");
+
+    let unread_after = list_query_json(&paths.config_path, &paths.db_path, "unread");
+    assert_eq!(unread_after["total_count"], 2);
+}
+
+/// Ensures mark unread fails when any entry id is missing and leaves state unchanged.
+#[test]
+fn mark_unread_fails_when_any_entry_is_missing() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let unread_data = list_query_json(&paths.config_path, &paths.db_path, "unread");
+    let entry_ids = collect_item_ids(&unread_data);
+    assert_eq!(entry_ids.len(), 2);
+
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("mark")
+        .arg("read")
+        .arg(entry_ids[0].to_string())
+        .arg(entry_ids[1].to_string())
+        .assert()
+        .success();
+    let unread_after_read = list_query_json(&paths.config_path, &paths.db_path, "unread");
+    assert_eq!(unread_after_read["total_count"], 0);
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("mark")
+        .arg("unread")
+        .arg(entry_ids[0].to_string())
+        .arg("999999")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    assert_error_envelope(&output, "ENTRY_NOT_FOUND", false);
+    let error = extract_error_payload(&output);
+    assert_eq!(error["message"], "some entries not found");
+    assert!(error["details"].is_null(), "expected details=null");
+
+    let unread_after = list_query_json(&paths.config_path, &paths.db_path, "unread");
+    assert_eq!(unread_after["total_count"], 0);
+}
+
+/// Ensures mark tag --add fails when any entry id is missing and leaves state unchanged.
+#[test]
+fn mark_tag_add_fails_when_any_entry_is_missing() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let unread_data = list_query_json(&paths.config_path, &paths.db_path, "unread");
+    let entry_ids = collect_item_ids(&unread_data);
+    assert_eq!(entry_ids.len(), 2);
+    let foo_before = list_query_json(&paths.config_path, &paths.db_path, "tag:foo");
+    assert_eq!(foo_before["total_count"], 0);
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("mark")
+        .arg("tag")
+        .arg(entry_ids[0].to_string())
+        .arg("999999")
+        .arg("--add")
+        .arg("foo")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    assert_error_envelope(&output, "ENTRY_NOT_FOUND", false);
+    let error = extract_error_payload(&output);
+    assert_eq!(error["message"], "some entries not found");
+    assert!(error["details"].is_null(), "expected details=null");
+
+    let foo_after = list_query_json(&paths.config_path, &paths.db_path, "tag:foo");
+    assert_eq!(foo_after["total_count"], 0);
+}
+
+/// Ensures mark tag --remove fails when any entry id is missing and leaves state unchanged.
+#[test]
+fn mark_tag_remove_fails_when_any_entry_is_missing() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let unread_data = list_query_json(&paths.config_path, &paths.db_path, "unread");
+    let entry_ids = collect_item_ids(&unread_data);
+    assert_eq!(entry_ids.len(), 2);
+    let tech_before = list_query_json(&paths.config_path, &paths.db_path, "tag:tech");
+    assert_eq!(tech_before["total_count"], 2);
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("mark")
+        .arg("tag")
+        .arg(entry_ids[0].to_string())
+        .arg("999999")
+        .arg("--remove")
+        .arg("tech")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    assert_error_envelope(&output, "ENTRY_NOT_FOUND", false);
+    let error = extract_error_payload(&output);
+    assert_eq!(error["message"], "some entries not found");
+    assert!(error["details"].is_null(), "expected details=null");
+
+    let tech_after = list_query_json(&paths.config_path, &paths.db_path, "tag:tech");
+    assert_eq!(tech_after["total_count"], 2);
+}
+
 /// Runs `list` in JSON mode and returns its `data` object.
 fn list_query_json(config_path: &str, db_path: &str, query: &str) -> serde_json::Value {
     let output = picofeedr_cmd_json()

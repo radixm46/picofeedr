@@ -233,6 +233,15 @@ impl AppError {
         }
     }
 
+    /// Creates an entry not found error.
+    pub fn entry_not_found(message: impl Into<String>) -> Self {
+        Self::EntryNotFound {
+            message: message.into(),
+            details: None,
+            source: None,
+        }
+    }
+
     /// Creates an I/O error.
     pub fn io(message: impl Into<String>) -> Self {
         Self::Io {
