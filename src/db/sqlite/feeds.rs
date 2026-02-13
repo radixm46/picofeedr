@@ -1,5 +1,6 @@
 //! Feed queries for SQLite store.
 
+use crate::db::sqlite::query::feeds as q;
 use crate::db::{FeedInput, FeedRow};
 use crate::error::AppError;
 use rusqlite::{Connection, params, params_from_iter};
@@ -7,8 +8,7 @@ use std::collections::HashMap;
 
 /// Returns all feeds stored in the database.
 pub(crate) fn list_feeds_with_conn(conn: &Connection) -> Result<Vec<FeedRow>, AppError> {
-    let mut stmt =
-        conn.prepare("SELECT id, feed_key, url, title, author, site_url FROM feeds ORDER BY id")?;
+    let mut stmt = conn.prepare(q::SELECT_FEEDS)?;
     let feeds = stmt
         .query_map([], |row| {
             Ok(FeedRow {
@@ -31,15 +31,7 @@ pub(crate) fn upsert_feed_with_conn(
     now: i64,
 ) -> Result<(), AppError> {
     conn.execute(
-        "INSERT INTO feeds (feed_key, url, title, author, site_url, meta_json, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-         ON CONFLICT(feed_key) DO UPDATE SET
-            url = excluded.url,
-            title = excluded.title,
-            author = excluded.author,
-            site_url = excluded.site_url,
-            meta_json = excluded.meta_json,
-            updated_at = excluded.updated_at",
+        q::UPSERT_FEED,
         params![
             feed.feed_key,
             feed.url,
@@ -69,7 +61,7 @@ pub(crate) fn find_feed_ids_with_conn(
         let placeholders = std::iter::repeat_n("?", chunk.len())
             .collect::<Vec<_>>()
             .join(", ");
-        let sql = format!("SELECT feed_key, id FROM feeds WHERE feed_key IN ({placeholders})");
+        let sql = q::select_feed_ids_by_keys(&placeholders);
         let mut stmt = conn.prepare(&sql)?;
         let mut rows = stmt.query(params_from_iter(chunk.iter()))?;
         while let Some(row) = rows.next()? {

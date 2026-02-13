@@ -2,21 +2,18 @@
 
 use crate::cli::SortOrder;
 use crate::config::AppConfig;
-use crate::content_ref;
-use crate::db::sqlite::{SqliteStore, ensure_tag_ids_with_conn, lookup_tag_ids_with_conn};
-use crate::db::{EntryContentStorage, EntryContentStorage as Storage};
+use crate::db::sqlite::SqliteStore;
+use crate::db::sqlite::query::entries as q;
+use crate::db::sqlite::repo::EntryRepo;
 use crate::error::AppError;
 use crate::query::{EntryQuery, FeedFilter, TagExpr};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use rusqlite::types::Value;
-use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha1::{Digest, Sha1};
-use std::collections::{HashMap, HashSet};
-use std::fs;
-use std::path::Path;
+use std::collections::HashSet;
 
 /// Entry summary for list responses.
 #[derive(Debug, Serialize, JsonSchema)]
@@ -109,14 +106,14 @@ pub fn list_entries(
     limit: usize,
     cursor: Option<&str>,
 ) -> Result<EntryListResponse, AppError> {
-    let conn = store.connection();
-    let system_meta = store.read_system_meta()?;
+    let entry_repo = store.entry_repo();
+    let system_meta = store.sync_repo().read_system_meta()?;
     let query_hash = compute_query_hash(query);
     let (count_where_sql, count_params) = build_where_clause(query, sort, None, &query_hash)?;
-    let total_count = count_entries(conn, &count_where_sql, &count_params)?;
+    let total_count = entry_repo.count_entries(&count_where_sql, &count_params)?;
     let (page_where_sql, page_params) = build_where_clause(query, sort, cursor, &query_hash)?;
     let (items, next_page_token) = fetch_entries(
-        conn,
+        &entry_repo,
         &page_where_sql,
         &page_params,
         sort,
@@ -138,26 +135,8 @@ pub fn view_entry(
     config: &AppConfig,
     entry_id: i64,
 ) -> Result<EntryDetail, AppError> {
-    let conn = store.connection();
-    let row = conn
-        .query_row(
-            "SELECT e.id, e.feed_id, f.title, e.title, e.link, e.author, e.published_at, e.first_seen_at
-             FROM entries e JOIN feeds f ON e.feed_id = f.id WHERE e.id = ?1",
-            params![entry_id],
-            |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, i64>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                    row.get::<_, Option<String>>(4)?,
-                    row.get::<_, Option<String>>(5)?,
-                    row.get::<_, Option<i64>>(6)?,
-                    row.get::<_, i64>(7)?,
-                ))
-            },
-        )
-        .optional()?;
+    let entry_repo = store.entry_repo();
+    let row = entry_repo.view_entry_row(entry_id)?;
     let (id, feed_id, feed_title, title, link, author, published_at, first_seen_at) = row
         .ok_or_else(|| {
             AppError::entry_not_found_with_details(
@@ -169,9 +148,9 @@ pub fn view_entry(
             )
         })?;
 
-    let tags = load_tags(conn, &[id])?.remove(&id).unwrap_or_default();
-    let (content, content_type) = load_content(conn, &config.storage.data_dir, id)?;
-    let enclosures = load_enclosures(conn, id)?;
+    let tags = entry_repo.load_tags(&[id])?.remove(&id).unwrap_or_default();
+    let (content, content_type) = entry_repo.load_content(&config.storage.data_dir, id)?;
+    let enclosures = entry_repo.load_enclosures(id)?;
 
     Ok(EntryDetail {
         id,
@@ -213,27 +192,22 @@ pub fn mark_entries(
     if unique_ids.is_empty() {
         return Ok(0);
     }
-    ensure_all_entry_ids_exist(store.connection(), &unique_ids)?;
-    let tx = store.transaction()?;
-    let add_ids = ensure_tag_ids_with_conn(&tx, add_tags)?;
-    let remove_ids = lookup_tag_ids_with_conn(&tx, remove_tags)?;
+    store.entry_repo().ensure_all_entry_ids_exist(&unique_ids)?;
+    let tx = store.tx()?;
+    let tx_entry_repo = tx.entry_repo();
+    let add_ids = tx_entry_repo.ensure_tag_ids(add_tags)?;
+    let remove_ids = tx_entry_repo.lookup_tag_ids(remove_tags)?;
     let mut updated = 0usize;
     for entry_id in unique_ids {
         let mut changed = false;
         for tag_id in add_ids.values() {
-            let rows = tx.execute(
-                "INSERT OR IGNORE INTO entry_tags (entry_id, tag_id) VALUES (?1, ?2)",
-                params![entry_id, tag_id],
-            )?;
+            let rows = tx_entry_repo.insert_entry_tag(entry_id, *tag_id)?;
             if rows > 0 {
                 changed = true;
             }
         }
         for tag_id in remove_ids.values() {
-            let rows = tx.execute(
-                "DELETE FROM entry_tags WHERE entry_id = ?1 AND tag_id = ?2",
-                params![entry_id, tag_id],
-            )?;
+            let rows = tx_entry_repo.delete_entry_tag(entry_id, *tag_id)?;
             if rows > 0 {
                 changed = true;
             }
@@ -244,30 +218,6 @@ pub fn mark_entries(
     }
     tx.commit()?;
     Ok(updated)
-}
-
-/// Ensures all requested entry ids exist.
-fn ensure_all_entry_ids_exist(conn: &Connection, entry_ids: &[i64]) -> Result<(), AppError> {
-    const ENTRY_ID_CHECK_CHUNK_SIZE: usize = 500;
-
-    let mut existing = HashSet::new();
-    for chunk in entry_ids.chunks(ENTRY_ID_CHECK_CHUNK_SIZE) {
-        let placeholders = std::iter::repeat_n("?", chunk.len())
-            .collect::<Vec<_>>()
-            .join(", ");
-        let sql = format!("SELECT id FROM entries WHERE id IN ({placeholders})");
-        let mut stmt = conn.prepare(&sql)?;
-        let mut rows = stmt.query(params_from_iter(chunk.iter()))?;
-        while let Some(row) = rows.next()? {
-            existing.insert(row.get::<_, i64>(0)?);
-        }
-    }
-    for entry_id in entry_ids {
-        if !existing.contains(entry_id) {
-            return Err(AppError::entry_not_found("some entries not found"));
-        }
-    }
-    Ok(())
 }
 
 fn build_where_clause(
@@ -291,10 +241,7 @@ fn build_where_clause(
                 params.push(Value::from(*id));
             }
             FeedFilter::Title(title) => {
-                clauses.push(
-                    "EXISTS (SELECT 1 FROM feeds f WHERE f.id = e.feed_id AND f.title = ?)"
-                        .to_string(),
-                );
+                clauses.push(q::EXISTS_FEED_TITLE_FOR_ENTRY.to_string());
                 params.push(Value::from(title.clone()));
             }
         }
@@ -329,19 +276,13 @@ fn build_where_clause(
     let where_sql = if clauses.is_empty() {
         String::new()
     } else {
-        format!("WHERE {}", clauses.join(" AND "))
+        format!("{}{}", q::WHERE_PREFIX, clauses.join(" AND "))
     };
     Ok((where_sql, params))
 }
 
-fn count_entries(conn: &Connection, where_sql: &str, params: &[Value]) -> Result<i64, AppError> {
-    let sql = format!("SELECT COUNT(1) FROM entries e {where_sql}");
-    let total: i64 = conn.query_row(&sql, params_from_iter(params.iter()), |row| row.get(0))?;
-    Ok(total)
-}
-
 fn fetch_entries(
-    conn: &Connection,
+    entry_repo: &EntryRepo<'_>,
     where_sql: &str,
     params: &[Value],
     sort: SortOrder,
@@ -350,43 +291,15 @@ fn fetch_entries(
 ) -> Result<(Vec<EntrySummary>, Option<String>), AppError> {
     let key_expr = sort_key_expr(sort);
     let order_clause = sort_order_clause(sort);
-    let fetch_limit = limit.saturating_add(1);
-    let sql = format!(
-        "SELECT e.id, e.feed_id, e.title, e.link, e.published_at, e.first_seen_at, {key_expr} AS sort_key \
-         FROM entries e {where_sql} ORDER BY {order_clause} LIMIT ?"
-    );
-    let mut list_params = params.to_vec();
-    list_params.push(Value::from(fetch_limit as i64));
-    let mut stmt = conn.prepare(&sql)?;
-    let mut rows = stmt.query(params_from_iter(list_params.iter()))?;
-    let mut entries = Vec::new();
-    let mut sort_keys = Vec::new();
-    while let Some(row) = rows.next()? {
-        let id: i64 = row.get(0)?;
-        let feed_id: i64 = row.get(1)?;
-        let title: Option<String> = row.get(2)?;
-        let link: Option<String> = row.get(3)?;
-        let published_at: Option<i64> = row.get(4)?;
-        let first_seen_at: i64 = row.get(5)?;
-        let sort_key: i64 = row.get(6)?;
-        entries.push(EntrySummary {
-            id,
-            feed_id,
-            title,
-            link,
-            published_at,
-            first_seen_at,
-            tags: Vec::new(),
-        });
-        sort_keys.push(sort_key);
-    }
+    let (mut entries, mut sort_keys) =
+        entry_repo.fetch_entries(where_sql, params, key_expr, order_clause, limit)?;
     let has_next = entries.len() > limit;
     if has_next {
         entries.truncate(limit);
         sort_keys.truncate(limit);
     }
     let ids: Vec<i64> = entries.iter().map(|entry| entry.id).collect();
-    let tags = load_tags(conn, &ids)?;
+    let tags = entry_repo.load_tags(&ids)?;
     for entry in &mut entries {
         entry.tags = tags.get(&entry.id).cloned().unwrap_or_default();
     }
@@ -412,100 +325,16 @@ fn sort_key_expr(sort: SortOrder) -> &'static str {
 
 /// Returns the SQL expression for effective date filtering.
 fn effective_date_expr() -> &'static str {
-    "COALESCE(e.published_at, e.updated_at, e.first_seen_at)"
+    q::EFFECTIVE_DATE_EXPR
 }
 
 fn sort_order_clause(sort: SortOrder) -> &'static str {
     match sort {
-        SortOrder::DateDesc => {
-            "COALESCE(e.published_at, e.updated_at, e.first_seen_at) DESC, e.id DESC"
-        }
-        SortOrder::DateAsc => {
-            "COALESCE(e.published_at, e.updated_at, e.first_seen_at) ASC, e.id ASC"
-        }
-        SortOrder::FirstSeenDesc => "e.first_seen_at DESC, e.id DESC",
-        SortOrder::FirstSeenAsc => "e.first_seen_at ASC, e.id ASC",
+        SortOrder::DateDesc => q::ORDER_BY_DATE_DESC,
+        SortOrder::DateAsc => q::ORDER_BY_DATE_ASC,
+        SortOrder::FirstSeenDesc => q::ORDER_BY_FIRST_SEEN_DESC,
+        SortOrder::FirstSeenAsc => q::ORDER_BY_FIRST_SEEN_ASC,
     }
-}
-
-fn load_tags(conn: &Connection, entry_ids: &[i64]) -> Result<HashMap<i64, Vec<String>>, AppError> {
-    if entry_ids.is_empty() {
-        return Ok(HashMap::new());
-    }
-    let placeholders = std::iter::repeat_n("?", entry_ids.len())
-        .collect::<Vec<_>>()
-        .join(",");
-    let sql = format!(
-        "SELECT et.entry_id, t.name FROM entry_tags et JOIN tags t ON et.tag_id = t.id \
-         WHERE et.entry_id IN ({placeholders}) ORDER BY t.name"
-    );
-    let mut stmt = conn.prepare(&sql)?;
-    let mut rows = stmt.query(params_from_iter(entry_ids.iter()))?;
-    let mut tags: HashMap<i64, Vec<String>> = HashMap::new();
-    while let Some(row) = rows.next()? {
-        let entry_id: i64 = row.get(0)?;
-        let name: String = row.get(1)?;
-        tags.entry(entry_id).or_default().push(name);
-    }
-    Ok(tags)
-}
-
-fn load_content(
-    conn: &Connection,
-    data_dir: &Path,
-    entry_id: i64,
-) -> Result<(Option<String>, Option<String>), AppError> {
-    let row = conn
-        .query_row(
-            "SELECT storage, ref, content_type, content FROM entry_contents WHERE entry_id = ?1",
-            params![entry_id],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                ))
-            },
-        )
-        .optional()?;
-    let Some((storage, reference, content_type, content)) = row else {
-        return Ok((None, None));
-    };
-    let storage = storage
-        .parse::<EntryContentStorage>()
-        .map_err(|_| AppError::internal(format!("Unknown content storage: {storage}")))?;
-    match storage {
-        Storage::Db => Ok((content, content_type)),
-        Storage::Fs => {
-            let Some(reference) = reference else {
-                return Ok((None, content_type));
-            };
-            let path = match content_ref::sha256_path(data_dir, &reference) {
-                Ok(path) => path,
-                Err(_) => return Ok((None, content_type)),
-            };
-            let content = fs::read_to_string(path).ok();
-            Ok((content, content_type))
-        }
-        Storage::None => Ok((None, content_type)),
-    }
-}
-
-fn load_enclosures(conn: &Connection, entry_id: i64) -> Result<Vec<EntryEnclosure>, AppError> {
-    let mut stmt = conn.prepare(
-        "SELECT url, mime_type, length FROM entry_enclosures WHERE entry_id = ?1 ORDER BY id",
-    )?;
-    let mut rows = stmt.query(params![entry_id])?;
-    let mut enclosures = Vec::new();
-    while let Some(row) = rows.next()? {
-        enclosures.push(EntryEnclosure {
-            url: row.get(0)?,
-            mime_type: row.get(1)?,
-            length: row.get(2)?,
-        });
-    }
-    Ok(enclosures)
 }
 
 /// Encodes pagination cursor with query metadata.
@@ -595,9 +424,7 @@ fn build_tag_expr_clause(expr: &TagExpr, params: &mut Vec<Value>) -> String {
     match expr {
         TagExpr::Tag(tag) => {
             params.push(Value::from(tag.clone()));
-            "EXISTS (SELECT 1 FROM entry_tags et JOIN tags t ON et.tag_id = t.id \
-             WHERE et.entry_id = e.id AND t.name = ?)"
-                .to_string()
+            q::EXISTS_TAG_FOR_ENTRY.to_string()
         }
         TagExpr::Not(inner) => format!("NOT ({})", build_tag_expr_clause(inner, params)),
         TagExpr::And(items) => {

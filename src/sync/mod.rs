@@ -1,10 +1,9 @@
 //! Feed synchronization and ingestion.
 
 mod autotag;
-mod content;
+pub(crate) mod content;
 mod fetch;
-mod ingest;
-mod model;
+pub(crate) mod model;
 mod normalize;
 
 use crate::config::AppConfig;
@@ -19,7 +18,6 @@ pub use model::{SyncStatus, SyncSummary};
 
 use autotag::compile_auto_tags;
 use fetch::fetch_parallel;
-use ingest::ingest_results;
 use model::SyncTarget;
 
 /// Runs a sync for all feeds in config.
@@ -33,9 +31,10 @@ pub fn run_sync(
     let targets = build_sync_targets(feeds_config)?;
     let (results, errors) = fetch_parallel(&targets, config, Arc::clone(&compiled_rules))?;
 
-    let tx = store.transaction()?;
-    crate::feed::reconcile_feeds_with_conn(&tx, feeds_config, &config.unread_tag)?;
-    let new_entry_count = ingest_results(&tx, config, results)?;
+    let tx = store.tx()?;
+    tx.feed_repo()
+        .reconcile_feeds(feeds_config, &config.unread_tag)?;
+    let new_entry_count = tx.sync_repo().ingest_results(config, results)?;
     tx.commit()?;
 
     let duration_ms = start.elapsed().as_millis() as u64;

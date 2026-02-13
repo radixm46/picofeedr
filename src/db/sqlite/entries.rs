@@ -1,5 +1,6 @@
 //! Entry queries for SQLite store.
 
+use crate::db::sqlite::query::entries as q;
 use crate::db::{EntryContentInput, EntryInput, EntryInsertResult};
 use crate::error::AppError;
 use rusqlite::{Connection, params, params_from_iter};
@@ -11,18 +12,7 @@ pub(crate) fn insert_entry_with_conn(
     entry: &EntryInput,
 ) -> Result<EntryInsertResult, AppError> {
     let inserted = conn.execute(
-        "INSERT OR IGNORE INTO entries (
-            entry_key,
-            feed_id,
-            source_id,
-            link,
-            title,
-            author,
-            published_at,
-            updated_at,
-            first_seen_at,
-            meta_json
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        q::INSERT_ENTRY,
         params![
             entry.entry_key,
             entry.feed_id,
@@ -39,11 +29,9 @@ pub(crate) fn insert_entry_with_conn(
     let entry_id: i64 = if inserted {
         conn.last_insert_rowid()
     } else {
-        conn.query_row(
-            "SELECT id FROM entries WHERE entry_key = ?1",
-            params![entry.entry_key],
-            |row| row.get(0),
-        )?
+        conn.query_row(q::SELECT_ENTRY_ID_BY_KEY, params![entry.entry_key], |row| {
+            row.get(0)
+        })?
     };
     Ok(EntryInsertResult { entry_id, inserted })
 }
@@ -55,8 +43,7 @@ pub(crate) fn insert_entry_content_with_conn(
     content: &EntryContentInput,
 ) -> Result<(), AppError> {
     conn.execute(
-        "INSERT OR REPLACE INTO entry_contents (entry_id, storage, ref, content_type, content)
-         VALUES (?1, ?2, ?3, ?4, ?5)",
+        q::UPSERT_ENTRY_CONTENT,
         params![
             entry_id,
             content.storage.as_str(),
@@ -84,14 +71,14 @@ pub(crate) fn insert_entry_tags_with_conn(
             unique.push(tag.clone());
         }
     }
-    let mut insert_tag_stmt = conn.prepare("INSERT OR IGNORE INTO tags (name) VALUES (?1)")?;
+    let mut insert_tag_stmt = conn.prepare(q::INSERT_TAG_IGNORE)?;
     for tag in &unique {
         insert_tag_stmt.execute(params![tag])?;
     }
     let placeholders = std::iter::repeat_n("?", unique.len())
         .collect::<Vec<_>>()
         .join(",");
-    let query = format!("SELECT id, name FROM tags WHERE name IN ({placeholders})");
+    let query = q::select_tag_ids_by_names(&placeholders);
     let mut stmt = conn.prepare(&query)?;
     let mut rows = stmt.query(params_from_iter(unique.iter()))?;
     let mut tag_ids = HashMap::new();
@@ -100,8 +87,7 @@ pub(crate) fn insert_entry_tags_with_conn(
         let name: String = row.get(1)?;
         tag_ids.insert(name, id);
     }
-    let mut insert_entry_tag_stmt =
-        conn.prepare("INSERT OR IGNORE INTO entry_tags (entry_id, tag_id) VALUES (?1, ?2)")?;
+    let mut insert_entry_tag_stmt = conn.prepare(q::INSERT_ENTRY_TAG_IGNORE)?;
     for tag in &unique {
         let tag_id = tag_ids
             .get(tag)
@@ -114,7 +100,8 @@ pub(crate) fn insert_entry_tags_with_conn(
 #[cfg(test)]
 mod tests {
     use super::{insert_entry_tags_with_conn, insert_entry_with_conn};
-    use crate::db::sqlite::upsert_feed_with_conn;
+    use crate::db::sqlite::feeds::upsert_feed_with_conn;
+    use crate::db::sqlite::query::{entries as q_entries, feeds as q_feeds};
     use crate::db::{EntryInput, FeedInput};
     use rusqlite::{Connection, params};
 
@@ -140,11 +127,9 @@ mod tests {
             1,
         )
         .expect("upsert feed");
-        conn.query_row(
-            "SELECT id FROM feeds WHERE feed_key = ?1",
-            params![feed_key],
-            |row| row.get(0),
-        )
+        conn.query_row(q_feeds::SELECT_FEED_ID_BY_KEY, params![feed_key], |row| {
+            row.get(0)
+        })
         .expect("feed id")
     }
 
@@ -201,12 +186,12 @@ mod tests {
         insert_entry_tags_with_conn(&conn, inserted.entry_id, &tags).expect("insert tags");
 
         let tag_count: i64 = conn
-            .query_row("SELECT COUNT(1) FROM tags", [], |row| row.get(0))
+            .query_row(q_entries::COUNT_TAGS, [], |row| row.get(0))
             .expect("tag count");
         assert_eq!(tag_count, 2);
         let entry_tag_count: i64 = conn
             .query_row(
-                "SELECT COUNT(1) FROM entry_tags WHERE entry_id = ?1",
+                q_entries::COUNT_ENTRY_TAGS_BY_ENTRY_ID,
                 params![inserted.entry_id],
                 |row| row.get(0),
             )

@@ -3,20 +3,51 @@
 mod entries;
 mod feeds;
 mod meta;
+pub(crate) mod query;
+pub mod repo;
+pub(crate) mod schema;
 mod tags;
 
 use crate::db::FeedRow;
+use crate::db::sqlite::repo::{EntryRepo, FeedRepo, SyncRepo};
 use crate::error::AppError;
 use rusqlite::Connection;
 use std::path::Path;
 use std::time::Duration;
 
-pub(crate) use entries::{
-    insert_entry_content_with_conn, insert_entry_tags_with_conn, insert_entry_with_conn,
-};
-pub(crate) use feeds::{find_feed_ids_with_conn, upsert_feed_with_conn};
 pub(crate) use meta::SystemMeta;
-pub(crate) use tags::{ensure_tag_ids_with_conn, ensure_tag_with_conn, lookup_tag_ids_with_conn};
+
+/// Transaction wrapper exposing repository APIs.
+pub struct Tx<'conn> {
+    tx: rusqlite::Transaction<'conn>,
+}
+
+impl<'conn> Tx<'conn> {
+    /// Creates a transaction wrapper.
+    fn new(tx: rusqlite::Transaction<'conn>) -> Self {
+        Self { tx }
+    }
+
+    /// Returns an entry repository scoped to this transaction.
+    pub fn entry_repo(&self) -> EntryRepo<'_> {
+        EntryRepo::new(&self.tx)
+    }
+
+    /// Returns a feed repository scoped to this transaction.
+    pub fn feed_repo(&self) -> FeedRepo<'_> {
+        FeedRepo::new(&self.tx)
+    }
+
+    /// Returns a sync repository scoped to this transaction.
+    pub fn sync_repo(&self) -> SyncRepo<'_> {
+        SyncRepo::new(&self.tx)
+    }
+
+    /// Commits the transaction.
+    pub fn commit(self) -> Result<(), AppError> {
+        Ok(self.tx.commit()?)
+    }
+}
 
 /// SQLite store wrapper.
 pub struct SqliteStore {
@@ -38,9 +69,24 @@ impl SqliteStore {
         Ok(self.conn.transaction()?)
     }
 
-    /// Exposes the underlying connection for internal helpers.
-    pub(crate) fn connection(&self) -> &Connection {
-        &self.conn
+    /// Begins a wrapped transaction for repository-based operations.
+    pub fn tx(&mut self) -> Result<Tx<'_>, AppError> {
+        Ok(Tx::new(self.conn.transaction()?))
+    }
+
+    /// Returns an entry repository bound to the store connection.
+    pub fn entry_repo(&self) -> EntryRepo<'_> {
+        EntryRepo::new(&self.conn)
+    }
+
+    /// Returns a feed repository bound to the store connection.
+    pub fn feed_repo(&self) -> FeedRepo<'_> {
+        FeedRepo::new(&self.conn)
+    }
+
+    /// Returns a sync repository bound to the store connection.
+    pub fn sync_repo(&self) -> SyncRepo<'_> {
+        SyncRepo::new(&self.conn)
     }
 
     /// Applies schema migrations.
@@ -50,7 +96,7 @@ impl SqliteStore {
 
     /// Returns all feeds stored in the database.
     pub fn list_feeds(&self) -> Result<Vec<FeedRow>, AppError> {
-        feeds::list_feeds_with_conn(&self.conn)
+        self.feed_repo().list_feeds()
     }
 
     /// Lists all tags ordered by name.
@@ -60,16 +106,16 @@ impl SqliteStore {
 
     /// Returns database status metadata stored in `es_meta`.
     pub fn read_system_meta(&self) -> Result<SystemMeta, AppError> {
-        meta::read_meta_with_conn(&self.conn)
+        self.sync_repo().read_system_meta()
     }
 
     /// Increments database revision and updates write timestamp.
     pub fn bump_revision(&self, now: i64) -> Result<SystemMeta, AppError> {
-        meta::bump_revision_with_conn(&self.conn, now)
+        self.sync_repo().bump_revision(now)
     }
 
     /// Updates the latest sync timestamp and status metadata.
     pub fn update_sync(&self, now: i64, status: &str) -> Result<SystemMeta, AppError> {
-        meta::update_sync_with_conn(&self.conn, now, status)
+        self.sync_repo().update_sync(now, status)
     }
 }

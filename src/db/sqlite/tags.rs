@@ -1,12 +1,13 @@
 //! Tag queries for SQLite store.
 
+use crate::db::sqlite::query::tags as q;
 use crate::error::AppError;
 use rusqlite::{Connection, params, params_from_iter};
 use std::collections::{HashMap, HashSet};
 
 /// Lists all tags ordered by name.
 pub(crate) fn list_tags_with_conn(conn: &Connection) -> Result<Vec<String>, AppError> {
-    let mut stmt = conn.prepare("SELECT name FROM tags ORDER BY name ASC")?;
+    let mut stmt = conn.prepare(q::SELECT_TAGS_ORDERED)?;
     let tags = stmt
         .query_map([], |row| row.get(0))?
         .collect::<Result<Vec<String>, _>>()?;
@@ -15,10 +16,7 @@ pub(crate) fn list_tags_with_conn(conn: &Connection) -> Result<Vec<String>, AppE
 
 /// Inserts a tag if it does not exist using a provided connection.
 pub(crate) fn ensure_tag_with_conn(conn: &Connection, name: &str) -> Result<(), AppError> {
-    conn.execute(
-        "INSERT INTO tags (name) VALUES (?1) ON CONFLICT(name) DO NOTHING",
-        params![name],
-    )?;
+    conn.execute(q::INSERT_TAG_ON_CONFLICT_NOTHING, params![name])?;
     Ok(())
 }
 
@@ -51,7 +49,7 @@ pub(crate) fn lookup_tag_ids_with_conn(
     let placeholders = std::iter::repeat_n("?", tags.len())
         .collect::<Vec<_>>()
         .join(",");
-    let sql = format!("SELECT id, name FROM tags WHERE name IN ({placeholders})");
+    let sql = q::select_tag_ids_by_names(&placeholders);
     let mut stmt = conn.prepare(&sql)?;
     let mut rows = stmt.query(params_from_iter(tags.iter()))?;
     let mut map = HashMap::new();

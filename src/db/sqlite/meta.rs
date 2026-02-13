@@ -1,5 +1,6 @@
 //! Metadata helpers backed by `es_meta.meta_json`.
 
+use crate::db::sqlite::query::sync;
 use crate::error::AppError;
 use rusqlite::{Connection, params};
 use serde_json::{Map, Value};
@@ -52,10 +53,8 @@ pub(crate) fn update_sync_with_conn(
 
 /// Reads raw `meta_json` text from `es_meta`.
 fn load_meta_json_text_with_conn(conn: &Connection) -> Result<String, AppError> {
-    conn.query_row("SELECT meta_json FROM es_meta WHERE id = 1", [], |row| {
-        row.get(0)
-    })
-    .map_err(AppError::from)
+    conn.query_row(sync::SELECT_META_JSON, [], |row| row.get(0))
+        .map_err(AppError::from)
 }
 
 /// Parses `meta_json` text into a JSON object.
@@ -72,10 +71,7 @@ fn write_meta_json_object_with_conn(
     object: Map<String, Value>,
 ) -> Result<SystemMeta, AppError> {
     let meta_json = serde_json::to_string(&Value::Object(object.clone()))?;
-    conn.execute(
-        "UPDATE es_meta SET meta_json = ?1 WHERE id = 1",
-        params![meta_json],
-    )?;
+    conn.execute(sync::UPDATE_META_JSON, params![meta_json])?;
     parse_meta_object_to_status(object)
 }
 
