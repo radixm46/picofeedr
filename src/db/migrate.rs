@@ -84,6 +84,8 @@ CREATE INDEX IF NOT EXISTS idx_entries_published ON entries(published_at);
 CREATE INDEX IF NOT EXISTS idx_entries_first_seen ON entries(first_seen_at);
 CREATE INDEX IF NOT EXISTS idx_entries_feed_source ON entries(feed_id, source_id);
 CREATE INDEX IF NOT EXISTS idx_entries_link ON entries(link);
+CREATE INDEX IF NOT EXISTS idx_entries_effective_date ON entries(COALESCE(published_at, updated_at, first_seen_at), id);
+CREATE INDEX IF NOT EXISTS idx_entries_feed_effective_date ON entries(feed_id, COALESCE(published_at, updated_at, first_seen_at), id);
 
 CREATE INDEX IF NOT EXISTS idx_entry_enclosures_entry ON entry_enclosures(entry_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_entry_enclosures_entry_url ON entry_enclosures(entry_id, url);
@@ -121,4 +123,37 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
         )?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::migrate;
+    use rusqlite::Connection;
+    use std::collections::HashSet;
+
+    /// Returns index names defined on the entries table.
+    fn entries_index_names(conn: &Connection) -> rusqlite::Result<HashSet<String>> {
+        let mut stmt = conn.prepare("PRAGMA index_list('entries')")?;
+        let names = stmt
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<rusqlite::Result<HashSet<_>>>()?;
+        Ok(names)
+    }
+
+    /// Migration should create expression indexes used by effective-date sorting.
+    #[test]
+    fn migrate_creates_effective_date_expression_indexes() {
+        let conn = Connection::open_in_memory().expect("in-memory sqlite");
+        migrate(&conn).expect("migration should succeed");
+
+        let names = entries_index_names(&conn).expect("index list should be queryable");
+        assert!(
+            names.contains("idx_entries_effective_date"),
+            "idx_entries_effective_date is missing"
+        );
+        assert!(
+            names.contains("idx_entries_feed_effective_date"),
+            "idx_entries_feed_effective_date is missing"
+        );
+    }
 }

@@ -19,6 +19,9 @@
   - `next_cursor` -> `next_page_token`
   - `updated` -> `updated_entry_count`
   - `updated_at`/`sync_at`/`sync_status` -> `last_write_at`/`last_sync_at`/`last_sync_status`
+- **DBスキーマ仕様追随: effective_date ソート向け式インデックスを明記**
+  - `entries` に `COALESCE(published_at, updated_at, first_seen_at)` ベースの索引を追加
+  - 追加索引: `(..., id)` / `(feed_id, ..., id)`
 
 ## v0.6（2026-02-09）
 

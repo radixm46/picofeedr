@@ -70,9 +70,11 @@ Table entries {
         (feed_id)
 
         (feed_id, published_at)
+        (feed_id, `COALESCE(published_at, updated_at, first_seen_at)`, id)
         (feed_id, first_seen_at)
 
         (published_at)
+        (`COALESCE(published_at, updated_at, first_seen_at)`, id)
         (first_seen_at)
 
         (feed_id, source_id)
