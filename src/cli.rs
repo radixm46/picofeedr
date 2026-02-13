@@ -114,7 +114,8 @@ pub enum Command {
     /// View entry detail by id.
     View {
         /// Entry id.
-        id: i64,
+        #[arg(allow_hyphen_values = true)]
+        id: String,
     },
 
     /// Update entry tags.
@@ -129,13 +130,21 @@ pub enum Command {
 #[derive(Debug, Subcommand)]
 pub enum MarkCommand {
     /// Mark entries as read (remove unread tag).
-    Read { ids: Vec<i64> },
+    Read {
+        /// Entry ids.
+        #[arg(allow_hyphen_values = true)]
+        ids: Vec<String>,
+    },
     /// Mark entries as unread (add unread tag).
-    Unread { ids: Vec<i64> },
+    Unread {
+        /// Entry ids.
+        #[arg(allow_hyphen_values = true)]
+        ids: Vec<String>,
+    },
     /// Add/remove custom tags.
     Tag {
         /// Entry ids.
-        ids: Vec<i64>,
+        ids: Vec<String>,
         /// Tags to add (comma-separated).
         #[arg(long)]
         add: Option<String>,

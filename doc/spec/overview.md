@@ -52,7 +52,7 @@
 picofeedr sync                      # 同期実行
 picofeedr status                    # DB状態メタデータ
 picofeedr list [--query <q>]        # エントリ一覧
-picofeedr view <id>                 # エントリ詳細
+picofeedr view <entry_id>           # エントリ詳細
 picofeedr mark <operation> <ids>    # 状態更新
 picofeedr tags                      # タグ一覧
 picofeedr feeds                     # フィード一覧

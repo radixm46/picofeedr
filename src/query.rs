@@ -23,7 +23,7 @@ pub struct EntryQuery {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FeedFilter {
     /// Filter by feed id.
-    Id(i64),
+    Id(String),
     /// Filter by feed title.
     Title(String),
 }
@@ -281,14 +281,10 @@ fn unescape_quoted(inner: &str) -> Result<String, AppError> {
 
 /// Parses a feed filter from a feed token value.
 fn parse_feed_filter(value: &str) -> Result<FeedFilter, AppError> {
-    let value = parse_scalar_value(value)?;
-    if value.chars().all(|ch| ch.is_ascii_digit()) {
-        let id = value
-            .parse::<i64>()
-            .map_err(|_| AppError::invalid_query("feed: requires a valid id"))?;
-        return Ok(FeedFilter::Id(id));
+    if value.starts_with('"') && value.ends_with('"') {
+        return Ok(FeedFilter::Title(parse_scalar_value(value)?));
     }
-    Ok(FeedFilter::Title(value))
+    Ok(FeedFilter::Id(parse_scalar_value(value)?))
 }
 
 /// Parses an ISO date (YYYY-MM-DD) to epoch seconds at UTC midnight.
@@ -651,7 +647,7 @@ mod tests {
     #[test]
     fn parse_feed_id_query() {
         let query = EntryQuery::parse(Some("feed:123"), "unread").expect("query");
-        assert_eq!(query.feed, Some(FeedFilter::Id(123)));
+        assert_eq!(query.feed, Some(FeedFilter::Id("123".to_string())));
     }
 
     #[test]

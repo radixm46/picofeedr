@@ -1,5 +1,6 @@
 //! Identity helpers for feeds and entries.
 
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use sha1::Sha1;
 use sha2::{Digest, Sha256};
 
@@ -9,6 +10,13 @@ pub struct EntryIdentity {
     pub source_id: String,
     /// Stable entry key for database identity.
     pub entry_key: String,
+}
+
+/// Returns a URL-safe base64-encoded SHA-256 digest without padding.
+pub fn sha256_base64url_nopad(value: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(value.as_bytes());
+    format!("k_{}", URL_SAFE_NO_PAD.encode(hasher.finalize()))
 }
 
 /// Input data used to derive a stable entry identity.
@@ -101,11 +109,7 @@ fn build_entry_source_id(identity: &EntryIdentityInput<'_>) -> String {
 
 /// Builds a stable entry key from feed key and source_id.
 fn build_entry_key(feed_key: &str, source_id: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(feed_key.as_bytes());
-    hasher.update(b":");
-    hasher.update(source_id.as_bytes());
-    hex::encode(hasher.finalize())
+    sha256_base64url_nopad(&format!("{feed_key}:{source_id}"))
 }
 
 /// Builds a deterministic fallback ID when feed identifiers are missing.

@@ -13,15 +13,15 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha1::{Digest, Sha1};
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 /// Entry summary for list responses.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct EntrySummary {
     /// Entry id.
-    pub id: i64,
+    pub entry_id: String,
     /// Feed id.
-    pub feed_id: i64,
+    pub feed_id: String,
     /// Entry title.
     pub title: Option<String>,
     /// Entry link.
@@ -49,9 +49,9 @@ pub struct EntryEnclosure {
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct EntryDetail {
     /// Entry id.
-    pub id: i64,
+    pub entry_id: String,
     /// Feed id.
-    pub feed_id: i64,
+    pub feed_id: String,
     /// Feed title.
     pub feed_title: Option<String>,
     /// Entry title.
@@ -81,12 +81,23 @@ pub struct EntryListResponse {
     pub total_count: i64,
     /// Page items.
     pub items: Vec<EntrySummary>,
+    /// Feed dictionary for feed id to title mapping.
+    pub feeds: Vec<FeedSummary>,
     /// Cursor for the next page.
     pub next_page_token: Option<String>,
     /// Revision captured when the list was fetched.
     pub revision: i64,
     /// Write timestamp captured when the list was fetched.
     pub last_write_at: Option<i64>,
+}
+
+/// Feed dictionary item used by entry list responses.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct FeedSummary {
+    /// Feed id.
+    pub feed_id: String,
+    /// Feed title.
+    pub title: Option<String>,
 }
 
 /// Cursor payload for pagination.
@@ -112,7 +123,7 @@ pub fn list_entries(
     let (count_where_sql, count_params) = build_where_clause(query, sort, None, &query_hash)?;
     let total_count = entry_repo.count_entries(&count_where_sql, &count_params)?;
     let (page_where_sql, page_params) = build_where_clause(query, sort, cursor, &query_hash)?;
-    let (items, next_page_token) = fetch_entries(
+    let (items, feeds, next_page_token) = fetch_entries(
         &entry_repo,
         &page_where_sql,
         &page_params,
@@ -123,6 +134,7 @@ pub fn list_entries(
     Ok(EntryListResponse {
         total_count,
         items,
+        feeds,
         next_page_token,
         revision: system_meta.revision,
         last_write_at: system_meta.updated_at,
@@ -133,11 +145,11 @@ pub fn list_entries(
 pub fn view_entry(
     store: &SqliteStore,
     config: &AppConfig,
-    entry_id: i64,
+    entry_id: &str,
 ) -> Result<EntryDetail, AppError> {
     let entry_repo = store.entry_read_repo();
     let row = entry_repo.view_entry_row(entry_id)?;
-    let (id, feed_id, feed_title, title, link, author, published_at, first_seen_at) = row
+    let (entry_id, feed_id, feed_title, title, link, author, published_at, first_seen_at) = row
         .ok_or_else(|| {
             AppError::entry_not_found_with_details(
                 format!("Entry {entry_id} not found"),
@@ -148,12 +160,25 @@ pub fn view_entry(
             )
         })?;
 
-    let tags = entry_repo.load_tags(&[id])?.remove(&id).unwrap_or_default();
-    let (content, content_type) = entry_repo.load_content(&config.storage.data_dir, id)?;
-    let enclosures = entry_repo.load_enclosures(id)?;
+    let internal_ids = entry_repo.find_entry_ids_by_keys(&[entry_id.clone()])?;
+    let internal_id = internal_ids.get(&entry_id).copied().ok_or_else(|| {
+        AppError::entry_not_found_with_details(
+            format!("Entry {entry_id} not found"),
+            json!({
+                "resource": "entry",
+                "entry_id": entry_id
+            }),
+        )
+    })?;
+    let tags = entry_repo
+        .load_tags(&[internal_id])?
+        .remove(&internal_id)
+        .unwrap_or_default();
+    let (content, content_type) = entry_repo.load_content(&config.storage.data_dir, internal_id)?;
+    let enclosures = entry_repo.load_enclosures(internal_id)?;
 
     Ok(EntryDetail {
-        id,
+        entry_id,
         feed_id,
         feed_title,
         title,
@@ -173,7 +198,7 @@ pub fn view_entry(
 /// Returns `ENTRY_NOT_FOUND` when any requested entry id does not exist.
 pub fn mark_entries(
     store: &mut SqliteStore,
-    entry_ids: &[i64],
+    entry_ids: &[String],
     add_tags: &[String],
     remove_tags: &[String],
 ) -> Result<usize, AppError> {
@@ -185,8 +210,8 @@ pub fn mark_entries(
     let mut unique_ids = Vec::new();
     let mut seen = HashSet::new();
     for id in entry_ids {
-        if seen.insert(*id) {
-            unique_ids.push(*id);
+        if seen.insert(id.clone()) {
+            unique_ids.push(id.clone());
         }
     }
     if unique_ids.is_empty() {
@@ -194,20 +219,24 @@ pub fn mark_entries(
     }
     let tx = store.tx()?;
     let tx_entry_repo = tx.entry_write_repo();
-    tx_entry_repo.ensure_all_entry_ids_exist(&unique_ids)?;
+    tx_entry_repo.ensure_all_entry_keys_exist(&unique_ids)?;
+    let internal_ids = tx_entry_repo.find_entry_ids_by_keys(&unique_ids)?;
     let add_ids = tx_entry_repo.ensure_tag_ids(add_tags)?;
     let remove_ids = tx_entry_repo.lookup_tag_ids(remove_tags)?;
     let mut updated = 0usize;
     for entry_id in unique_ids {
+        let Some(internal_id) = internal_ids.get(&entry_id).copied() else {
+            continue;
+        };
         let mut changed = false;
         for tag_id in add_ids.values() {
-            let rows = tx_entry_repo.insert_entry_tag(entry_id, *tag_id)?;
+            let rows = tx_entry_repo.insert_entry_tag(internal_id, *tag_id)?;
             if rows > 0 {
                 changed = true;
             }
         }
         for tag_id in remove_ids.values() {
-            let rows = tx_entry_repo.delete_entry_tag(entry_id, *tag_id)?;
+            let rows = tx_entry_repo.delete_entry_tag(internal_id, *tag_id)?;
             if rows > 0 {
                 changed = true;
             }
@@ -237,8 +266,8 @@ fn build_where_clause(
     if let Some(feed) = &query.feed {
         match feed {
             FeedFilter::Id(id) => {
-                clauses.push("e.feed_id = ?".to_string());
-                params.push(Value::from(*id));
+                clauses.push(q::EXISTS_FEED_KEY_FOR_ENTRY.to_string());
+                params.push(Value::from(id.clone()));
             }
             FeedFilter::Title(title) => {
                 clauses.push(q::EXISTS_FEED_TITLE_FOR_ENTRY.to_string());
@@ -288,32 +317,41 @@ fn fetch_entries(
     sort: SortOrder,
     limit: usize,
     query_hash: &str,
-) -> Result<(Vec<EntrySummary>, Option<String>), AppError> {
+) -> Result<(Vec<EntrySummary>, Vec<FeedSummary>, Option<String>), AppError> {
     let key_expr = sort_key_expr(sort);
     let order_clause = sort_order_clause(sort);
-    let (mut entries, mut sort_keys) =
+    let (mut rows, mut sort_keys) =
         entry_repo.fetch_entries(where_sql, params, key_expr, order_clause, limit)?;
-    let has_next = entries.len() > limit;
+    let has_next = rows.len() > limit;
     if has_next {
-        entries.truncate(limit);
+        rows.truncate(limit);
         sort_keys.truncate(limit);
     }
-    let ids: Vec<i64> = entries.iter().map(|entry| entry.id).collect();
+    let ids: Vec<i64> = rows.iter().map(|entry| entry.internal_id).collect();
     let tags = entry_repo.load_tags(&ids)?;
-    for entry in &mut entries {
-        entry.tags = tags.get(&entry.id).cloned().unwrap_or_default();
+    for row in &mut rows {
+        row.summary.tags = tags.get(&row.internal_id).cloned().unwrap_or_default();
     }
+    let feeds = rows
+        .iter()
+        .fold(BTreeMap::<String, Option<String>>::new(), |mut map, row| {
+            map.entry(row.summary.feed_id.clone())
+                .or_insert_with(|| row.feed_title.clone());
+            map
+        })
+        .into_iter()
+        .map(|(feed_id, title)| FeedSummary { feed_id, title })
+        .collect::<Vec<_>>();
+    let entries = rows.into_iter().map(|row| row.summary).collect::<Vec<_>>();
     let next_page_token = if has_next {
-        match (entries.last(), sort_keys.last()) {
-            (Some(entry), Some(key)) => {
-                Some(encode_cursor_with_query(*key, entry.id, sort, query_hash)?)
-            }
+        match (ids.last(), sort_keys.last()) {
+            (Some(id), Some(key)) => Some(encode_cursor_with_query(*key, *id, sort, query_hash)?),
             _ => None,
         }
     } else {
         None
     };
-    Ok((entries, next_page_token))
+    Ok((entries, feeds, next_page_token))
 }
 
 fn sort_key_expr(sort: SortOrder) -> &'static str {

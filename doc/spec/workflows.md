@@ -28,9 +28,9 @@ picofeedr sync
 emacs -f picofeedr
 
 # または CLI で確認
-picofeedr --output json list --query "unread tag:security" | jq '.result.items[] | {id, title}'
-picofeedr --output json view 123
-picofeedr --output json mark read 123
+picofeedr --output json list --query "unread tag:security" | jq '.result.items[] | {entry_id, title}'
+picofeedr --output json view <entry_id>
+picofeedr --output json mark read <entry_id>
 
 # 注：本文（content）が無い/取得しない運用の場合は、
 # EntryDetail の `link` を外部ブラウザ等で開くのだ。

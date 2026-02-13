@@ -58,6 +58,13 @@
     "EntryListResponse": {
       "description": "Entry list response payload.",
       "properties": {
+        "feeds": {
+          "description": "Feed dictionary for feed id to title mapping.",
+          "items": {
+            "$ref": "#/definitions/FeedSummary"
+          },
+          "type": "array"
+        },
         "items": {
           "description": "Page items.",
           "items": {
@@ -92,6 +99,7 @@
         }
       },
       "required": [
+        "feeds",
         "items",
         "revision",
         "total_count"
@@ -101,18 +109,16 @@
     "EntrySummary": {
       "description": "Entry summary for list responses.",
       "properties": {
+        "entry_id": {
+          "description": "Entry id.",
+          "type": "string"
+        },
         "feed_id": {
           "description": "Feed id.",
-          "format": "int64",
-          "type": "integer"
+          "type": "string"
         },
         "first_seen_at": {
           "description": "First seen time.",
-          "format": "int64",
-          "type": "integer"
-        },
-        "id": {
-          "description": "Entry id.",
           "format": "int64",
           "type": "integer"
         },
@@ -147,9 +153,9 @@
         }
       },
       "required": [
+        "entry_id",
         "feed_id",
         "first_seen_at",
-        "id",
         "tags"
       ],
       "type": "object"
@@ -183,6 +189,26 @@
         "code",
         "message",
         "retryable"
+      ],
+      "type": "object"
+    },
+    "FeedSummary": {
+      "description": "Feed dictionary item used by entry list responses.",
+      "properties": {
+        "feed_id": {
+          "description": "Feed id.",
+          "type": "string"
+        },
+        "title": {
+          "description": "Feed title.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "feed_id"
       ],
       "type": "object"
     },

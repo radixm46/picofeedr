@@ -1,5 +1,15 @@
 # 変更履歴
 
+## v0.8（2026-02-14, breaking）
+
+- **list/view/mark の公開IDを opaque string へ移行**
+  - `list.items[].id` を `entry_id` へ変更
+  - `list.items[].feed_id` を integer から opaque string へ変更
+  - `view` / `mark` は `entry_id` 指定へ変更
+- **list レスポンスを正規化**
+  - `result.feeds` を追加し、`feed_id` と `title` の対応表を返す
+  - `items[].feed_id` で `feeds[]` を参照する契約へ変更
+
 ## v0.7（2026-02-13, breaking）
 
 - **CLI JSON envelope v1 へ全面刷新**

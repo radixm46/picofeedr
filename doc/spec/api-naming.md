@@ -30,6 +30,8 @@ JSONレスポンスのトップレベル予約キーは以下の5つのみなの
   - 時刻: `*_at`（epoch seconds）
 - 真偽値は意味語にするのだ（例: `retryable`）。
 - ページング継続トークンは `*_token` を使うのだ。
+- 参照IDはリソース名を接頭辞にした `*_id` を使うのだ（例: `entry_id`, `feed_id`）。
+- 公開IDは opaque string として扱い、値の内部構造を前提にしないのだ。
 
 ## Type Stability Rules
 

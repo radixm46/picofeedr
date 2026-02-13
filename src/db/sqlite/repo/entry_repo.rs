@@ -7,14 +7,14 @@ use crate::entry::{EntryEnclosure, EntrySummary};
 use crate::error::AppError;
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
 /// Tuple payload for the entry detail base row selected from SQLite.
 pub(crate) type EntryDetailRow = (
-    i64,
-    i64,
+    String,
+    String,
     Option<String>,
     Option<String>,
     Option<String>,
@@ -22,6 +22,16 @@ pub(crate) type EntryDetailRow = (
     Option<i64>,
     i64,
 );
+
+/// One list row with metadata required to finalize response payloads.
+pub(crate) struct EntryListRow {
+    /// Internal entry id used for joins and tag loading.
+    pub internal_id: i64,
+    /// Public summary payload for JSON/plain rendering.
+    pub summary: EntrySummary,
+    /// Feed title resolved from feeds table.
+    pub feed_title: Option<String>,
+}
 
 /// Read-only repository for entry query operations.
 pub struct EntryReadRepo<'a> {
@@ -34,24 +44,35 @@ impl<'a> EntryReadRepo<'a> {
         Self { conn }
     }
 
-    /// Ensures all requested entry ids exist.
-    pub fn ensure_all_entry_ids_exist(&self, entry_ids: &[i64]) -> Result<(), AppError> {
-        const ENTRY_ID_CHECK_CHUNK_SIZE: usize = 500;
+    /// Resolves internal entry ids keyed by stable entry key.
+    pub fn find_entry_ids_by_keys(
+        &self,
+        entry_keys: &[String],
+    ) -> Result<HashMap<String, i64>, AppError> {
+        const ENTRY_KEY_CHUNK_SIZE: usize = 500;
 
-        let mut existing = HashSet::new();
-        for chunk in entry_ids.chunks(ENTRY_ID_CHECK_CHUNK_SIZE) {
+        let mut ids = HashMap::new();
+        for chunk in entry_keys.chunks(ENTRY_KEY_CHUNK_SIZE) {
             let placeholders = std::iter::repeat_n("?", chunk.len())
                 .collect::<Vec<_>>()
                 .join(", ");
-            let sql = q::select_entry_ids_in(&placeholders);
+            let sql = q::select_entry_ids_by_keys(&placeholders);
             let mut stmt = self.conn.prepare(&sql)?;
             let mut rows = stmt.query(params_from_iter(chunk.iter()))?;
             while let Some(row) = rows.next()? {
-                existing.insert(row.get::<_, i64>(0)?);
+                let id: i64 = row.get(0)?;
+                let key: String = row.get(1)?;
+                ids.insert(key, id);
             }
         }
-        for entry_id in entry_ids {
-            if !existing.contains(entry_id) {
+        Ok(ids)
+    }
+
+    /// Ensures all requested entry keys exist.
+    pub fn ensure_all_entry_keys_exist(&self, entry_keys: &[String]) -> Result<(), AppError> {
+        let existing = self.find_entry_ids_by_keys(entry_keys)?;
+        for entry_key in entry_keys {
+            if !existing.contains_key(entry_key) {
                 return Err(AppError::entry_not_found("some entries not found"));
             }
         }
@@ -68,14 +89,14 @@ impl<'a> EntryReadRepo<'a> {
     }
 
     /// Fetches one list page with an already-built where/order contract.
-    pub fn fetch_entries(
+    pub(crate) fn fetch_entries(
         &self,
         where_sql: &str,
         params: &[Value],
         key_expr: &str,
         order_clause: &str,
         limit: usize,
-    ) -> Result<(Vec<EntrySummary>, Vec<i64>), AppError> {
+    ) -> Result<(Vec<EntryListRow>, Vec<i64>), AppError> {
         let fetch_limit = limit.saturating_add(1);
         let sql = q::fetch_entries(where_sql, key_expr, order_clause);
         let mut list_params = params.to_vec();
@@ -86,20 +107,26 @@ impl<'a> EntryReadRepo<'a> {
         let mut sort_keys = Vec::new();
         while let Some(row) = rows.next()? {
             let id: i64 = row.get(0)?;
-            let feed_id: i64 = row.get(1)?;
-            let title: Option<String> = row.get(2)?;
-            let link: Option<String> = row.get(3)?;
-            let published_at: Option<i64> = row.get(4)?;
-            let first_seen_at: i64 = row.get(5)?;
-            let sort_key: i64 = row.get(6)?;
-            entries.push(EntrySummary {
-                id,
-                feed_id,
-                title,
-                link,
-                published_at,
-                first_seen_at,
-                tags: Vec::new(),
+            let entry_id: String = row.get(1)?;
+            let feed_id: String = row.get(2)?;
+            let feed_title: Option<String> = row.get(3)?;
+            let title: Option<String> = row.get(4)?;
+            let link: Option<String> = row.get(5)?;
+            let published_at: Option<i64> = row.get(6)?;
+            let first_seen_at: i64 = row.get(7)?;
+            let sort_key: i64 = row.get(8)?;
+            entries.push(EntryListRow {
+                internal_id: id,
+                summary: EntrySummary {
+                    entry_id,
+                    feed_id,
+                    title,
+                    link,
+                    published_at,
+                    first_seen_at,
+                    tags: Vec::new(),
+                },
+                feed_title,
             });
             sort_keys.push(sort_key);
         }
@@ -127,12 +154,12 @@ impl<'a> EntryReadRepo<'a> {
     }
 
     /// Loads one entry detail row tuple for view operation.
-    pub fn view_entry_row(&self, entry_id: i64) -> Result<Option<EntryDetailRow>, AppError> {
+    pub fn view_entry_row(&self, entry_id: &str) -> Result<Option<EntryDetailRow>, AppError> {
         self.conn
             .query_row(q::SELECT_ENTRY_DETAIL_BY_ID, params![entry_id], |row| {
                 Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
                     row.get::<_, Option<String>>(2)?,
                     row.get::<_, Option<String>>(3)?,
                     row.get::<_, Option<String>>(4)?,
@@ -216,9 +243,17 @@ impl<'a> EntryWriteRepo<'a> {
         Self { conn }
     }
 
-    /// Ensures all requested entry ids exist.
-    pub fn ensure_all_entry_ids_exist(&self, entry_ids: &[i64]) -> Result<(), AppError> {
-        EntryReadRepo::new(self.conn).ensure_all_entry_ids_exist(entry_ids)
+    /// Resolves internal entry ids keyed by stable entry key.
+    pub fn find_entry_ids_by_keys(
+        &self,
+        entry_keys: &[String],
+    ) -> Result<HashMap<String, i64>, AppError> {
+        EntryReadRepo::new(self.conn).find_entry_ids_by_keys(entry_keys)
+    }
+
+    /// Ensures all requested entry keys exist.
+    pub fn ensure_all_entry_keys_exist(&self, entry_keys: &[String]) -> Result<(), AppError> {
+        EntryReadRepo::new(self.conn).ensure_all_entry_keys_exist(entry_keys)
     }
 
     /// Ensures and resolves tag ids for add operation.

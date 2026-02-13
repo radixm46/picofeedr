@@ -86,10 +86,13 @@
           },
           "type": "array"
         },
+        "entry_id": {
+          "description": "Entry id.",
+          "type": "string"
+        },
         "feed_id": {
           "description": "Feed id.",
-          "format": "int64",
-          "type": "integer"
+          "type": "string"
         },
         "feed_title": {
           "description": "Feed title.",
@@ -100,11 +103,6 @@
         },
         "first_seen_at": {
           "description": "First seen time.",
-          "format": "int64",
-          "type": "integer"
-        },
-        "id": {
-          "description": "Entry id.",
           "format": "int64",
           "type": "integer"
         },
@@ -140,9 +138,9 @@
       },
       "required": [
         "enclosures",
+        "entry_id",
         "feed_id",
         "first_seen_at",
-        "id",
         "tags"
       ],
       "type": "object"

@@ -327,7 +327,7 @@ fn status_tracks_revision_and_sync_metadata() {
         .arg("--storage-root")
         .arg(db_root(&paths.db_path))
         .arg("view")
-        .arg(entry_id.to_string())
+        .arg(entry_id.clone())
         .assert()
         .success()
         .get_output()
@@ -346,7 +346,7 @@ fn status_tracks_revision_and_sync_metadata() {
         .arg(db_root(&paths.db_path))
         .arg("mark")
         .arg("read")
-        .arg(entry_id.to_string())
+        .arg(entry_id.clone())
         .assert()
         .success();
 
@@ -650,7 +650,7 @@ fn view_plain_is_human_readable() {
         .arg("--storage-root")
         .arg(db_root(&paths.db_path))
         .arg("view")
-        .arg(entry_id.to_string())
+        .arg(entry_id.clone())
         .assert()
         .success()
         .get_output()
@@ -1075,6 +1075,10 @@ fn list_filters_by_feed() {
 
     let data = extract_ok_data(&output);
     assert_eq!(data["total_count"], 2);
+    let feeds = data["feeds"].as_array().expect("feeds array");
+    assert_eq!(feeds.len(), 1);
+    assert_eq!(feeds[0]["feed_id"], feed_id);
+    assert_eq!(feeds[0]["title"], "Example Feed");
 
     let output = picofeedr_cmd_json()
         .arg("--config")
@@ -1631,7 +1635,7 @@ fn view_returns_entry_detail() {
         .arg("--storage-root")
         .arg(db_root(&paths.db_path))
         .arg("view")
-        .arg(entry_id.to_string())
+        .arg(entry_id.clone())
         .assert()
         .success()
         .get_output()
@@ -1639,7 +1643,7 @@ fn view_returns_entry_detail() {
         .clone();
 
     let data = extract_ok_data(&output);
-    assert_eq!(data["id"], entry_id);
+    assert_eq!(data["entry_id"], entry_id);
     assert_eq!(data["feed_title"], "Example Feed");
     assert_eq!(data["title"], "First Entry");
     assert_eq!(data["link"], "https://example.com/1");
@@ -1673,7 +1677,7 @@ fn view_missing_entry_returns_details() {
         .arg("--storage-root")
         .arg(db_root(&paths.db_path))
         .arg("view")
-        .arg("999999")
+        .arg("missing-entry-id")
         .assert()
         .failure()
         .get_output()
@@ -1684,7 +1688,7 @@ fn view_missing_entry_returns_details() {
     assert_eq!(error["code"], "ENTRY_NOT_FOUND");
     let details = extract_error_details(&output);
     assert_eq!(details["resource"], "entry");
-    assert_eq!(details["entry_id"], 999999);
+    assert_eq!(details["entry_id"], "missing-entry-id");
 }
 
 /// Ensures mark commands update tags.
@@ -1713,8 +1717,8 @@ fn mark_updates_tags() {
         .arg(db_root(&paths.db_path))
         .arg("mark")
         .arg("read")
-        .arg(entry_ids[0].to_string())
-        .arg(entry_ids[1].to_string())
+        .arg(entry_ids[0].clone())
+        .arg(entry_ids[1].clone())
         .assert()
         .success();
 
@@ -1728,7 +1732,7 @@ fn mark_updates_tags() {
         .arg(db_root(&paths.db_path))
         .arg("mark")
         .arg("unread")
-        .arg(entry_ids[0].to_string())
+        .arg(entry_ids[0].clone())
         .assert()
         .success();
 
@@ -1742,7 +1746,7 @@ fn mark_updates_tags() {
         .arg(db_root(&paths.db_path))
         .arg("mark")
         .arg("tag")
-        .arg(entry_ids[0].to_string())
+        .arg(entry_ids[0].clone())
         .arg("--add")
         .arg("foo,bar")
         .arg("--remove")
@@ -1784,8 +1788,8 @@ fn mark_read_fails_when_any_entry_is_missing() {
         .arg(db_root(&paths.db_path))
         .arg("mark")
         .arg("read")
-        .arg(entry_ids[0].to_string())
-        .arg("999999")
+        .arg(entry_ids[0].clone())
+        .arg("missing-entry-id")
         .assert()
         .failure()
         .get_output()
@@ -1827,8 +1831,8 @@ fn mark_unread_fails_when_any_entry_is_missing() {
         .arg(db_root(&paths.db_path))
         .arg("mark")
         .arg("read")
-        .arg(entry_ids[0].to_string())
-        .arg(entry_ids[1].to_string())
+        .arg(entry_ids[0].clone())
+        .arg(entry_ids[1].clone())
         .assert()
         .success();
     let unread_after_read = list_query_json(&paths.config_path, &paths.db_path, "unread");
@@ -1841,8 +1845,8 @@ fn mark_unread_fails_when_any_entry_is_missing() {
         .arg(db_root(&paths.db_path))
         .arg("mark")
         .arg("unread")
-        .arg(entry_ids[0].to_string())
-        .arg("999999")
+        .arg(entry_ids[0].clone())
+        .arg("missing-entry-id")
         .assert()
         .failure()
         .get_output()
@@ -1886,8 +1890,8 @@ fn mark_tag_add_fails_when_any_entry_is_missing() {
         .arg(db_root(&paths.db_path))
         .arg("mark")
         .arg("tag")
-        .arg(entry_ids[0].to_string())
-        .arg("999999")
+        .arg(entry_ids[0].clone())
+        .arg("missing-entry-id")
         .arg("--add")
         .arg("foo")
         .assert()
@@ -1933,8 +1937,8 @@ fn mark_tag_remove_fails_when_any_entry_is_missing() {
         .arg(db_root(&paths.db_path))
         .arg("mark")
         .arg("tag")
-        .arg(entry_ids[0].to_string())
-        .arg("999999")
+        .arg(entry_ids[0].clone())
+        .arg("missing-entry-id")
         .arg("--remove")
         .arg("tech")
         .assert()
@@ -1991,22 +1995,24 @@ fn status_json(config_path: &str, db_path: &str) -> serde_json::Value {
 }
 
 /// Resolves an entry id from a title query.
-fn entry_id_by_title(config_path: &str, db_path: &str, title: &str) -> i64 {
+fn entry_id_by_title(config_path: &str, db_path: &str, title: &str) -> String {
     let data = list_query_json(config_path, db_path, &format!("title:\"{title}\""));
     let items = data["items"].as_array().expect("items array");
     items
         .first()
-        .and_then(|item| item["id"].as_i64())
+        .and_then(|item| item["entry_id"].as_str())
+        .map(|value| value.to_string())
         .expect("entry id by title")
 }
 
 /// Resolves the first feed id from list output.
-fn first_feed_id_from_list(config_path: &str, db_path: &str) -> i64 {
+fn first_feed_id_from_list(config_path: &str, db_path: &str) -> String {
     let data = list_query_json(config_path, db_path, "unread");
     let items = data["items"].as_array().expect("items array");
     items
         .first()
-        .and_then(|item| item["feed_id"].as_i64())
+        .and_then(|item| item["feed_id"].as_str())
+        .map(|value| value.to_string())
         .expect("feed id")
 }
 
@@ -2020,12 +2026,17 @@ fn db_root(db_path: &str) -> String {
 }
 
 /// Collects entry ids from list response items.
-fn collect_item_ids(data: &serde_json::Value) -> Vec<i64> {
+fn collect_item_ids(data: &serde_json::Value) -> Vec<String> {
     data["items"]
         .as_array()
         .expect("items array")
         .iter()
-        .map(|item| item["id"].as_i64().expect("item id"))
+        .map(|item| {
+            item["entry_id"]
+                .as_str()
+                .expect("item entry_id")
+                .to_string()
+        })
         .collect()
 }
 

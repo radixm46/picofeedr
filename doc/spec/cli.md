@@ -102,26 +102,38 @@ picofeedr status
 
 ```
 picofeedr list --query <q> --sort <date_desc|date_asc|first_seen_desc|first_seen_asc> --limit <n> [--cursor <cursor>]
-# → {"status": "ok", "result": {"total_count": 342, "items": [EntrySummary...], "next_page_token": "eyJ...", "revision": 1284, "last_write_at": 1705420900}, "error": null, "meta": {...}}
+# → {"status": "ok", "result": {"total_count": 342, "items": [EntrySummary...], "feeds": [FeedSummary...], "next_page_token": "eyJ...", "revision": 1284, "last_write_at": 1705420900}, "error": null, "meta": {...}}
 ```
 
 **ListResponse：**
 
 ```json
-{ "total_count": <int>, "items": [EntrySummary...], "next_page_token": "<token|null>", "revision": <int>, "last_write_at": <epoch|null> }
+{ "total_count": <int>, "items": [EntrySummary...], "feeds": [FeedSummary...], "next_page_token": "<token|null>", "revision": <int>, "last_write_at": <epoch|null> }
+```
+
+**EntrySummary：**
+
+```json
+{ "entry_id": "<string>", "feed_id": "<string>", "title": "<string|null>", "link": "<string|null>", "published_at": "<epoch|null>", "first_seen_at": "<epoch>", "tags": ["..."] }
+```
+
+**FeedSummary：**
+
+```json
+{ "feed_id": "<string>", "title": "<string|null>" }
 ```
 
 ### A6.6 詳細取得（遅延）
 
 ```
-picofeedr view <id>
+picofeedr view <entry_id>
 # → {"status": "ok", "result": EntryDetail, "error": null, "meta": {...}}
 ```
 
 ### A6.7 状態更新
 
 ```
-picofeedr mark read ...
+picofeedr mark read <entry_id>...
 # → {"status": "ok", "result": {"updated_entry_count": 2}, "error": null, "meta": {...}}
 ```
 

@@ -43,10 +43,10 @@ pub(crate) const COUNT_ENTRY_TAGS_BY_ENTRY_ID: &str =
 
 /// Reads one entry detail row joined with feed title.
 pub(crate) const SELECT_ENTRY_DETAIL_BY_ID: &str = r#"
-SELECT e.id, e.feed_id, f.title, e.title, e.link, e.author, e.published_at, e.first_seen_at
+SELECT e.entry_key, f.feed_key, f.title, e.title, e.link, e.author, e.published_at, e.first_seen_at
 FROM entries e
 JOIN feeds f ON e.feed_id = f.id
-WHERE e.id = ?1
+WHERE e.entry_key = ?1
 "#;
 
 /// Selects content row for one entry.
@@ -60,6 +60,10 @@ pub(crate) const SELECT_ENTRY_ENCLOSURES_BY_ENTRY_ID: &str =
 /// Existence predicate for feed title filter.
 pub(crate) const EXISTS_FEED_TITLE_FOR_ENTRY: &str =
     "EXISTS (SELECT 1 FROM feeds f WHERE f.id = e.feed_id AND f.title = ?)";
+
+/// Existence predicate for feed key filter.
+pub(crate) const EXISTS_FEED_KEY_FOR_ENTRY: &str =
+    "EXISTS (SELECT 1 FROM feeds f WHERE f.id = e.feed_id AND f.feed_key = ?)";
 
 /// Existence predicate for tag expression.
 pub(crate) const EXISTS_TAG_FOR_ENTRY: &str = "EXISTS (SELECT 1 FROM entry_tags et JOIN tags t ON et.tag_id = t.id \
@@ -86,11 +90,6 @@ pub(crate) const ORDER_BY_FIRST_SEEN_DESC: &str = "e.first_seen_at DESC, e.id DE
 /// ORDER BY clause for first-seen ascending sort.
 pub(crate) const ORDER_BY_FIRST_SEEN_ASC: &str = "e.first_seen_at ASC, e.id ASC";
 
-/// Builds SQL for chunked entry id existence checks.
-pub(crate) fn select_entry_ids_in(placeholders: &str) -> String {
-    format!("SELECT id FROM entries WHERE id IN ({placeholders})")
-}
-
 /// Builds SQL that resolves tag ids by tag name.
 pub(crate) fn select_tag_ids_by_names(placeholders: &str) -> String {
     format!("SELECT id, name FROM tags WHERE name IN ({placeholders})")
@@ -104,9 +103,14 @@ pub(crate) fn count_entries(where_sql: &str) -> String {
 /// Builds SQL that fetches entry list rows with sort key.
 pub(crate) fn fetch_entries(where_sql: &str, key_expr: &str, order_clause: &str) -> String {
     format!(
-        "SELECT e.id, e.feed_id, e.title, e.link, e.published_at, e.first_seen_at, {key_expr} AS sort_key \
-         FROM entries e {where_sql} ORDER BY {order_clause} LIMIT ?"
+        "SELECT e.id, e.entry_key, f.feed_key, f.title, e.title, e.link, e.published_at, e.first_seen_at, {key_expr} AS sort_key \
+         FROM entries e JOIN feeds f ON f.id = e.feed_id {where_sql} ORDER BY {order_clause} LIMIT ?"
     )
+}
+
+/// Builds SQL that fetches internal entry ids by stable entry keys.
+pub(crate) fn select_entry_ids_by_keys(placeholders: &str) -> String {
+    format!("SELECT id, entry_key FROM entries WHERE entry_key IN ({placeholders})")
 }
 
 /// Builds SQL that loads tags for a set of entry ids.

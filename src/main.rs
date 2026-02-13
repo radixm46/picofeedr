@@ -18,7 +18,7 @@ use picofeedr::sync::SyncSummary;
 use picofeedr::tag::TagManager;
 use picofeedr::time;
 use serde_json::{Value, json};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::error::Error;
 use std::ffi::OsString;
@@ -245,7 +245,7 @@ fn execute_command(cli: &Cli) -> Result<CommandOutput, AppError> {
                     Ok(CommandOutput::List { list })
                 }
                 Command::View { id } => {
-                    let detail = entry::view_entry(&store, &config, *id)?;
+                    let detail = entry::view_entry(&store, &config, id)?;
                     Ok(CommandOutput::View { detail })
                 }
                 Command::Mark { command } => {
@@ -422,19 +422,41 @@ fn render_plain(result: &CommandOutput) -> io::Result<()> {
             if let Some(cursor) = &list.next_page_token {
                 writeln!(writer, "next_page_token: {cursor}")?;
             }
+            let feed_titles = list
+                .feeds
+                .iter()
+                .map(|feed| {
+                    (
+                        feed.feed_id.clone(),
+                        feed.title.as_deref().unwrap_or("(untitled)").to_string(),
+                    )
+                })
+                .collect::<HashMap<_, _>>();
             for entry in &list.items {
                 let title = entry.title.as_deref().unwrap_or("(untitled)");
+                let feed_title = feed_titles
+                    .get(&entry.feed_id)
+                    .map(String::as_str)
+                    .unwrap_or("(unknown)");
                 let tags = format_tags(&entry.tags);
                 if tags.is_empty() {
-                    writeln!(writer, "[{}] {title}", entry.id)?;
+                    writeln!(
+                        writer,
+                        "{title} ({feed_title}) [{}]",
+                        short_id(&entry.entry_id)
+                    )?;
                 } else {
-                    writeln!(writer, "[{}] {title} [{tags}]", entry.id)?;
+                    writeln!(
+                        writer,
+                        "{title} ({feed_title}) [{tags}] [{}]",
+                        short_id(&entry.entry_id)
+                    )?;
                 }
             }
         }
         CommandOutput::View { detail } => {
             let title = detail.title.as_deref().unwrap_or("(untitled)");
-            writeln!(writer, "[{}] {title}", detail.id)?;
+            writeln!(writer, "{title} [{}]", short_id(&detail.entry_id))?;
             if let Some(feed_title) = &detail.feed_title {
                 writeln!(writer, "feed: {feed_title} (id: {})", detail.feed_id)?;
             } else {
@@ -462,6 +484,16 @@ fn render_plain(result: &CommandOutput) -> io::Result<()> {
     }
     writer.flush()?;
     Ok(())
+}
+
+/// Returns a compact identifier preview for plain output.
+fn short_id(value: &str) -> String {
+    const HEAD: usize = 8;
+    const TAIL: usize = 6;
+    if value.len() <= HEAD + TAIL + 3 {
+        return value.to_string();
+    }
+    format!("{}...{}", &value[..HEAD], &value[value.len() - TAIL..])
 }
 
 /// Renders human-readable output for feeds config validation.
