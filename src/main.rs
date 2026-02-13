@@ -433,9 +433,7 @@ fn render_plain(result: &CommandOutput) -> io::Result<()> {
                 writeln!(writer, "{content}")?;
             }
         }
-        CommandOutput::Mark { updated } => {
-            writeln!(writer, "updated_entry_count: {updated}")?
-        }
+        CommandOutput::Mark { updated } => writeln!(writer, "updated_entry_count: {updated}")?,
     }
     writer.flush()?;
     Ok(())
