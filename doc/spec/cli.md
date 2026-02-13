@@ -166,6 +166,9 @@ picofeedr list --query 'tag:A&B&C -tag:D|E' --sort first_seen_desc --limit 20
 { "total_hits": <int>, "items": [EntrySummary...], "next_cursor": "<cursor|null>", "snapshot_revision": <int>, "snapshot_at": <epoch|null> }
 ```
 
+`snapshot_revision` / `snapshot_at` は `status` の `db_revision` / `last_write_at` と同系統の DB メタデータなのだ。  
+同一時点の比較・診断用途に使い、ページ継続のキーは常に `next_cursor` を使うのだ。
+
 ### A6.6 詳細取得（遅延）
 
 ```
