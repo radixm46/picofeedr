@@ -11,6 +11,18 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
+/// Tuple payload for the entry detail base row selected from SQLite.
+pub(crate) type EntryDetailRow = (
+    i64,
+    i64,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<i64>,
+    i64,
+);
+
 /// Repository for entry read and write operations.
 pub struct EntryRepo<'a> {
     conn: &'a Connection,
@@ -115,22 +127,7 @@ impl<'a> EntryRepo<'a> {
     }
 
     /// Loads one entry detail row tuple for view operation.
-    pub fn view_entry_row(
-        &self,
-        entry_id: i64,
-    ) -> Result<
-        Option<(
-            i64,
-            i64,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<i64>,
-            i64,
-        )>,
-        AppError,
-    > {
+    pub fn view_entry_row(&self, entry_id: i64) -> Result<Option<EntryDetailRow>, AppError> {
         self.conn
             .query_row(q::SELECT_ENTRY_DETAIL_BY_ID, params![entry_id], |row| {
                 Ok((
