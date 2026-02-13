@@ -375,14 +375,11 @@ fn render_plain(result: &CommandOutput) -> io::Result<()> {
             for feed in &feeds.feeds {
                 let title = feed.title.as_deref().unwrap_or("(untitled)");
                 let tags = format_tags(&feed.tags);
+                let feed_id = feed::feed_key_from_url(&feed.url);
                 if tags.is_empty() {
-                    writeln!(writer, "[{}] {} ({})", feed.id, title, feed.feed_key)?;
+                    writeln!(writer, "[{}] {}", feed_id, title)?;
                 } else {
-                    writeln!(
-                        writer,
-                        "[{}] {} ({}) [{}]",
-                        feed.id, title, feed.feed_key, tags
-                    )?;
+                    writeln!(writer, "[{}] {} [{}]", feed_id, title, tags)?;
                 }
                 writeln!(writer, "  url: {}", feed.url)?;
                 if let Some(site_url) = &feed.site_url {
@@ -440,23 +437,15 @@ fn render_plain(result: &CommandOutput) -> io::Result<()> {
                     .unwrap_or("(unknown)");
                 let tags = format_tags(&entry.tags);
                 if tags.is_empty() {
-                    writeln!(
-                        writer,
-                        "{title} ({feed_title}) [{}]",
-                        short_id(&entry.entry_id)
-                    )?;
+                    writeln!(writer, "[{}] {title} ({feed_title})", entry.entry_id)?;
                 } else {
-                    writeln!(
-                        writer,
-                        "{title} ({feed_title}) [{tags}] [{}]",
-                        short_id(&entry.entry_id)
-                    )?;
+                    writeln!(writer, "[{}] {title} ({feed_title}) [{tags}]", entry.entry_id)?;
                 }
             }
         }
         CommandOutput::View { detail } => {
             let title = detail.title.as_deref().unwrap_or("(untitled)");
-            writeln!(writer, "{title} [{}]", short_id(&detail.entry_id))?;
+            writeln!(writer, "{} {title}", detail.entry_id)?;
             if let Some(feed_title) = &detail.feed_title {
                 writeln!(writer, "feed: {feed_title} (id: {})", detail.feed_id)?;
             } else {
@@ -484,16 +473,6 @@ fn render_plain(result: &CommandOutput) -> io::Result<()> {
     }
     writer.flush()?;
     Ok(())
-}
-
-/// Returns a compact identifier preview for plain output.
-fn short_id(value: &str) -> String {
-    const HEAD: usize = 8;
-    const TAIL: usize = 6;
-    if value.len() <= HEAD + TAIL + 3 {
-        return value.to_string();
-    }
-    format!("{}...{}", &value[..HEAD], &value[value.len() - TAIL..])
 }
 
 /// Renders human-readable output for feeds config validation.
