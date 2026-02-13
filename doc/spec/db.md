@@ -47,6 +47,18 @@
 * content-addressed（例：sha256）でファイル分割し、クラウド同期時の差分処理を軽くする
 * 本文をDB外に置くことで、DBファイルの肥大化を抑えやすい（※DB破損時の完全復元性は前提にしない）
 
+### 3.4 SQLite実装レイヤの責務境界
+
+* `schema/` は DDL と migration 資産のみを持つ
+* `query/` は SQL 定数と SQL ビルダを持つ（実行しない、業務ロジックを持たない）
+* DAO（`entries.rs` / `feeds.rs` / `tags.rs` / `meta.rs`）は単一文SQLの実行のみを担当する
+* DAO は `pub(crate)` を維持し、`db::sqlite` の内部実装として扱う
+* `repo/` は複数DAOをまたぐユースケースの調停を担当する
+  * 読み取り経路は `*ReadRepo`
+  * 書き込み経路は `*WriteRepo`（`Tx` 配下で実行）
+* 新しい書き込みフローは `SqliteStore::tx()` + `*WriteRepo` を使う
+* `SqliteStore::transaction()` は互換レイヤ用途に限定し、新規実装では使わない
+
 ---
 
 ## 4. テーブルの役割（概要）
