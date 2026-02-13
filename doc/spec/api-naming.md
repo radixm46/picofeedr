@@ -9,14 +9,16 @@
 
 JSONレスポンスのトップレベル予約キーは以下の5つのみなのだ。
 
-- `success`
-- `severity`
+- `status`
 - `result`
 - `error`
 - `meta`
 
-`success` は「致命エラーなく応答を返せたか」を意味するのだ。  
-部分失敗や注意がある成功は `severity = "warn"` で表現するのだ。
+`status` は応答判定の単一軸なのだ。
+
+- `ok`: 正常終了
+- `warning`: 非致命の注意付き成功
+- `error`: 致命失敗
 
 ## Naming Principles
 
@@ -33,8 +35,9 @@ JSONレスポンスのトップレベル予約キーは以下の5つのみなの
 
 - 構造を安定させるため、キー省略より `null` を優先するのだ。
 - リストは常に配列で返すのだ（空は `[]`）。
-- 失敗時は `result = null`、成功時は `error = null` を必須にするのだ。
-- `severity` は常に付与し、`ok|warn|error` のいずれかにするのだ。
+- `result` と `error` は常に返すのだ（欠損させない）。
+- `status="error"` では `result = null` かつ `error != null` を必須にするのだ。
+- `status in {"ok","warning"}` では `result != null` かつ `error = null` を必須にするのだ。
 
 ## Error Rules
 
@@ -53,7 +56,7 @@ JSONレスポンスのトップレベル予約キーは以下の5つのみなの
 `meta` は常に返すのだ。固定キーは以下なのだ。
 
 - `api_version: string`
-- `schema_version: integer`
+- `db_schema_version: integer`
 - `generated_at: integer`（epoch seconds）
 
 ## Banned / Deprecated Names
@@ -76,7 +79,7 @@ v1では次のキーをレスポンス契約で使用しないのだ。
 
 ## Canonical Renames (v1)
 
-- `ok` -> `success`
+- `success` + `severity` -> `status`
 - `data` -> `result`
 - `retry` -> `retryable`
 - `fetched` -> `fetched_feed_count`

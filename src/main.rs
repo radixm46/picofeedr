@@ -11,7 +11,7 @@ use picofeedr::error::AppError;
 use picofeedr::feed;
 use picofeedr::feed::FeedListResponse;
 use picofeedr::query::EntryQuery;
-use picofeedr::response::{Envelope, ResponseSeverity};
+use picofeedr::response::{Envelope, ResponseStatus};
 use picofeedr::status::StatusResponse;
 use picofeedr::sync;
 use picofeedr::sync::SyncSummary;
@@ -31,7 +31,7 @@ enum CommandOutput {
     Ping,
     Version {
         api_version: &'static str,
-        schema_version: i64,
+        db_schema_version: i64,
         build: &'static str,
     },
     Tags {
@@ -155,14 +155,14 @@ fn run_config_check(cli: &Cli, output: OutputFormat) -> Result<ExitCode, RunFail
     let report = feeds_config.validate();
     match output {
         OutputFormat::Json => {
-            let severity = if report.valid {
-                ResponseSeverity::Ok
+            let status = if report.valid {
+                ResponseStatus::Ok
             } else {
-                ResponseSeverity::Warn
+                ResponseStatus::Warning
             };
-            print_json_or_fallback(&Envelope::ok_with_severity(
+            print_json_or_fallback(&Envelope::ok_with_status(
                 serde_json::to_value(&report)?,
-                severity,
+                status,
             ))?;
         }
         OutputFormat::Plain => render_config_check_plain(&report)?,
@@ -181,7 +181,7 @@ fn execute_command(cli: &Cli) -> Result<CommandOutput, AppError> {
         Command::Ping => Ok(CommandOutput::Ping),
         Command::Version => Ok(CommandOutput::Version {
             api_version: env!("CARGO_PKG_VERSION"),
-            schema_version: db::migrate::current_schema_version(),
+            db_schema_version: db::migrate::current_schema_version(),
             build: "dev",
         }),
         Command::Tags
@@ -294,23 +294,23 @@ fn limit_error_details(kind: &str, value: usize, _max_limit: usize) -> Value {
 
 /// Renders JSON output for a command result.
 fn render_json(result: &CommandOutput) -> Result<(), RunFailure> {
-    let severity = match result {
+    let status = match result {
         CommandOutput::Sync { summary }
             if !matches!(summary.status, sync::SyncStatus::Completed) =>
         {
-            ResponseSeverity::Warn
+            ResponseStatus::Warning
         }
-        _ => ResponseSeverity::Ok,
+        _ => ResponseStatus::Ok,
     };
     let data = match result {
         CommandOutput::Ping => json!({ "status": "ok" }),
         CommandOutput::Version {
             api_version,
-            schema_version,
+            db_schema_version,
             build,
         } => json!({
             "api_version": api_version,
-            "schema_version": schema_version,
+            "db_schema_version": db_schema_version,
             "build": build,
         }),
         CommandOutput::Tags { tags } => json!({ "tags": tags }),
@@ -322,7 +322,7 @@ fn render_json(result: &CommandOutput) -> Result<(), RunFailure> {
         CommandOutput::Mark { updated } => json!({ "updated_entry_count": updated }),
     };
 
-    print_json_or_fallback(&Envelope::ok_with_severity(data, severity))?;
+    print_json_or_fallback(&Envelope::ok_with_status(data, status))?;
     Ok(())
 }
 
@@ -334,11 +334,11 @@ fn render_plain(result: &CommandOutput) -> io::Result<()> {
         CommandOutput::Ping => writeln!(writer, "ok")?,
         CommandOutput::Version {
             api_version,
-            schema_version,
+            db_schema_version,
             build,
         } => writeln!(
             writer,
-            "api_version={api_version} schema_version={schema_version} build={build}"
+            "api_version={api_version} db_schema_version={db_schema_version} build={build}"
         )?,
         CommandOutput::Tags { tags } => {
             for tag in tags {
@@ -355,7 +355,7 @@ fn render_plain(result: &CommandOutput) -> io::Result<()> {
                     .map(|value| value.to_string())
                     .unwrap_or_else(|| "null".to_string())
             )?;
-            writeln!(writer, "schema_version: {}", status.schema_version)?;
+            writeln!(writer, "db_schema_version: {}", status.db_schema_version)?;
             writeln!(writer, "api_version: {}", status.api_version)?;
             writeln!(
                 writer,
@@ -507,7 +507,7 @@ fn print_json_or_fallback<T: serde::Serialize>(value: &T) -> io::Result<()> {
 }
 
 /// Fallback JSON printed when JSON serialization fails unexpectedly.
-const FALLBACK_INTERNAL_ERROR_JSON: &str = "{\"success\":false,\"severity\":\"error\",\"result\":null,\"error\":{\"code\":\"INTERNAL\",\"message\":\"Failed to serialize response\",\"retryable\":false,\"details\":null},\"meta\":{\"api_version\":\"unknown\",\"schema_version\":0,\"generated_at\":0}}";
+const FALLBACK_INTERNAL_ERROR_JSON: &str = "{\"status\":\"error\",\"result\":null,\"error\":{\"code\":\"INTERNAL\",\"message\":\"Failed to serialize response\",\"retryable\":false,\"details\":null},\"meta\":{\"api_version\":\"unknown\",\"db_schema_version\":0,\"generated_at\":0}}";
 
 /// Loads config and applies CLI overrides.
 fn load_config(cli: &Cli) -> Result<config::AppConfig, AppError> {

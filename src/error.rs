@@ -387,12 +387,14 @@ impl From<SqlError> for AppError {
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct ErrorPayload {
     /// Error code string.
+    #[schemars(regex(pattern = "^[A-Z][A-Z0-9_]*$"))]
     pub code: String,
     /// Human-readable message.
     pub message: String,
     /// Whether the caller should retry.
     pub retryable: bool,
     /// Optional machine-readable details for error-specific branching.
+    #[schemars(with = "Option<std::collections::BTreeMap<String, serde_json::Value>>")]
     pub details: Option<Value>,
 }
 

@@ -1,73 +1,75 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Envelope_for_StatusResponse",
-  "description": "CLI response envelope for `--output json`.\n\nThis format is stable and intended for UI/automation clients.",
-  "type": "object",
-  "required": [
-    "meta",
-    "severity",
-    "success"
-  ],
-  "properties": {
-    "error": {
-      "description": "Error payload when `success=false`, otherwise `null`.",
-      "anyOf": [
-        {
-          "$ref": "#/definitions/ErrorPayload"
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "error"
+          }
         },
-        {
-          "type": "null"
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "error": {
+            "not": {
+              "type": "null"
+            }
+          },
+          "result": {
+            "type": "null"
+          }
         }
-      ]
+      }
     },
-    "meta": {
-      "description": "Response metadata.",
-      "allOf": [
-        {
-          "$ref": "#/definitions/ResponseMeta"
-        }
-      ]
-    },
-    "result": {
-      "description": "Command payload when `success=true`, otherwise `null`.",
-      "anyOf": [
-        {
-          "$ref": "#/definitions/StatusResponse"
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "enum": [
+              "ok",
+              "warning"
+            ]
+          }
         },
-        {
-          "type": "null"
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "error": {
+            "type": "null"
+          },
+          "result": {
+            "not": {
+              "type": "null"
+            }
+          }
         }
-      ]
-    },
-    "severity": {
-      "description": "Severity of the command outcome.",
-      "allOf": [
-        {
-          "$ref": "#/definitions/ResponseSeverity"
-        }
-      ]
-    },
-    "success": {
-      "description": "Whether the command succeeded.",
-      "type": "boolean"
+      }
     }
-  },
+  ],
   "definitions": {
     "ErrorPayload": {
       "description": "JSON error payload fields.",
-      "type": "object",
-      "required": [
-        "code",
-        "message",
-        "retryable"
-      ],
       "properties": {
         "code": {
           "description": "Error code string.",
+          "pattern": "^[A-Z][A-Z0-9_]*$",
           "type": "string"
         },
         "details": {
-          "description": "Optional machine-readable details for error-specific branching."
+          "additionalProperties": true,
+          "description": "Optional machine-readable details for error-specific branching.",
+          "type": [
+            "object",
+            "null"
+          ]
         },
         "message": {
           "description": "Human-readable message.",
@@ -77,79 +79,84 @@
           "description": "Whether the caller should retry.",
           "type": "boolean"
         }
-      }
+      },
+      "required": [
+        "code",
+        "message",
+        "retryable"
+      ],
+      "type": "object"
     },
     "ResponseMeta": {
       "description": "Metadata returned on every JSON response.",
-      "type": "object",
-      "required": [
-        "api_version",
-        "generated_at",
-        "schema_version"
-      ],
       "properties": {
         "api_version": {
           "description": "Current CLI API version.",
           "type": "string"
         },
+        "db_schema_version": {
+          "description": "Current database schema version.",
+          "format": "int64",
+          "type": "integer"
+        },
         "generated_at": {
           "description": "Epoch seconds when the response was generated.",
-          "type": "integer",
-          "format": "int64"
-        },
-        "schema_version": {
-          "description": "Current database schema version.",
-          "type": "integer",
-          "format": "int64"
+          "format": "int64",
+          "type": "integer"
         }
-      }
+      },
+      "required": [
+        "api_version",
+        "db_schema_version",
+        "generated_at"
+      ],
+      "type": "object"
     },
-    "ResponseSeverity": {
-      "description": "Severity level of the response.",
+    "ResponseStatus": {
+      "description": "Status of the response.",
       "oneOf": [
         {
           "description": "Command completed without warnings.",
-          "type": "string",
           "enum": [
             "ok"
-          ]
+          ],
+          "type": "string"
         },
         {
           "description": "Command completed with non-fatal warnings.",
-          "type": "string",
           "enum": [
-            "warn"
-          ]
+            "warning"
+          ],
+          "type": "string"
         },
         {
           "description": "Command failed fatally.",
-          "type": "string",
           "enum": [
             "error"
-          ]
+          ],
+          "type": "string"
         }
       ]
     },
     "StatusResponse": {
       "description": "Status payload for lightweight database polling.",
-      "type": "object",
-      "required": [
-        "api_version",
-        "revision",
-        "schema_version"
-      ],
       "properties": {
         "api_version": {
           "description": "Current CLI API version.",
           "type": "string"
         },
+        "db_schema_version": {
+          "description": "Current database schema version.",
+          "format": "int64",
+          "type": "integer"
+        },
         "last_sync_at": {
           "description": "Epoch seconds for the latest successful sync command.",
+          "format": "int64",
           "type": [
             "integer",
             "null"
-          ],
-          "format": "int64"
+          ]
         },
         "last_sync_status": {
           "description": "Latest successful sync status.",
@@ -160,23 +167,73 @@
         },
         "last_write_at": {
           "description": "Epoch seconds for the latest successful write command.",
+          "format": "int64",
           "type": [
             "integer",
             "null"
-          ],
-          "format": "int64"
+          ]
         },
         "revision": {
           "description": "Monotonic revision incremented after successful write commands.",
-          "type": "integer",
-          "format": "int64"
-        },
-        "schema_version": {
-          "description": "Current database schema version.",
-          "type": "integer",
-          "format": "int64"
+          "format": "int64",
+          "type": "integer"
         }
-      }
+      },
+      "required": [
+        "api_version",
+        "db_schema_version",
+        "revision"
+      ],
+      "type": "object"
     }
-  }
+  },
+  "description": "CLI response envelope for `--output json`.\n\nThis format is stable and intended for UI/automation clients.",
+  "properties": {
+    "error": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/ErrorPayload"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Error payload when `status=error`, otherwise `null`."
+    },
+    "meta": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/ResponseMeta"
+        }
+      ],
+      "description": "Response metadata."
+    },
+    "result": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/StatusResponse"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Command payload when `status` is `ok` or `warning`, otherwise `null`."
+    },
+    "status": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/ResponseStatus"
+        }
+      ],
+      "description": "Status of the command outcome."
+    }
+  },
+  "required": [
+    "status",
+    "result",
+    "error",
+    "meta"
+  ],
+  "title": "Envelope_for_StatusResponse",
+  "type": "object"
 }

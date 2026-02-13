@@ -5,14 +5,14 @@ use crate::time;
 use schemars::JsonSchema;
 use serde::Serialize;
 
-/// Severity level of the response.
+/// Status of the response.
 #[derive(Debug, Serialize, JsonSchema, Clone, Copy)]
 #[serde(rename_all = "snake_case")]
-pub enum ResponseSeverity {
+pub enum ResponseStatus {
     /// Command completed without warnings.
     Ok,
     /// Command completed with non-fatal warnings.
-    Warn,
+    Warning,
     /// Command failed fatally.
     Error,
 }
@@ -23,7 +23,7 @@ pub struct ResponseMeta {
     /// Current CLI API version.
     pub api_version: &'static str,
     /// Current database schema version.
-    pub schema_version: i64,
+    pub db_schema_version: i64,
     /// Epoch seconds when the response was generated.
     pub generated_at: i64,
 }
@@ -33,7 +33,7 @@ impl ResponseMeta {
     pub fn current() -> Self {
         Self {
             api_version: env!("CARGO_PKG_VERSION"),
-            schema_version: crate::db::migrate::current_schema_version(),
+            db_schema_version: crate::db::migrate::current_schema_version(),
             generated_at: time::current_epoch(),
         }
     }
@@ -45,35 +45,45 @@ impl ResponseMeta {
 #[derive(Debug, Serialize, JsonSchema)]
 #[schemars(bound = "T: JsonSchema")]
 pub struct Envelope<T> {
-    /// Whether the command succeeded.
-    pub success: bool,
-    /// Severity of the command outcome.
-    pub severity: ResponseSeverity,
-    /// Command payload when `success=true`, otherwise `null`.
+    /// Status of the command outcome.
+    pub status: ResponseStatus,
+    /// Command payload when `status` is `ok` or `warning`, otherwise `null`.
     pub result: Option<T>,
-    /// Error payload when `success=false`, otherwise `null`.
+    /// Error payload when `status=error`, otherwise `null`.
     pub error: Option<ErrorPayload>,
     /// Response metadata.
     pub meta: ResponseMeta,
 }
 
 impl<T> Envelope<T> {
-    /// Builds a success envelope with payload and explicit severity.
-    pub fn ok_with_severity(data: T, severity: ResponseSeverity) -> Self {
+    /// Builds a success envelope with payload and explicit status.
+    pub fn ok_with_status(data: T, status: ResponseStatus) -> Self {
+        debug_assert!(matches!(
+            status,
+            ResponseStatus::Ok | ResponseStatus::Warning
+        ));
         Self {
-            success: true,
-            severity,
+            status,
             result: Some(data),
             error: None,
             meta: ResponseMeta::current(),
         }
     }
 
+    /// Builds a success envelope with `status=ok`.
+    pub fn ok(data: T) -> Self {
+        Self::ok_with_status(data, ResponseStatus::Ok)
+    }
+
+    /// Builds a warning envelope with payload and `status=warning`.
+    pub fn warning(data: T) -> Self {
+        Self::ok_with_status(data, ResponseStatus::Warning)
+    }
+
     /// Builds a fatal error envelope from an [`AppError`].
     pub fn fatal(error: &AppError) -> Self {
         Self {
-            success: false,
-            severity: ResponseSeverity::Error,
+            status: ResponseStatus::Error,
             result: None,
             error: Some(ErrorPayload::from_error(error)),
             meta: ResponseMeta::current(),

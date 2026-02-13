@@ -10,21 +10,28 @@ pub fn parse_envelope(output: &[u8]) -> Value {
 /// Extracts the `result` object from a successful JSON envelope.
 pub fn extract_ok_data(output: &[u8]) -> Value {
     let value = parse_envelope(output);
-    assert_eq!(value["success"], true, "expected success=true envelope");
+    let status = value["status"].as_str().expect("expected status field");
     assert!(
-        value["severity"].as_str().is_some(),
-        "expected severity field"
+        matches!(status, "ok" | "warning"),
+        "expected ok/warning status envelope, got {status}"
     );
     assert!(value.get("meta").is_some(), "expected meta field");
+    assert!(value.get("result").is_some(), "expected result field");
+    assert!(value.get("error").is_some(), "expected error field");
+    assert!(
+        value["error"].is_null(),
+        "expected error=null for ok/warning"
+    );
     value.get("result").cloned().expect("result")
 }
 
 /// Extracts error code from a failed JSON envelope.
 pub fn extract_error_code(output: &[u8]) -> String {
     let value = parse_envelope(output);
-    assert_eq!(value["success"], false, "expected success=false envelope");
-    assert_eq!(value["severity"], "error", "expected severity=error");
+    assert_eq!(value["status"], "error", "expected status=error envelope");
     assert!(value.get("meta").is_some(), "expected meta field");
+    assert!(value.get("result").is_some(), "expected result field");
+    assert!(value["result"].is_null(), "expected result=null for error");
     value
         .get("error")
         .and_then(|error| error.get("code"))
@@ -36,9 +43,10 @@ pub fn extract_error_code(output: &[u8]) -> String {
 /// Extracts error payload from a failed JSON envelope.
 pub fn extract_error_payload(output: &[u8]) -> Value {
     let value = parse_envelope(output);
-    assert_eq!(value["success"], false, "expected success=false envelope");
-    assert_eq!(value["severity"], "error", "expected severity=error");
+    assert_eq!(value["status"], "error", "expected status=error envelope");
     assert!(value.get("meta").is_some(), "expected meta field");
+    assert!(value.get("result").is_some(), "expected result field");
+    assert!(value["result"].is_null(), "expected result=null for error");
     value.get("error").cloned().expect("error")
 }
 
@@ -53,10 +61,10 @@ pub fn extract_error_details(output: &[u8]) -> Value {
     details
 }
 
-/// Asserts the envelope severity value.
-pub fn assert_envelope_severity(output: &[u8], severity: &str) {
+/// Asserts the envelope status value.
+pub fn assert_envelope_status(output: &[u8], status: &str) {
     let value = parse_envelope(output);
-    assert_eq!(value["severity"], severity);
+    assert_eq!(value["status"], status);
 }
 
 /// Asserts a failed JSON envelope with expected error metadata.

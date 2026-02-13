@@ -5,10 +5,10 @@
 ### A10.1 失敗時のJSON（`--output json`）
 
 ```json
-{ "success": false, "severity": "error", "result": null, "error": { "code": "DB_LOCKED", "message": "database is locked", "retryable": true, "details": { "sqlite_code": "DatabaseBusy", "retry_after_ms": 200 } }, "meta": { "api_version": "<string>", "schema_version": <int>, "generated_at": <epoch> } }
+{ "status": "error", "result": null, "error": { "code": "DB_LOCKED", "message": "database is locked", "retryable": true, "details": { "sqlite_code": "DatabaseBusy", "retry_after_ms": 200 } }, "meta": { "api_version": "<string>", "db_schema_version": <int>, "generated_at": <epoch> } }
 ```
 
-`success=false` は致命失敗を示すのだ。`result` は必ず `null`、`error` は必須なのだ。
+`status="error"` は致命失敗を示すのだ。`result` は必ず `null`、`error` は必須なのだ。
 
 ### A10.2 `error` 共通フィールド
 
@@ -39,7 +39,7 @@
 
 - 致命（fatal）は **exit code != 0** + 上記 JSON なのだ。
 - `sync` の fetch/parse 失敗は致命ではなく、exit code は 0 のまま `result.errors` に積むのだ。
-- `feeds --config-check` は validation report を `success=true` で返し、`result.valid=false` のときは `severity=warn` かつ exit code 1 を返すのだ。
+- `feeds --config-check` は validation report を `status="ok"` または `status="warning"` で返し、`result.valid=false` のときは `status="warning"` かつ exit code 1 を返すのだ。
 - `stdout` への書き込みで `BrokenPipe` が起きた場合は、下流の早期終了として扱い、exit code 0 で終了するのだ。
 
 ### A10.5 sync errors（非致命）

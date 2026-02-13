@@ -3,9 +3,9 @@
 ## v0.7（2026-02-13, breaking）
 
 - **CLI JSON envelope v1 へ全面刷新**
-  - `ok/data/error` を `success/result/error/meta` に変更
-  - `severity`（`ok|warn|error`）を追加
-  - `meta` に `api_version`/`schema_version`/`generated_at` を追加
+  - `ok/data/error` を `status/result/error/meta` に変更
+  - `status`（`ok|warning|error`）へ一本化
+  - `meta` に `api_version`/`db_schema_version`/`generated_at` を追加
 - **エラーpayloadを明確化**
   - `retry` を `retryable` に変更
   - `details` フィールドを追加（nullable）

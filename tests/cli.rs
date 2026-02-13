@@ -8,7 +8,7 @@ use std::fs;
 use std::path::Path;
 use std::process::{Command as ProcessCommand, Output, Stdio};
 use support::assertions::{
-    assert_envelope_severity, assert_error_envelope, assert_plain_contract, extract_error_code,
+    assert_envelope_status, assert_error_envelope, assert_plain_contract, extract_error_code,
     extract_error_details, extract_error_payload, extract_ok_data,
 };
 use support::fixtures::{
@@ -87,7 +87,7 @@ fn config_check_fails_on_duplicate_url() {
         .clone();
 
     let data = extract_ok_data(&output);
-    assert_envelope_severity(&output, "warn");
+    assert_envelope_status(&output, "warning");
     assert_eq!(data["valid"], false);
     let errors = data["errors"].as_array().expect("errors array");
     assert!(
@@ -125,7 +125,7 @@ fn config_check_fails_on_empty_url() {
         .clone();
 
     let data = extract_ok_data(&output);
-    assert_envelope_severity(&output, "warn");
+    assert_envelope_status(&output, "warning");
     assert_eq!(data["valid"], false);
     let errors = data["errors"].as_array().expect("errors array");
     assert!(
@@ -272,7 +272,7 @@ fn status_returns_default_metadata() {
     let status = status_json(&paths.config_path, &paths.db_path);
     assert_eq!(status["revision"], 0);
     assert!(status["last_write_at"].is_null());
-    assert_eq!(status["schema_version"], 1);
+    assert_eq!(status["db_schema_version"], 1);
     assert!(status["api_version"].as_str().is_some());
     assert!(status["last_sync_at"].is_null());
     assert!(status["last_sync_status"].is_null());
@@ -817,7 +817,7 @@ fn sync_reports_partial_failed() {
         .clone();
 
     let data = extract_ok_data(&output);
-    assert_envelope_severity(&output, "warn");
+    assert_envelope_status(&output, "warning");
     assert_eq!(data["status"], "partial_failed");
     assert_eq!(data["fetched_feed_count"], 2);
     assert_eq!(data["failed_feed_count"], 1);
@@ -845,7 +845,7 @@ fn sync_reports_failed_when_all_feeds_fail() {
         .clone();
 
     let data = extract_ok_data(&output);
-    assert_envelope_severity(&output, "warn");
+    assert_envelope_status(&output, "warning");
     assert_eq!(data["status"], "failed");
     assert_eq!(data["fetched_feed_count"], 1);
     assert_eq!(data["failed_feed_count"], 1);
