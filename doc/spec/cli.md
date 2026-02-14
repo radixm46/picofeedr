@@ -51,7 +51,7 @@ picofeedr ping
 
 ```
 picofeedr feeds
-# → {"status": "ok", "result": {"feeds": [{id, feed_key, url, title, site_url, author, tags}]}, "error": null, "meta": {...}}
+# → {"status": "ok", "result": {"feeds": [{feed_key, url, title, site_url, author, tags}]}, "error": null, "meta": {...}}
 
 picofeedr feeds --config-check
 # → {"status": "ok", "result": {"valid": true, "errors": [], "warnings": [], "checked_feeds": 12}, "error": null, "meta": {...}}

@@ -101,11 +101,6 @@
           "description": "Stable feed key.",
           "type": "string"
         },
-        "id": {
-          "description": "Internal database ID.",
-          "format": "int64",
-          "type": "integer"
-        },
         "site_url": {
           "description": "Optional site URL.",
           "type": [
@@ -134,7 +129,6 @@
       },
       "required": [
         "feed_key",
-        "id",
         "tags",
         "url"
       ],
