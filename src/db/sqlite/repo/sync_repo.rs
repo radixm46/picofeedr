@@ -55,15 +55,16 @@ impl<'a> SyncWriteRepo<'a> {
         results: Vec<SyncResult>,
     ) -> Result<usize, AppError> {
         let feed_keys = collect_unique_feed_keys(&results);
-        let feed_ids = FeedReadRepo::new(self.conn).find_feed_ids(&feed_keys)?;
+        let feed_pks_by_feed_key =
+            FeedReadRepo::new(self.conn).find_feed_pks_by_keys(&feed_keys)?;
         let mut new_entries = 0;
         for result in results {
             for entry in result.entries {
-                let feed_id = feed_ids
+                let feed_pk = feed_pks_by_feed_key
                     .get(&entry.feed_key)
                     .copied()
                     .ok_or_else(|| AppError::db(format!("Missing feed for {}", entry.feed_key)))?;
-                let input = entry.entry.with_feed_id(feed_id);
+                let input = entry.entry.with_feed_pk(feed_pk);
                 let insert = entries::insert_entry_with_conn(self.conn, &input)?;
                 if insert.inserted {
                     if let Some(content) = entry.content.as_ref() {
@@ -78,7 +79,7 @@ impl<'a> SyncWriteRepo<'a> {
                                 write_content_fs(&config.storage.data_dir, reference, payload)?;
                             if let Err(error) = entries::insert_entry_content_with_conn(
                                 self.conn,
-                                insert.entry_id,
+                                insert.entry_pk,
                                 content,
                             ) {
                                 if created {
@@ -89,12 +90,12 @@ impl<'a> SyncWriteRepo<'a> {
                         } else {
                             entries::insert_entry_content_with_conn(
                                 self.conn,
-                                insert.entry_id,
+                                insert.entry_pk,
                                 content,
                             )?;
                         }
                     }
-                    entries::insert_entry_tags_with_conn(self.conn, insert.entry_id, &entry.tags)?;
+                    entries::insert_entry_tags_with_conn(self.conn, insert.entry_pk, &entry.tags)?;
                     new_entries += 1;
                 }
             }

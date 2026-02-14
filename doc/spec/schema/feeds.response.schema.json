@@ -97,8 +97,8 @@
             "null"
           ]
         },
-        "feed_key": {
-          "description": "Stable feed key.",
+        "feed_id": {
+          "description": "Stable public feed id.",
           "type": "string"
         },
         "site_url": {
@@ -128,7 +128,7 @@
         }
       },
       "required": [
-        "feed_key",
+        "feed_id",
         "tags",
         "url"
       ],

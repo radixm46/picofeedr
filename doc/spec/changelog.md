@@ -9,6 +9,8 @@
 - **list レスポンスを正規化**
   - `result.feeds` を追加し、`feed_id` と `title` の対応表を返す
   - `items[].feed_id` で `feeds[]` を参照する契約へ変更
+- **feeds レスポンスの公開語彙を統一**
+  - `feeds[].feed_key` を `feeds[].feed_id` へ変更
 
 ## v0.7（2026-02-13, breaking）
 

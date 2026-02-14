@@ -26,7 +26,7 @@ pub(crate) type EntryDetailRow = (
 /// One list row with metadata required to finalize response payloads.
 pub(crate) struct EntryListRow {
     /// Internal entry id used for joins and tag loading.
-    pub internal_id: i64,
+    pub entry_pk: i64,
     /// Public summary payload for JSON/plain rendering.
     pub summary: EntrySummary,
     /// Feed title resolved from feeds table.
@@ -106,7 +106,7 @@ impl<'a> EntryReadRepo<'a> {
         let mut entries = Vec::new();
         let mut sort_keys = Vec::new();
         while let Some(row) = rows.next()? {
-            let id: i64 = row.get(0)?;
+            let entry_pk: i64 = row.get(0)?;
             let entry_id: String = row.get(1)?;
             let feed_id: String = row.get(2)?;
             let feed_title: Option<String> = row.get(3)?;
@@ -116,7 +116,7 @@ impl<'a> EntryReadRepo<'a> {
             let first_seen_at: i64 = row.get(7)?;
             let sort_key: i64 = row.get(8)?;
             entries.push(EntryListRow {
-                internal_id: id,
+                entry_pk,
                 summary: EntrySummary {
                     entry_id,
                     feed_id,
@@ -146,9 +146,9 @@ impl<'a> EntryReadRepo<'a> {
         let mut rows = stmt.query(params_from_iter(entry_ids.iter()))?;
         let mut tags: HashMap<i64, Vec<String>> = HashMap::new();
         while let Some(row) = rows.next()? {
-            let entry_id: i64 = row.get(0)?;
+            let entry_pk: i64 = row.get(0)?;
             let name: String = row.get(1)?;
-            tags.entry(entry_id).or_default().push(name);
+            tags.entry(entry_pk).or_default().push(name);
         }
         Ok(tags)
     }
@@ -176,13 +176,13 @@ impl<'a> EntryReadRepo<'a> {
     pub fn load_content(
         &self,
         data_dir: &Path,
-        entry_id: i64,
+        entry_pk: i64,
     ) -> Result<(Option<String>, Option<String>), AppError> {
         let row = self
             .conn
             .query_row(
                 q::SELECT_ENTRY_CONTENT_BY_ENTRY_ID,
-                params![entry_id],
+                params![entry_pk],
                 |row| {
                     Ok((
                         row.get::<_, String>(0)?,
@@ -217,9 +217,9 @@ impl<'a> EntryReadRepo<'a> {
     }
 
     /// Loads enclosures for one entry.
-    pub fn load_enclosures(&self, entry_id: i64) -> Result<Vec<EntryEnclosure>, AppError> {
+    pub fn load_enclosures(&self, entry_pk: i64) -> Result<Vec<EntryEnclosure>, AppError> {
         let mut stmt = self.conn.prepare(q::SELECT_ENTRY_ENCLOSURES_BY_ENTRY_ID)?;
-        let mut rows = stmt.query(params![entry_id])?;
+        let mut rows = stmt.query(params![entry_pk])?;
         let mut enclosures = Vec::new();
         while let Some(row) = rows.next()? {
             enclosures.push(EntryEnclosure {
@@ -267,18 +267,18 @@ impl<'a> EntryWriteRepo<'a> {
     }
 
     /// Inserts one entry-tag relation if missing.
-    pub fn insert_entry_tag(&self, entry_id: i64, tag_id: i64) -> Result<usize, AppError> {
+    pub fn insert_entry_tag(&self, entry_pk: i64, tag_id: i64) -> Result<usize, AppError> {
         let rows = self
             .conn
-            .execute(q::INSERT_ENTRY_TAG_IGNORE, params![entry_id, tag_id])?;
+            .execute(q::INSERT_ENTRY_TAG_IGNORE, params![entry_pk, tag_id])?;
         Ok(rows)
     }
 
     /// Deletes one entry-tag relation.
-    pub fn delete_entry_tag(&self, entry_id: i64, tag_id: i64) -> Result<usize, AppError> {
+    pub fn delete_entry_tag(&self, entry_pk: i64, tag_id: i64) -> Result<usize, AppError> {
         let rows = self
             .conn
-            .execute(q::DELETE_ENTRY_TAG, params![entry_id, tag_id])?;
+            .execute(q::DELETE_ENTRY_TAG, params![entry_pk, tag_id])?;
         Ok(rows)
     }
 }

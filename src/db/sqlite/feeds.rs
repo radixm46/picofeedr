@@ -15,7 +15,7 @@ pub(crate) fn list_feeds_with_conn(conn: &Connection) -> Result<Vec<FeedRow>, Ap
     let feeds = stmt
         .query_map([], |row| {
             Ok(FeedRow {
-                id: row.get(0)?,
+                feed_pk: row.get(0)?,
                 feed_key: row.get(1)?,
                 url: row.get(2)?,
                 title: row.get(3)?,

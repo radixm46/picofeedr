@@ -18,7 +18,7 @@ pub(crate) fn insert_entry_with_conn(
         q::INSERT_ENTRY,
         params![
             entry.entry_key,
-            entry.feed_id,
+            entry.feed_pk,
             entry.source_id,
             entry.link,
             entry.title,
@@ -29,26 +29,26 @@ pub(crate) fn insert_entry_with_conn(
             entry.meta_json
         ],
     )? > 0;
-    let entry_id: i64 = if inserted {
+    let entry_pk: i64 = if inserted {
         conn.last_insert_rowid()
     } else {
         conn.query_row(q::SELECT_ENTRY_ID_BY_KEY, params![entry.entry_key], |row| {
             row.get(0)
         })?
     };
-    Ok(EntryInsertResult { entry_id, inserted })
+    Ok(EntryInsertResult { entry_pk, inserted })
 }
 
 /// Inserts entry content using a provided connection.
 pub(crate) fn insert_entry_content_with_conn(
     conn: &Connection,
-    entry_id: i64,
+    entry_pk: i64,
     content: &EntryContentInput,
 ) -> Result<(), AppError> {
     conn.execute(
         q::UPSERT_ENTRY_CONTENT,
         params![
-            entry_id,
+            entry_pk,
             content.storage.as_str(),
             content.reference,
             content.content_type,
@@ -61,7 +61,7 @@ pub(crate) fn insert_entry_content_with_conn(
 /// Inserts tags for an entry using a provided connection.
 pub(crate) fn insert_entry_tags_with_conn(
     conn: &Connection,
-    entry_id: i64,
+    entry_pk: i64,
     tags: &[String],
 ) -> Result<(), AppError> {
     if tags.is_empty() {
@@ -95,7 +95,7 @@ pub(crate) fn insert_entry_tags_with_conn(
         let tag_id = tag_ids
             .get(tag)
             .ok_or_else(|| AppError::db(format!("Missing tag id for {tag}")))?;
-        insert_entry_tag_stmt.execute(params![entry_id, tag_id])?;
+        insert_entry_tag_stmt.execute(params![entry_pk, tag_id])?;
     }
     Ok(())
 }
@@ -140,10 +140,10 @@ mod tests {
     #[test]
     fn insert_entry_returns_existing_id_on_conflict() {
         let conn = test_conn();
-        let feed_id = insert_feed(&conn, "feed-a");
+        let feed_pk = insert_feed(&conn, "feed-a");
         let input = EntryInput {
             entry_key: "entry-a".to_string(),
-            feed_id,
+            feed_pk,
             source_id: Some("src-a".to_string()),
             link: Some("https://example.com/a".to_string()),
             title: Some("A".to_string()),
@@ -155,21 +155,21 @@ mod tests {
         };
         let first = insert_entry_with_conn(&conn, &input).expect("first insert");
         assert!(first.inserted);
-        assert!(first.entry_id > 0);
+        assert!(first.entry_pk > 0);
 
         let second = insert_entry_with_conn(&conn, &input).expect("second insert");
         assert!(!second.inserted);
-        assert_eq!(second.entry_id, first.entry_id);
+        assert_eq!(second.entry_pk, first.entry_pk);
     }
 
     /// Deduplicates input tags before writing tags and entry_tags.
     #[test]
     fn insert_entry_tags_deduplicates_tag_inputs() {
         let conn = test_conn();
-        let feed_id = insert_feed(&conn, "feed-a");
+        let feed_pk = insert_feed(&conn, "feed-a");
         let input = EntryInput {
             entry_key: "entry-a".to_string(),
-            feed_id,
+            feed_pk,
             source_id: Some("src-a".to_string()),
             link: Some("https://example.com/a".to_string()),
             title: Some("A".to_string()),
@@ -186,7 +186,7 @@ mod tests {
             "hot".to_string(),
             "hot".to_string(),
         ];
-        insert_entry_tags_with_conn(&conn, inserted.entry_id, &tags).expect("insert tags");
+        insert_entry_tags_with_conn(&conn, inserted.entry_pk, &tags).expect("insert tags");
 
         let tag_count: i64 = conn
             .query_row(q_entries::COUNT_TAGS, [], |row| row.get(0))
@@ -195,7 +195,7 @@ mod tests {
         let entry_tag_count: i64 = conn
             .query_row(
                 q_entries::COUNT_ENTRY_TAGS_BY_ENTRY_ID,
-                params![inserted.entry_id],
+                params![inserted.entry_pk],
                 |row| row.get(0),
             )
             .expect("entry_tag count");

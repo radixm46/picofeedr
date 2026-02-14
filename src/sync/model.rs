@@ -128,7 +128,7 @@ pub(crate) struct EntryContentPlan {
     pub(crate) payload: Option<String>,
 }
 
-/// Pending entry data before feed_id resolution.
+/// Pending entry data before feed primary key resolution.
 #[derive(Debug)]
 pub(crate) struct PendingEntry {
     pub(crate) entry_key: String,
@@ -143,11 +143,11 @@ pub(crate) struct PendingEntry {
 }
 
 impl PendingEntry {
-    /// Builds an EntryInput by attaching feed_id.
-    pub(crate) fn with_feed_id(self, feed_id: i64) -> crate::db::EntryInput {
+    /// Builds an EntryInput by attaching feed primary key.
+    pub(crate) fn with_feed_pk(self, feed_pk: i64) -> crate::db::EntryInput {
         crate::db::EntryInput {
             entry_key: self.entry_key,
-            feed_id,
+            feed_pk,
             source_id: self.source_id,
             link: self.link,
             title: self.title,

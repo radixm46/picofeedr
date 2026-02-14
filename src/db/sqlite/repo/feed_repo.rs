@@ -25,8 +25,11 @@ impl<'a> FeedReadRepo<'a> {
         feeds::list_feeds_with_conn(self.conn)
     }
 
-    /// Resolves feed ids by feed keys.
-    pub fn find_feed_ids(&self, feed_keys: &[String]) -> Result<HashMap<String, i64>, AppError> {
+    /// Resolves feed primary keys by feed keys.
+    pub fn find_feed_pks_by_keys(
+        &self,
+        feed_keys: &[String],
+    ) -> Result<HashMap<String, i64>, AppError> {
         feeds::find_feed_ids_with_conn(self.conn, feed_keys)
     }
 }

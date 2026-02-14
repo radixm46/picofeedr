@@ -18,8 +18,8 @@ pub struct FeedListResponse {
 /// Feed list item for JSON output.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct FeedListItem {
-    /// Stable feed key.
-    pub feed_key: String,
+    /// Stable public feed id.
+    pub feed_id: String,
     /// Feed URL.
     pub url: String,
     /// Optional title.
@@ -43,7 +43,7 @@ pub fn render_feed_list(config: &FeedsConfig, db_feeds: &[FeedRow]) -> FeedListR
                 .map(|feed| feed.tags.clone())
                 .unwrap_or_default();
             FeedListItem {
-                feed_key: row.feed_key.clone(),
+                feed_id: row.feed_key.clone(),
                 url: row.url.clone(),
                 title: row.title.clone(),
                 site_url: row.site_url.clone(),

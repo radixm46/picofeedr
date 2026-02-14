@@ -375,11 +375,10 @@ fn render_plain(result: &CommandOutput) -> io::Result<()> {
             for feed in &feeds.feeds {
                 let title = feed.title.as_deref().unwrap_or("(untitled)");
                 let tags = format_tags(&feed.tags);
-                let feed_id = feed::feed_key_from_url(&feed.url);
                 if tags.is_empty() {
-                    writeln!(writer, "[{}] {}", feed_id, title)?;
+                    writeln!(writer, "[{}] {}", feed.feed_id, title)?;
                 } else {
-                    writeln!(writer, "[{}] {} [{}]", feed_id, title, tags)?;
+                    writeln!(writer, "[{}] {} [{}]", feed.feed_id, title, tags)?;
                 }
                 writeln!(writer, "  url: {}", feed.url)?;
                 if let Some(site_url) = &feed.site_url {
@@ -439,7 +438,11 @@ fn render_plain(result: &CommandOutput) -> io::Result<()> {
                 if tags.is_empty() {
                     writeln!(writer, "[{}] {title} ({feed_title})", entry.entry_id)?;
                 } else {
-                    writeln!(writer, "[{}] {title} ({feed_title}) [{tags}]", entry.entry_id)?;
+                    writeln!(
+                        writer,
+                        "[{}] {title} ({feed_title}) [{tags}]",
+                        entry.entry_id
+                    )?;
                 }
             }
         }

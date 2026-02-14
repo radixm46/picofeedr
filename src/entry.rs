@@ -160,8 +160,8 @@ pub fn view_entry(
             )
         })?;
 
-    let internal_ids = entry_repo.find_entry_ids_by_keys(&[entry_id.clone()])?;
-    let internal_id = internal_ids.get(&entry_id).copied().ok_or_else(|| {
+    let entry_pks = entry_repo.find_entry_ids_by_keys(&[entry_id.clone()])?;
+    let entry_pk = entry_pks.get(&entry_id).copied().ok_or_else(|| {
         AppError::entry_not_found_with_details(
             format!("Entry {entry_id} not found"),
             json!({
@@ -171,11 +171,11 @@ pub fn view_entry(
         )
     })?;
     let tags = entry_repo
-        .load_tags(&[internal_id])?
-        .remove(&internal_id)
+        .load_tags(&[entry_pk])?
+        .remove(&entry_pk)
         .unwrap_or_default();
-    let (content, content_type) = entry_repo.load_content(&config.storage.data_dir, internal_id)?;
-    let enclosures = entry_repo.load_enclosures(internal_id)?;
+    let (content, content_type) = entry_repo.load_content(&config.storage.data_dir, entry_pk)?;
+    let enclosures = entry_repo.load_enclosures(entry_pk)?;
 
     Ok(EntryDetail {
         entry_id,
@@ -220,23 +220,23 @@ pub fn mark_entries(
     let tx = store.tx()?;
     let tx_entry_repo = tx.entry_write_repo();
     tx_entry_repo.ensure_all_entry_keys_exist(&unique_ids)?;
-    let internal_ids = tx_entry_repo.find_entry_ids_by_keys(&unique_ids)?;
+    let entry_pks = tx_entry_repo.find_entry_ids_by_keys(&unique_ids)?;
     let add_ids = tx_entry_repo.ensure_tag_ids(add_tags)?;
     let remove_ids = tx_entry_repo.lookup_tag_ids(remove_tags)?;
     let mut updated = 0usize;
     for entry_id in unique_ids {
-        let Some(internal_id) = internal_ids.get(&entry_id).copied() else {
+        let Some(entry_pk) = entry_pks.get(&entry_id).copied() else {
             continue;
         };
         let mut changed = false;
         for tag_id in add_ids.values() {
-            let rows = tx_entry_repo.insert_entry_tag(internal_id, *tag_id)?;
+            let rows = tx_entry_repo.insert_entry_tag(entry_pk, *tag_id)?;
             if rows > 0 {
                 changed = true;
             }
         }
         for tag_id in remove_ids.values() {
-            let rows = tx_entry_repo.delete_entry_tag(internal_id, *tag_id)?;
+            let rows = tx_entry_repo.delete_entry_tag(entry_pk, *tag_id)?;
             if rows > 0 {
                 changed = true;
             }
@@ -327,10 +327,10 @@ fn fetch_entries(
         rows.truncate(limit);
         sort_keys.truncate(limit);
     }
-    let ids: Vec<i64> = rows.iter().map(|entry| entry.internal_id).collect();
+    let ids: Vec<i64> = rows.iter().map(|entry| entry.entry_pk).collect();
     let tags = entry_repo.load_tags(&ids)?;
     for row in &mut rows {
-        row.summary.tags = tags.get(&row.internal_id).cloned().unwrap_or_default();
+        row.summary.tags = tags.get(&row.entry_pk).cloned().unwrap_or_default();
     }
     let feeds = rows
         .iter()

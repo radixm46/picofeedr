@@ -22,7 +22,7 @@ pub struct EntryQuery {
 /// Feed filter variants.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FeedFilter {
-    /// Filter by feed id.
+    /// Filter by public feed id (opaque string).
     Id(String),
     /// Filter by feed title.
     Title(String),

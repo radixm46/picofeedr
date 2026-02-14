@@ -6,8 +6,8 @@ pub mod sqlite;
 /// Feed row as stored in the database.
 #[derive(Debug, Clone)]
 pub struct FeedRow {
-    /// Internal database ID.
-    pub id: i64,
+    /// Internal feed primary key.
+    pub feed_pk: i64,
     /// Stable feed key.
     pub feed_key: String,
     /// Feed URL.
@@ -42,8 +42,8 @@ pub struct FeedInput {
 pub struct EntryInput {
     /// Stable entry key.
     pub entry_key: String,
-    /// Feed foreign key.
-    pub feed_id: i64,
+    /// Feed foreign key (`feeds.id`).
+    pub feed_pk: i64,
     /// Source identifier from the feed.
     pub source_id: Option<String>,
     /// Link URL.
@@ -114,8 +114,8 @@ impl std::str::FromStr for EntryContentStorage {
 /// Result of inserting an entry.
 #[derive(Debug, Clone)]
 pub struct EntryInsertResult {
-    /// Entry database ID.
-    pub entry_id: i64,
+    /// Internal entry primary key.
+    pub entry_pk: i64,
     /// Whether this entry was newly inserted.
     pub inserted: bool,
 }
