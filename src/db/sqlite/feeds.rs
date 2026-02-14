@@ -49,8 +49,8 @@ pub(crate) fn upsert_feed_with_conn(
     Ok(())
 }
 
-/// Fetches feed IDs by feed_key using chunked IN queries.
-pub(crate) fn find_feed_ids_with_conn(
+/// Fetches feed primary keys by feed_key using chunked IN queries.
+pub(crate) fn find_feed_pks_by_keys_with_conn(
     conn: &Connection,
     feed_keys: &[String],
 ) -> Result<HashMap<String, i64>, AppError> {
@@ -59,32 +59,32 @@ pub(crate) fn find_feed_ids_with_conn(
     if feed_keys.is_empty() {
         return Ok(HashMap::new());
     }
-    let mut ids = HashMap::new();
+    let mut feed_pks_by_key = HashMap::new();
     for chunk in feed_keys.chunks(FEED_KEY_CHUNK_SIZE) {
         let placeholders = std::iter::repeat_n("?", chunk.len())
             .collect::<Vec<_>>()
             .join(", ");
-        let sql = q::select_feed_ids_by_keys(&placeholders);
+        let sql = q::select_feed_pks_by_keys(&placeholders);
         let mut stmt = conn.prepare(&sql)?;
         let mut rows = stmt.query(params_from_iter(chunk.iter()))?;
         while let Some(row) = rows.next()? {
             let feed_key: String = row.get(0)?;
             let id: i64 = row.get(1)?;
-            ids.insert(feed_key, id);
+            feed_pks_by_key.insert(feed_key, id);
         }
     }
-    Ok(ids)
+    Ok(feed_pks_by_key)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{find_feed_ids_with_conn, upsert_feed_with_conn};
+    use super::{find_feed_pks_by_keys_with_conn, upsert_feed_with_conn};
     use crate::db::FeedInput;
     use rusqlite::Connection;
 
     /// Resolves IDs for existing keys and skips missing keys.
     #[test]
-    fn find_feed_ids_returns_existing_keys_only() {
+    fn find_feed_pks_by_keys_returns_existing_keys_only() {
         let conn = Connection::open_in_memory().expect("in-memory sqlite");
         crate::db::migrate::migrate(&conn).expect("migrate");
         upsert_feed_with_conn(
@@ -120,9 +120,9 @@ mod tests {
             "feed-b".to_string(),
             "feed-a".to_string(),
         ];
-        let ids = find_feed_ids_with_conn(&conn, &keys).expect("find ids");
-        assert_eq!(ids.len(), 2);
-        assert!(ids.contains_key("feed-a"));
-        assert!(ids.contains_key("feed-b"));
+        let feed_pks = find_feed_pks_by_keys_with_conn(&conn, &keys).expect("find feed pks");
+        assert_eq!(feed_pks.len(), 2);
+        assert!(feed_pks.contains_key("feed-a"));
+        assert!(feed_pks.contains_key("feed-b"));
     }
 }

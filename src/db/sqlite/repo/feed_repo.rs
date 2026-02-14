@@ -4,7 +4,7 @@ use crate::config::feeds::{FeedConfig, FeedsConfig};
 use crate::db::sqlite::{feeds, tags};
 use crate::db::{FeedInput, FeedRow};
 use crate::error::AppError;
-use crate::feed::feed_key_from_url;
+use crate::feed::feed_id_from_url;
 use crate::time::current_epoch;
 use rusqlite::Connection;
 use std::collections::{HashMap, HashSet};
@@ -30,7 +30,7 @@ impl<'a> FeedReadRepo<'a> {
         &self,
         feed_keys: &[String],
     ) -> Result<HashMap<String, i64>, AppError> {
-        feeds::find_feed_ids_with_conn(self.conn, feed_keys)
+        feeds::find_feed_pks_by_keys_with_conn(self.conn, feed_keys)
     }
 }
 
@@ -80,7 +80,7 @@ impl<'a> FeedWriteRepo<'a> {
 /// Builds a FeedInput payload from a FeedConfig entry.
 fn feed_input(feed: &FeedConfig) -> FeedInput {
     FeedInput {
-        feed_key: feed_key_from_url(&feed.url),
+        feed_key: feed_id_from_url(&feed.url),
         url: feed.url.clone(),
         title: feed.title.clone(),
         author: None,

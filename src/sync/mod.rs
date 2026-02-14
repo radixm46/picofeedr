@@ -10,7 +10,7 @@ use crate::config::AppConfig;
 use crate::config::feeds::FeedsConfig;
 use crate::db::sqlite::SqliteStore;
 use crate::error::AppError;
-use crate::feed::feed_key_from_url;
+use crate::feed::feed_id_from_url;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -60,7 +60,7 @@ pub fn run_sync(
 fn build_sync_targets(feeds_config: &FeedsConfig) -> Result<Vec<SyncTarget>, AppError> {
     let mut targets = Vec::new();
     for feed in &feeds_config.feeds {
-        let feed_key = feed_key_from_url(&feed.url);
+        let feed_key = feed_id_from_url(&feed.url);
         targets.push(SyncTarget {
             feed_key,
             url: feed.url.clone(),

@@ -6,7 +6,7 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::HashMap;
 
-use super::identity::feed_key_from_url;
+use super::identity::feed_id_from_url;
 
 /// Feed list JSON response.
 #[derive(Debug, Serialize, JsonSchema)]
@@ -59,7 +59,7 @@ pub fn render_feed_list(config: &FeedsConfig, db_feeds: &[FeedRow]) -> FeedListR
 fn build_config_map(config: &FeedsConfig) -> HashMap<String, FeedConfig> {
     let mut map = HashMap::new();
     for feed in &config.feeds {
-        let feed_key = feed_key_from_url(&feed.url);
+        let feed_key = feed_id_from_url(&feed.url);
         map.insert(feed_key, feed.clone());
     }
     map

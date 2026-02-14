@@ -216,6 +216,8 @@ fn feeds_reconcile_returns_tags() {
         .and_then(|value| value.as_array())
         .expect("feeds array");
     assert_eq!(feeds.len(), 1);
+    assert!(feeds[0]["feed_id"].is_string());
+    assert!(feeds[0].get("feed_key").is_none());
     let tags = feeds[0]["tags"].as_array().expect("tags array");
     let tags: Vec<String> = tags
         .iter()

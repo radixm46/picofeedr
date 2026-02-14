@@ -17,8 +17,8 @@ ON CONFLICT(feed_key) DO UPDATE SET
    updated_at = excluded.updated_at
 "#;
 
-/// Finds feed ids by feed key for a dynamic IN list.
-pub(crate) fn select_feed_ids_by_keys(placeholders: &str) -> String {
+/// Finds feed primary keys by feed key for a dynamic IN list.
+pub(crate) fn select_feed_pks_by_keys(placeholders: &str) -> String {
     format!("SELECT feed_key, id FROM feeds WHERE feed_key IN ({placeholders})")
 }
 
