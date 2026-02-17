@@ -61,6 +61,7 @@ The loader trims surrounding whitespace from `url`.
 - `auto_tags` can be defined at the root (`picofeedr.auto_tags`) and at any nested group (`picofeedr.<group>.auto_tags`).
 - Parent `auto_tags` are inherited by descendant groups and feeds.
 - Feed-level effective rules are the merged list of inherited + local rules.
+- `title_contains` matching is case-insensitive.
 - `auto_tags` participates in validation and sync-time rule compilation.
 - Auto-tag application itself occurs during sync for newly ingested entries.
 - `priority` in auto-tag rules is optional. Default operation does not require specifying it.
