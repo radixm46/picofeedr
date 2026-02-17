@@ -4,12 +4,22 @@ use rusqlite::Error as SqlError;
 use rusqlite::ErrorCode as SqlErrorCode;
 use schemars::JsonSchema;
 use serde::Serialize;
-use serde_json::Value;
-use serde_json::json;
+use serde_json::{Map, Value};
 use std::error::Error as StdError;
 use thiserror::Error;
 
 type BoxError = Box<dyn StdError + Send + Sync>;
+/// Machine-readable error details object.
+pub type ErrorDetails = Map<String, Value>;
+
+/// Builds a details object map from key/value entries.
+pub fn error_details<I, K>(entries: I) -> ErrorDetails
+where
+    I: IntoIterator<Item = (K, Value)>,
+    K: Into<String>,
+{
+    entries.into_iter().map(|(k, v)| (k.into(), v)).collect()
+}
 
 /// Error codes exposed by the CLI.
 #[derive(Debug, Clone, Copy)]
@@ -57,7 +67,7 @@ pub enum AppError {
         /// Human-readable message.
         message: String,
         /// Optional machine-readable details.
-        details: Option<Value>,
+        details: Option<ErrorDetails>,
         /// Source error when available.
         #[source]
         source: Option<BoxError>,
@@ -68,7 +78,7 @@ pub enum AppError {
         /// Human-readable message.
         message: String,
         /// Optional machine-readable details.
-        details: Option<Value>,
+        details: Option<ErrorDetails>,
         /// Source error when available.
         #[source]
         source: Option<BoxError>,
@@ -79,7 +89,7 @@ pub enum AppError {
         /// Human-readable message.
         message: String,
         /// Optional machine-readable details.
-        details: Option<Value>,
+        details: Option<ErrorDetails>,
         /// Source error when available.
         #[source]
         source: Option<BoxError>,
@@ -90,7 +100,7 @@ pub enum AppError {
         /// Human-readable message.
         message: String,
         /// Optional machine-readable details.
-        details: Option<Value>,
+        details: Option<ErrorDetails>,
         /// Source error when available.
         #[source]
         source: Option<BoxError>,
@@ -101,7 +111,7 @@ pub enum AppError {
         /// Human-readable message.
         message: String,
         /// Optional machine-readable details.
-        details: Option<Value>,
+        details: Option<ErrorDetails>,
         /// Source error when available.
         #[source]
         source: Option<BoxError>,
@@ -112,7 +122,7 @@ pub enum AppError {
         /// Human-readable message.
         message: String,
         /// Optional machine-readable details.
-        details: Option<Value>,
+        details: Option<ErrorDetails>,
         /// Source error when available.
         #[source]
         source: Option<BoxError>,
@@ -123,7 +133,7 @@ pub enum AppError {
         /// Human-readable message.
         message: String,
         /// Optional machine-readable details.
-        details: Option<Value>,
+        details: Option<ErrorDetails>,
         /// Source error when available.
         #[source]
         source: Option<BoxError>,
@@ -134,7 +144,7 @@ pub enum AppError {
         /// Human-readable message.
         message: String,
         /// Optional machine-readable details.
-        details: Option<Value>,
+        details: Option<ErrorDetails>,
         /// Source error when available.
         #[source]
         source: Option<BoxError>,
@@ -185,7 +195,7 @@ impl AppError {
     }
 
     /// Creates a configuration error with details.
-    pub fn config_with_details(message: impl Into<String>, details: Value) -> Self {
+    pub fn config_with_details(message: impl Into<String>, details: ErrorDetails) -> Self {
         Self::Config {
             message: message.into(),
             details: Some(details),
@@ -215,7 +225,7 @@ impl AppError {
     }
 
     /// Creates an invalid query error with details.
-    pub fn invalid_query_with_details(message: impl Into<String>, details: Value) -> Self {
+    pub fn invalid_query_with_details(message: impl Into<String>, details: ErrorDetails) -> Self {
         Self::InvalidQuery {
             message: message.into(),
             details: Some(details),
@@ -224,7 +234,7 @@ impl AppError {
     }
 
     /// Creates an entry not found error with details.
-    pub fn entry_not_found_with_details(message: impl Into<String>, details: Value) -> Self {
+    pub fn entry_not_found_with_details(message: impl Into<String>, details: ErrorDetails) -> Self {
         Self::EntryNotFound {
             message: message.into(),
             details: Some(details),
@@ -298,7 +308,7 @@ impl AppError {
     /// Creates a locked database error with details and source.
     pub fn db_locked_with_details(
         message: impl Into<String>,
-        details: Value,
+        details: ErrorDetails,
         source: impl StdError + Send + Sync + 'static,
     ) -> Self {
         Self::DbLocked {
@@ -318,7 +328,7 @@ impl AppError {
     }
 
     /// Returns optional machine-readable error details.
-    pub fn details(&self) -> Option<&Value> {
+    pub fn details(&self) -> Option<&ErrorDetails> {
         match self {
             AppError::Config { details, .. }
             | AppError::InvalidQuery { details, .. }
@@ -378,10 +388,10 @@ impl From<SqlError> for AppError {
             };
             AppError::db_locked_with_details(
                 error.to_string(),
-                json!({
-                    "sqlite_code": sqlite_code,
-                    "retry_after_ms": 200
-                }),
+                error_details([
+                    ("sqlite_code", sqlite_code.into()),
+                    ("retry_after_ms", Value::from(200)),
+                ]),
                 error,
             )
         } else {
@@ -401,8 +411,7 @@ pub struct ErrorPayload {
     /// Whether the caller should retry.
     pub retryable: bool,
     /// Optional machine-readable details for error-specific branching.
-    #[schemars(with = "Option<std::collections::BTreeMap<String, serde_json::Value>>")]
-    pub details: Option<Value>,
+    pub details: Option<ErrorDetails>,
 }
 
 impl ErrorPayload {
@@ -414,5 +423,23 @@ impl ErrorPayload {
             retryable: error.retry(),
             details: error.details().cloned(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AppError;
+    use serde_json::{Map, Value};
+
+    #[test]
+    fn config_with_details_accepts_object_map() {
+        let mut details = Map::new();
+        details.insert(
+            "hint".to_string(),
+            Value::String("invalid_config".to_string()),
+        );
+        let error = AppError::config_with_details("invalid config", details.clone());
+        let extracted = error.details().expect("details");
+        assert_eq!(extracted, &details);
     }
 }

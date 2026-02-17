@@ -5,13 +5,13 @@ use crate::config::AppConfig;
 use crate::db::sqlite::SqliteStore;
 use crate::db::sqlite::query::entries as q;
 use crate::db::sqlite::repo::EntryReadRepo;
-use crate::error::AppError;
+use crate::error::{AppError, error_details};
 use crate::query::{EntryQuery, FeedFilter, TagExpr};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use rusqlite::types::Value;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::Value as JsonValue;
 use sha1::{Digest, Sha1};
 use std::collections::{BTreeMap, HashSet};
 
@@ -155,10 +155,10 @@ pub fn view_entry(
         .ok_or_else(|| {
             AppError::entry_not_found_with_details(
                 format!("Entry {entry_id} not found"),
-                json!({
-                    "resource": "entry",
-                    "entry_id": entry_id
-                }),
+                error_details([
+                    ("resource", JsonValue::from("entry")),
+                    ("entry_id", JsonValue::from(entry_id.to_string())),
+                ]),
             )
         })?;
 
@@ -166,10 +166,10 @@ pub fn view_entry(
     let entry_pk = entry_pks.get(&entry_id).copied().ok_or_else(|| {
         AppError::entry_not_found_with_details(
             format!("Entry {entry_id} not found"),
-            json!({
-                "resource": "entry",
-                "entry_id": entry_id
-            }),
+            error_details([
+                ("resource", JsonValue::from("entry")),
+                ("entry_id", JsonValue::from(entry_id.clone())),
+            ]),
         )
     })?;
     let tags = entry_repo
@@ -399,34 +399,34 @@ fn decode_cursor(raw: &str, sort: SortOrder, query_hash: &str) -> Result<Cursor,
     let bytes = URL_SAFE_NO_PAD.decode(raw.as_bytes()).map_err(|error| {
         AppError::invalid_query_with_details(
             format!("Invalid cursor: {error}"),
-            json!({
-                "kind": "invalid_cursor",
-                "field": "cursor",
-                "value": raw,
-                "hint": "base64url_decode_failed"
-            }),
+            error_details([
+                ("kind", JsonValue::from("invalid_cursor")),
+                ("field", JsonValue::from("cursor")),
+                ("value", JsonValue::from(raw.to_string())),
+                ("hint", JsonValue::from("base64url_decode_failed")),
+            ]),
         )
     })?;
     let cursor: Cursor = serde_json::from_slice(&bytes).map_err(|error| {
         AppError::invalid_query_with_details(
             format!("Invalid cursor: {error}"),
-            json!({
-                "kind": "invalid_cursor",
-                "field": "cursor",
-                "value": raw,
-                "hint": "cursor_json_decode_failed"
-            }),
+            error_details([
+                ("kind", JsonValue::from("invalid_cursor")),
+                ("field", JsonValue::from("cursor")),
+                ("value", JsonValue::from(raw.to_string())),
+                ("hint", JsonValue::from("cursor_json_decode_failed")),
+            ]),
         )
     })?;
     if cursor.sort != sort.as_str() || cursor.query_hash != query_hash {
         return Err(AppError::invalid_query_with_details(
             "Cursor does not match the current query",
-            json!({
-                "kind": "invalid_cursor",
-                "field": "cursor",
-                "value": raw,
-                "hint": "cursor_mismatch",
-            }),
+            error_details([
+                ("kind", JsonValue::from("invalid_cursor")),
+                ("field", JsonValue::from("cursor")),
+                ("value", JsonValue::from(raw.to_string())),
+                ("hint", JsonValue::from("cursor_mismatch")),
+            ]),
         ));
     }
     Ok(cursor)

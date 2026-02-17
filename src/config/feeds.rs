@@ -1,10 +1,10 @@
 //! Feeds configuration parser for feeds.yaml.
 
-use crate::error::AppError;
+use crate::error::{AppError, error_details};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
-use serde_json::json;
+use serde_json::Value as JsonValue;
 use serde_yaml_ng::Value;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -26,37 +26,37 @@ impl FeedsConfig {
         let content = fs::read_to_string(path).map_err(|error| {
             AppError::config_with_details(
                 format!("Failed to read feeds.yaml: {error}"),
-                json!({
-                    "path": path.to_string_lossy(),
-                    "hint": "failed_to_read_feeds_yaml"
-                }),
+                error_details([
+                    ("path", JsonValue::from(path.to_string_lossy().to_string())),
+                    ("hint", JsonValue::from("failed_to_read_feeds_yaml")),
+                ]),
             )
         })?;
         let root: Value = serde_yaml_ng::from_str(&content).map_err(|error| {
             AppError::config_with_details(
                 error.to_string(),
-                json!({
-                    "path": path.to_string_lossy(),
-                    "hint": "invalid_yaml"
-                }),
+                error_details([
+                    ("path", JsonValue::from(path.to_string_lossy().to_string())),
+                    ("hint", JsonValue::from("invalid_yaml")),
+                ]),
             )
         })?;
         let feeds_value = root.get("feeds").ok_or_else(|| {
             AppError::config_with_details(
                 "feeds.yaml missing top-level 'feeds'",
-                json!({
-                    "path": path.to_string_lossy(),
-                    "hint": "missing_top_level_feeds"
-                }),
+                error_details([
+                    ("path", JsonValue::from(path.to_string_lossy().to_string())),
+                    ("hint", JsonValue::from("missing_top_level_feeds")),
+                ]),
             )
         })?;
         let feeds_map = feeds_value.as_mapping().ok_or_else(|| {
             AppError::config_with_details(
                 "feeds.yaml 'feeds' must be a mapping",
-                json!({
-                    "path": path.to_string_lossy(),
-                    "hint": "feeds_must_be_mapping"
-                }),
+                error_details([
+                    ("path", JsonValue::from(path.to_string_lossy().to_string())),
+                    ("hint", JsonValue::from("feeds_must_be_mapping")),
+                ]),
             )
         })?;
         let auto_tags = parse_auto_tags(feeds_map.get(Value::String("auto_tags".to_string())))?;

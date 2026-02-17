@@ -7,7 +7,7 @@ use picofeedr::config::feeds::ConfigCheckReport;
 use picofeedr::db;
 use picofeedr::entry;
 use picofeedr::entry::{EntryDetail, EntryListResponse};
-use picofeedr::error::AppError;
+use picofeedr::error::{AppError, ErrorDetails, error_details};
 use picofeedr::feed;
 use picofeedr::feed::FeedListResponse;
 use picofeedr::query::EntryQuery;
@@ -19,7 +19,7 @@ use picofeedr::sync;
 use picofeedr::sync::SyncSummary;
 use picofeedr::tag::TagManager;
 use picofeedr::time;
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::error::Error;
@@ -276,18 +276,18 @@ fn resolve_list_limit(limit: Option<usize>, query: config::QueryConfig) -> Resul
 }
 
 /// Builds standardized details payload for limit validation failures.
-fn limit_error_details(kind: &str, value: usize, _max_limit: usize) -> Value {
+fn limit_error_details(kind: &str, value: usize, _max_limit: usize) -> ErrorDetails {
     let hint = match kind {
         "zero_or_negative" => "limit_must_be_greater_than_zero",
         "exceeds_max_limit" => "limit_exceeds_configured_max_limit",
         _ => "invalid_limit",
     };
-    json!({
-        "kind": "limit_out_of_range",
-        "field": "limit",
-        "value": value,
-        "hint": hint,
-    })
+    error_details([
+        ("kind", Value::from("limit_out_of_range")),
+        ("field", Value::from("limit")),
+        ("value", Value::from(value)),
+        ("hint", Value::from(hint)),
+    ])
 }
 
 /// Renders JSON output for a command result.

@@ -2,9 +2,9 @@
 
 pub mod feeds;
 
-use crate::error::AppError;
+use crate::error::{AppError, error_details};
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -174,19 +174,25 @@ impl AppConfig {
         let content = fs::read_to_string(&config_path).map_err(|error| {
             AppError::config_with_details(
                 format!("Failed to read config: {error}"),
-                json!({
-                    "path": config_path.to_string_lossy(),
-                    "hint": "failed_to_read_config"
-                }),
+                error_details([
+                    (
+                        "path",
+                        Value::from(config_path.to_string_lossy().to_string()),
+                    ),
+                    ("hint", Value::from("failed_to_read_config")),
+                ]),
             )
         })?;
         let raw: AppConfigRaw = toml::from_str(&content).map_err(|error| {
             AppError::config_with_details(
                 error.to_string(),
-                json!({
-                    "path": config_path.to_string_lossy(),
-                    "hint": "invalid_toml"
-                }),
+                error_details([
+                    (
+                        "path",
+                        Value::from(config_path.to_string_lossy().to_string()),
+                    ),
+                    ("hint", Value::from("invalid_toml")),
+                ]),
             )
         })?;
         let unread_tag = raw.unread_tag.unwrap_or_else(default_unread_tag);
@@ -297,28 +303,31 @@ impl QueryConfig {
         if default_limit == 0 {
             return Err(AppError::config_with_details(
                 "query.default_limit must be greater than 0",
-                json!({
-                    "path": null,
-                    "hint": "query.default_limit must be >= 1"
-                }),
+                error_details([
+                    ("path", Value::Null),
+                    ("hint", Value::from("query.default_limit must be >= 1")),
+                ]),
             ));
         }
         if max_limit == 0 {
             return Err(AppError::config_with_details(
                 "query.max_limit must be greater than 0",
-                json!({
-                    "path": null,
-                    "hint": "query.max_limit must be >= 1"
-                }),
+                error_details([
+                    ("path", Value::Null),
+                    ("hint", Value::from("query.max_limit must be >= 1")),
+                ]),
             ));
         }
         if default_limit > max_limit {
             return Err(AppError::config_with_details(
                 "query.default_limit must be less than or equal to query.max_limit",
-                json!({
-                    "path": null,
-                    "hint": "query.default_limit must be <= query.max_limit"
-                }),
+                error_details([
+                    ("path", Value::Null),
+                    (
+                        "hint",
+                        Value::from("query.default_limit must be <= query.max_limit"),
+                    ),
+                ]),
             ));
         }
         Ok(Self {
@@ -345,10 +354,10 @@ fn parse_content_store(value: Option<&str>) -> Result<ContentStore, AppError> {
         "none" => Ok(ContentStore::None),
         other => Err(AppError::config_with_details(
             format!("Invalid storage.content_store value: {other}"),
-            json!({
-                "path": null,
-                "hint": "allowed values: db|fs|none"
-            }),
+            error_details([
+                ("path", Value::Null),
+                ("hint", Value::from("allowed values: db|fs|none")),
+            ]),
         )),
     }
 }
@@ -360,10 +369,10 @@ fn parse_output_format(value: Option<&str>) -> Result<crate::cli::OutputFormat, 
         "plain" => Ok(crate::cli::OutputFormat::Plain),
         other => Err(AppError::config_with_details(
             format!("Invalid cli.output value: {other}"),
-            json!({
-                "path": null,
-                "hint": "allowed values: json|plain"
-            }),
+            error_details([
+                ("path", Value::Null),
+                ("hint", Value::from("allowed values: json|plain")),
+            ]),
         )),
     }
 }
@@ -378,10 +387,13 @@ fn parse_log_level(value: Option<&str>) -> Result<LogLevel, AppError> {
         "trace" => Ok(LogLevel::Trace),
         other => Err(AppError::config_with_details(
             format!("Invalid log.level value: {other}"),
-            json!({
-                "path": null,
-                "hint": "allowed values: error|warn|info|debug|trace"
-            }),
+            error_details([
+                ("path", Value::Null),
+                (
+                    "hint",
+                    Value::from("allowed values: error|warn|info|debug|trace"),
+                ),
+            ]),
         )),
     }
 }
