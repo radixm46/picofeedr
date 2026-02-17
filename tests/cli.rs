@@ -732,6 +732,248 @@ auto_tags:
     assert_eq!(hot_data["total_count"], 0);
 }
 
+/// Ensures subgroup auto_tags apply only to descendant feeds.
+#[test]
+fn subgroup_auto_tags_apply_only_to_descendants() {
+    let temp = TempDir::new().expect("tempdir");
+    let config_path = temp.path().join("config.toml");
+    let feeds_path = temp.path().join("feeds.yaml");
+    let db_path = temp.path().join("db.sqlite");
+    write_config_with_feeds_source(&config_path, &db_path, &feeds_path);
+
+    let feed_a = temp.path().join("a.xml");
+    let feed_b = temp.path().join("b.xml");
+    fs::write(&feed_a, sample_feed_xml("steam-a", "Steam Weekly")).expect("write feed a");
+    fs::write(&feed_b, sample_feed_xml("steam-b", "Steam Weekly")).expect("write feed b");
+
+    let feeds = format!(
+        r#"feeds:
+  tech:
+    auto_tags:
+      - title_contains: [Steam]
+        add_tags: [sale]
+    feeds:
+      - url: file://{}
+  news:
+    feeds:
+      - url: file://{}
+"#,
+        feed_a.display(),
+        feed_b.display()
+    );
+    fs::write(&feeds_path, feeds).expect("write feeds");
+
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(config_path.display().to_string())
+        .arg("--storage-root")
+        .arg(db_root(db_path.to_str().expect("db path")))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let sale_data = list_query_json(
+        config_path.to_str().expect("config path"),
+        db_path.to_str().expect("db path"),
+        "tag:sale",
+    );
+    assert_eq!(sale_data["total_count"], 1);
+}
+
+/// Ensures parent and child auto_tags are both applied.
+#[test]
+fn parent_and_child_auto_tags_are_both_applied() {
+    let temp = TempDir::new().expect("tempdir");
+    let config_path = temp.path().join("config.toml");
+    let feeds_path = temp.path().join("feeds.yaml");
+    let db_path = temp.path().join("db.sqlite");
+    write_config_with_feeds_source(&config_path, &db_path, &feeds_path);
+
+    let feed = temp.path().join("combo.xml");
+    fs::write(&feed, sample_feed_xml("combo", "Steam Digest")).expect("write feed");
+    let feeds = format!(
+        r#"feeds:
+  parent:
+    auto_tags:
+      - title_contains: [Digest]
+        add_tags: [parent]
+    child:
+      auto_tags:
+        - title_contains: [Steam]
+          add_tags: [child]
+      feeds:
+        - url: file://{}
+"#,
+        feed.display()
+    );
+    fs::write(&feeds_path, feeds).expect("write feeds");
+
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(config_path.display().to_string())
+        .arg("--storage-root")
+        .arg(db_root(db_path.to_str().expect("db path")))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let parent_data = list_query_json(
+        config_path.to_str().expect("config path"),
+        db_path.to_str().expect("db path"),
+        "tag:parent",
+    );
+    assert_eq!(parent_data["total_count"], 1);
+    let child_data = list_query_json(
+        config_path.to_str().expect("config path"),
+        db_path.to_str().expect("db path"),
+        "tag:child",
+    );
+    assert_eq!(child_data["total_count"], 1);
+}
+
+/// Ensures sibling groups are not affected by subgroup auto_tags.
+#[test]
+fn sibling_group_not_affected_by_subgroup_auto_tags() {
+    let temp = TempDir::new().expect("tempdir");
+    let config_path = temp.path().join("config.toml");
+    let feeds_path = temp.path().join("feeds.yaml");
+    let db_path = temp.path().join("db.sqlite");
+    write_config_with_feeds_source(&config_path, &db_path, &feeds_path);
+
+    let tech_feed = temp.path().join("tech.xml");
+    let sibling_feed = temp.path().join("sibling.xml");
+    fs::write(&tech_feed, sample_feed_xml("tech", "Steam Weekly")).expect("write tech feed");
+    fs::write(&sibling_feed, sample_feed_xml("sibling", "Steam Weekly"))
+        .expect("write sibling feed");
+
+    let feeds = format!(
+        r#"feeds:
+  parent:
+    tech:
+      auto_tags:
+        - title_contains: [Steam]
+          add_tags: [sale]
+      feeds:
+        - url: file://{}
+    sibling:
+      feeds:
+        - url: file://{}
+"#,
+        tech_feed.display(),
+        sibling_feed.display()
+    );
+    fs::write(&feeds_path, feeds).expect("write feeds");
+
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(config_path.display().to_string())
+        .arg("--storage-root")
+        .arg(db_root(db_path.to_str().expect("db path")))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let sale_data = list_query_json(
+        config_path.to_str().expect("config path"),
+        db_path.to_str().expect("db path"),
+        "tag:sale",
+    );
+    assert_eq!(sale_data["total_count"], 1);
+}
+
+/// Ensures duplicate tags from multiple matching rules are deduplicated.
+#[test]
+fn duplicate_tags_from_multiple_matching_rules_are_deduped() {
+    let temp = TempDir::new().expect("tempdir");
+    let config_path = temp.path().join("config.toml");
+    let feeds_path = temp.path().join("feeds.yaml");
+    let db_path = temp.path().join("db.sqlite");
+    write_config_with_feeds_source(&config_path, &db_path, &feeds_path);
+
+    let feed = temp.path().join("dup.xml");
+    fs::write(&feed, sample_feed_xml("dup", "Steam Digest")).expect("write feed");
+    let feeds = format!(
+        r#"feeds:
+  root:
+    auto_tags:
+      - title_contains: [Steam]
+        add_tags: [dup]
+    child:
+      auto_tags:
+        - title_contains: [Digest]
+          add_tags: [dup]
+      feeds:
+        - url: file://{}
+"#,
+        feed.display()
+    );
+    fs::write(&feeds_path, feeds).expect("write feeds");
+
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(config_path.display().to_string())
+        .arg("--storage-root")
+        .arg(db_root(db_path.to_str().expect("db path")))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let dup_data = list_query_json(
+        config_path.to_str().expect("config path"),
+        db_path.to_str().expect("db path"),
+        "tag:dup",
+    );
+    assert_eq!(dup_data["total_count"], 1);
+    let item = dup_data["items"]
+        .as_array()
+        .expect("items")
+        .first()
+        .expect("first item");
+    let dup_count = item["tags"]
+        .as_array()
+        .expect("tags")
+        .iter()
+        .filter(|tag| tag.as_str() == Some("dup"))
+        .count();
+    assert_eq!(dup_count, 1);
+}
+
+/// Ensures config check reports nested auto_tag rule path.
+#[test]
+fn config_check_reports_invalid_nested_auto_tag_rule_path() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_fixture_files(&temp);
+    let feeds = r#"feeds:
+  group:
+    auto_tags:
+      - title_contains: [Steam]
+        add_tags: []
+"#;
+    fs::write(&paths.feeds_path, feeds).expect("rewrite feeds");
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("feeds")
+        .arg("--config-check")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    let data = extract_ok_data(&output);
+    let errors = data["errors"].as_array().expect("errors");
+    assert!(
+        errors
+            .iter()
+            .any(|issue| issue["path"] == "feeds.group.auto_tags[0].add_tags"),
+        "expected nested auto_tags path"
+    );
+}
+
 /// Ensures sync writes content to filesystem storage.
 #[test]
 fn sync_writes_content_to_fs_store() {
@@ -2040,6 +2282,28 @@ fn collect_item_ids(data: &serde_json::Value) -> Vec<String> {
                 .to_string()
         })
         .collect()
+}
+
+/// Builds a simple RSS feed body with one item.
+fn sample_feed_xml(guid: &str, title: &str) -> String {
+    format!(
+        r#"<?xml version="1.0"?>
+<rss version="2.0">
+  <channel>
+    <title>Example Feed</title>
+    <link>https://example.com</link>
+    <description>Example Feed</description>
+    <item>
+      <title>{title}</title>
+      <link>https://example.com/{guid}</link>
+      <guid>{guid}</guid>
+      <pubDate>Mon, 01 Jan 2024 00:00:00 GMT</pubDate>
+      <description>Hello world</description>
+    </item>
+  </channel>
+</rss>
+"#
+    )
 }
 
 /// Runs picofeedr with stdout closed to simulate downstream early exit.

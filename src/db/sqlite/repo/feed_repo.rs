@@ -62,6 +62,11 @@ impl<'a> FeedWriteRepo<'a> {
         for rule in &config.auto_tags {
             all_tags.extend(rule.add_tags.iter().cloned());
         }
+        for feed in &config.feeds {
+            for rule in &feed.auto_tags {
+                all_tags.extend(rule.add_tags.iter().cloned());
+            }
+        }
         all_tags.push(unread_tag.to_string());
         let mut seen = HashSet::new();
         for tag in all_tags {

@@ -5,6 +5,8 @@ use crate::error::AppError;
 use schemars::JsonSchema;
 use serde::Serialize;
 
+use super::autotag::CompiledRule;
+
 /// Sync result summary.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct SyncSummary {
@@ -102,6 +104,7 @@ pub(crate) struct SyncTarget {
     pub(crate) feed_id: String,
     pub(crate) url: String,
     pub(crate) tags: Vec<String>,
+    pub(crate) auto_tag_rules: Vec<CompiledRule>,
 }
 
 /// Parsed feed result from fetch workers.

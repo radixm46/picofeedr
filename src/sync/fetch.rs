@@ -5,11 +5,9 @@ use crate::error::AppError;
 use crossbeam_channel::{Receiver, Sender, select, unbounded};
 use std::fs;
 use std::io::{Cursor, Read};
-use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use super::autotag::CompiledRule;
 use super::model::{SyncError, SyncResult, SyncTarget, WorkerResult};
 use super::normalize::normalize_entry;
 
@@ -17,7 +15,6 @@ use super::normalize::normalize_entry;
 pub(crate) fn fetch_parallel(
     targets: &[SyncTarget],
     config: &AppConfig,
-    rules: Arc<Vec<CompiledRule>>,
 ) -> Result<(Vec<SyncResult>, Vec<SyncError>), AppError> {
     let workers = config.sync.parallel.max(1);
     let (job_tx, job_rx) = unbounded::<SyncTarget>();
@@ -30,8 +27,7 @@ pub(crate) fn fetch_parallel(
         let cancel_rx = cancel_rx.clone();
         let tx = result_tx.clone();
         let config = config.clone();
-        let rules = Arc::clone(&rules);
-        let handle = thread::spawn(move || worker_loop(job_rx, cancel_rx, tx, &config, &rules));
+        let handle = thread::spawn(move || worker_loop(job_rx, cancel_rx, tx, &config));
         handles.push(handle);
     }
 
@@ -80,14 +76,13 @@ fn worker_loop(
     cancel_rx: Receiver<()>,
     result_tx: Sender<WorkerResult>,
     config: &AppConfig,
-    rules: &[CompiledRule],
 ) {
     loop {
         select! {
             recv(cancel_rx) -> _ => break,
             recv(job_rx) -> job => match job {
                 Ok(target) => {
-                    let result = fetch_and_parse(&target, config, rules);
+                    let result = fetch_and_parse(&target, config);
                     let _ = result_tx.send(result);
                 }
                 Err(_) => break,
@@ -97,11 +92,7 @@ fn worker_loop(
 }
 
 /// Fetches a single feed and parses entries.
-fn fetch_and_parse(
-    target: &SyncTarget,
-    config: &AppConfig,
-    rules: &[CompiledRule],
-) -> WorkerResult {
+fn fetch_and_parse(target: &SyncTarget, config: &AppConfig) -> WorkerResult {
     let bytes = match fetch_feed_bytes(&target.url, &config.sync) {
         Ok(bytes) => bytes,
         Err(error) => return WorkerResult::Error(SyncError::fetch(&target.url, error.to_string())),
@@ -113,7 +104,7 @@ fn fetch_and_parse(
     let entries = match feed
         .entries
         .iter()
-        .map(|entry| normalize_entry(entry, target, rules, config))
+        .map(|entry| normalize_entry(entry, target, config))
         .collect::<Result<Vec<_>, _>>()
     {
         Ok(entries) => entries,

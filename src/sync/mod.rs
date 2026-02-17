@@ -11,7 +11,6 @@ use crate::config::feeds::FeedsConfig;
 use crate::db::sqlite::SqliteStore;
 use crate::error::AppError;
 use crate::feed::feed_id_from_url;
-use std::sync::Arc;
 use std::time::Instant;
 
 pub use model::{SyncStatus, SyncSummary};
@@ -27,9 +26,8 @@ pub fn run_sync(
     feeds_config: &FeedsConfig,
 ) -> Result<SyncSummary, AppError> {
     let start = Instant::now();
-    let compiled_rules = Arc::new(compile_auto_tags(&feeds_config.auto_tags)?);
     let targets = build_sync_targets(feeds_config)?;
-    let (results, errors) = fetch_parallel(&targets, config, Arc::clone(&compiled_rules))?;
+    let (results, errors) = fetch_parallel(&targets, config)?;
 
     let tx = store.tx()?;
     tx.feed_write_repo()
@@ -65,6 +63,7 @@ fn build_sync_targets(feeds_config: &FeedsConfig) -> Result<Vec<SyncTarget>, App
             feed_id,
             url: feed.url.clone(),
             tags: feed.tags.clone(),
+            auto_tag_rules: compile_auto_tags(&feed.auto_tags)?,
         });
     }
     Ok(targets)

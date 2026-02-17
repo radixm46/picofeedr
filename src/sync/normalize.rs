@@ -6,7 +6,7 @@ use crate::identity::EntryIdentity;
 use crate::time::current_epoch;
 use std::collections::HashSet;
 
-use super::autotag::{CompiledRule, match_auto_tags};
+use super::autotag::match_auto_tags;
 use super::content::{build_entry_content, select_content};
 use super::model::{PendingEntry, SyncEntry, SyncTarget};
 
@@ -14,7 +14,6 @@ use super::model::{PendingEntry, SyncEntry, SyncTarget};
 pub(crate) fn normalize_entry(
     entry: &feed_rs::model::Entry,
     target: &SyncTarget,
-    rules: &[CompiledRule],
     config: &AppConfig,
 ) -> Result<SyncEntry, AppError> {
     let link = entry.links.first().map(|link| link.href.clone());
@@ -32,7 +31,7 @@ pub(crate) fn normalize_entry(
     let mut tags = Vec::new();
     tags.extend(target.tags.iter().cloned());
     let title_value = title.clone().unwrap_or_default();
-    tags.extend(match_auto_tags(&title_value, rules));
+    tags.extend(match_auto_tags(&title_value, &target.auto_tag_rules));
     tags.push(config.unread_tag.clone());
     let tags = dedupe_tags(tags);
 

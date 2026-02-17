@@ -68,9 +68,15 @@ feeds:
 
   tech:
     tags: [tech]
+    auto_tags:
+      - title_contains: [release]
+        add_tags: [release-note]
     programming:
       tags: [programming]
       rust:
+        auto_tags:
+          - title_contains: [unsafe]
+            add_tags: [rust-unsafe]
         tags: [rust]
         feeds:
           - url: https://blog.rust-lang.org/feed.xml
@@ -105,7 +111,11 @@ feeds:
 
 ### A9.1 ルール定義
 
-`auto_tags` は `feeds.auto_tags` に定義するのだ。
+`auto_tags` は `feeds.auto_tags` だけでなく、任意のグループ配下にも定義できるのだ。
+
+親グループの `auto_tags` は子グループ・配下 feed に継承されるのだ。
+
+ある feed に適用される `auto_tags` は「親から継承されたルール + 同一/子グループで追加されたルール」の合成結果なのだ。
 
 `priority` は任意項目なのだ。通常運用では指定しなくてもよく、未指定時は既定値（0）として扱うのだ。
 

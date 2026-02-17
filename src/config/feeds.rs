@@ -18,6 +18,8 @@ pub struct FeedsConfig {
     pub feeds: Vec<FeedConfig>,
     /// Auto-tag rules defined in feeds.yaml.
     pub auto_tags: Vec<AutoTagRule>,
+    /// Auto-tag rules with logical paths for validation reporting.
+    auto_tag_rules: Vec<ScopedAutoTagRule>,
 }
 
 impl FeedsConfig {
@@ -60,9 +62,22 @@ impl FeedsConfig {
             )
         })?;
         let auto_tags = parse_auto_tags(feeds_map.get(Value::String("auto_tags".to_string())))?;
+        let mut auto_tag_rules = Vec::new();
+        append_scoped_rules("feeds.auto_tags", &auto_tags, &mut auto_tag_rules);
         let mut feeds = Vec::new();
-        flatten_groups(feeds_value, &[], "feeds", &mut feeds)?;
-        Ok(Self { feeds, auto_tags })
+        flatten_groups(
+            feeds_value,
+            &[],
+            &auto_tags,
+            "feeds",
+            &mut feeds,
+            &mut auto_tag_rules,
+        )?;
+        Ok(Self {
+            feeds,
+            auto_tags,
+            auto_tag_rules,
+        })
     }
 
     /// Returns a unique list of all tags used by feeds.yaml.
@@ -120,19 +135,19 @@ impl FeedsConfig {
             }
         }
 
-        for (index, rule) in self.auto_tags.iter().enumerate() {
-            if rule.add_tags.is_empty() {
+        for scoped in &self.auto_tag_rules {
+            if scoped.rule.add_tags.is_empty() {
                 errors.push(ValidationIssue {
                     code: "INVALID_AUTO_TAG_RULE".to_string(),
                     message: "auto tag rule requires at least one add_tags value".to_string(),
-                    path: Some(format!("feeds.auto_tags[{index}].add_tags")),
+                    path: Some(format!("{}.add_tags", scoped.path)),
                 });
             }
-            if rule.title_regex.is_none() && rule.title_contains.is_none() {
+            if scoped.rule.title_regex.is_none() && scoped.rule.title_contains.is_none() {
                 errors.push(ValidationIssue {
                     code: "INVALID_AUTO_TAG_RULE".to_string(),
                     message: "auto tag rule requires title_regex or title_contains".to_string(),
-                    path: Some(format!("feeds.auto_tags[{index}]")),
+                    path: Some(scoped.path.clone()),
                 });
             }
         }
@@ -159,6 +174,8 @@ pub struct FeedConfig {
     pub path: String,
     /// Feed-level tags before deduplication.
     pub declared_tags: Vec<String>,
+    /// Effective auto-tag rules inherited for this feed.
+    pub auto_tags: Vec<AutoTagRule>,
 }
 
 /// Auto-tag rule definition from feeds.yaml.
@@ -172,6 +189,15 @@ pub struct AutoTagRule {
     pub add_tags: Vec<String>,
     /// Priority for rule ordering.
     pub priority: Option<i64>,
+}
+
+/// Auto-tag rule scoped with a logical path.
+#[derive(Debug, Clone)]
+struct ScopedAutoTagRule {
+    /// Logical path for diagnostics.
+    path: String,
+    /// Auto-tag rule payload.
+    rule: AutoTagRule,
 }
 
 /// Static validation issue for feeds config check.
@@ -213,8 +239,10 @@ fn parse_auto_tags(value: Option<&Value>) -> Result<Vec<AutoTagRule>, AppError> 
 fn flatten_groups(
     value: &Value,
     inherited: &[String],
+    inherited_auto_tags: &[AutoTagRule],
     current_path: &str,
     out: &mut Vec<FeedConfig>,
+    auto_tag_rules: &mut Vec<ScopedAutoTagRule>,
 ) -> Result<(), AppError> {
     let map = value
         .as_mapping()
@@ -227,7 +255,14 @@ fn flatten_groups(
             .as_str()
             .ok_or_else(|| AppError::config("feeds group key must be a string"))?;
         let group_path = format!("{current_path}.{key}");
-        flatten_group(group, inherited, &group_path, out)?;
+        flatten_group(
+            group,
+            inherited,
+            inherited_auto_tags,
+            &group_path,
+            out,
+            auto_tag_rules,
+        )?;
     }
     Ok(())
 }
@@ -236,8 +271,10 @@ fn flatten_groups(
 fn flatten_group(
     value: &Value,
     inherited: &[String],
+    inherited_auto_tags: &[AutoTagRule],
     current_path: &str,
     out: &mut Vec<FeedConfig>,
+    auto_tag_rules: &mut Vec<ScopedAutoTagRule>,
 ) -> Result<(), AppError> {
     let map = value
         .as_mapping()
@@ -248,7 +285,14 @@ fn flatten_group(
         .map(parse_tag_list)
         .transpose()?
         .unwrap_or_default();
+    let group_auto_tags = parse_auto_tags(map.get(Value::String("auto_tags".to_string())))?;
+    append_scoped_rules(
+        &format!("{current_path}.auto_tags"),
+        &group_auto_tags,
+        auto_tag_rules,
+    );
     let merged_tags = merge_tags(inherited, &group_tags);
+    let merged_auto_tags = merge_auto_tags(inherited_auto_tags, &group_auto_tags);
 
     if let Some(feeds_value) = map.get(Value::String("feeds".to_string())) {
         let feeds_seq = feeds_value
@@ -279,19 +323,28 @@ fn flatten_group(
                 tags,
                 path: format!("{current_path}.feeds[{index}]"),
                 declared_tags: feed_tags,
+                auto_tags: merged_auto_tags.clone(),
             });
         }
     }
 
     for (key, value) in map {
-        if matches!(key, Value::String(name) if name == "tags" || name == "feeds") {
+        if matches!(key, Value::String(name) if name == "tags" || name == "feeds" || name == "auto_tags")
+        {
             continue;
         }
         let key = key
             .as_str()
             .ok_or_else(|| AppError::config("feeds group key must be a string"))?;
         let nested_path = format!("{current_path}.{key}");
-        flatten_group(value, &merged_tags, &nested_path, out)?;
+        flatten_group(
+            value,
+            &merged_tags,
+            &merged_auto_tags,
+            &nested_path,
+            out,
+            auto_tag_rules,
+        )?;
     }
     Ok(())
 }
@@ -318,6 +371,24 @@ fn merge_tags(base: &[String], extra: &[String]) -> Vec<String> {
         }
     }
     merged
+}
+
+/// Merges inherited and local auto-tag rules while preserving order.
+fn merge_auto_tags(base: &[AutoTagRule], extra: &[AutoTagRule]) -> Vec<AutoTagRule> {
+    let mut merged = Vec::with_capacity(base.len() + extra.len());
+    merged.extend(base.iter().cloned());
+    merged.extend(extra.iter().cloned());
+    merged
+}
+
+/// Appends scoped auto-tag rules for validation reporting.
+fn append_scoped_rules(path_prefix: &str, rules: &[AutoTagRule], out: &mut Vec<ScopedAutoTagRule>) {
+    for (index, rule) in rules.iter().enumerate() {
+        out.push(ScopedAutoTagRule {
+            path: format!("{path_prefix}[{index}]"),
+            rule: rule.clone(),
+        });
+    }
 }
 
 /// Returns duplicated values while preserving first-seen order.

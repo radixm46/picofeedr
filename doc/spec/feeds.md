@@ -30,6 +30,7 @@ At the root of `feeds`:
 Each feed group is a YAML mapping. Within a group:
 
 - `tags`: optional list of strings inherited by descendants
+- `auto_tags`: optional list of auto-tag rules inherited by descendants
 - `feeds`: optional list of feed entries
 - any other key: treated as a nested child group
 
@@ -55,7 +56,9 @@ The loader trims surrounding whitespace from `url`.
 
 ## Auto Tags
 
-- `auto_tags` is parsed from `feeds.auto_tags`.
+- `auto_tags` can be defined at the root (`feeds.auto_tags`) and at any nested group (`feeds.<group>.auto_tags`).
+- Parent `auto_tags` are inherited by descendant groups and feeds.
+- Feed-level effective rules are the merged list of inherited + local rules.
 - `auto_tags` participates in validation and sync-time rule compilation.
 - Auto-tag application itself occurs during sync for newly ingested entries.
 - `priority` in auto-tag rules is optional. Default operation does not require specifying it.
