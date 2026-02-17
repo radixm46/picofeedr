@@ -4,7 +4,9 @@ use picofeedr::config::feeds::ConfigCheckReport;
 use picofeedr::entry::{EntryDetail, EntryListResponse};
 use picofeedr::error::ErrorPayload;
 use picofeedr::feed::FeedListResponse;
-use picofeedr::response::{Envelope, ResponseMeta};
+use picofeedr::response::{
+    Envelope, MarkResult, PingResult, PingStatus, ResponseMeta, TagsResult, VersionResult,
+};
 use picofeedr::status::StatusResponse;
 use picofeedr::sync::SyncSummary;
 use schemars::JsonSchema;
@@ -13,46 +15,6 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use std::fs;
 use std::path::Path;
-
-/// Ping status fixed literal.
-#[derive(Debug, Serialize, JsonSchema)]
-enum PingStatus {
-    /// Fixed status string.
-    #[serde(rename = "ok")]
-    Ok,
-}
-
-/// Ping payload.
-#[derive(Debug, Serialize, JsonSchema)]
-struct PingResult {
-    /// Fixed heartbeat status.
-    status: PingStatus,
-}
-
-/// Version payload.
-#[derive(Debug, Serialize, JsonSchema)]
-struct VersionResult {
-    /// CLI API version.
-    api_version: String,
-    /// SQLite schema version.
-    db_schema_version: i64,
-    /// Build channel label.
-    build: String,
-}
-
-/// Tags payload.
-#[derive(Debug, Serialize, JsonSchema)]
-struct TagsResult {
-    /// Known tag dictionary.
-    tags: Vec<String>,
-}
-
-/// Mark payload.
-#[derive(Debug, Serialize, JsonSchema)]
-struct MarkResult {
-    /// Number of entries updated by mark command.
-    updated_entry_count: usize,
-}
 
 /// Fatal-only envelope schema.
 #[derive(Debug, Serialize, JsonSchema)]

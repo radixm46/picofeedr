@@ -11,7 +11,9 @@ use picofeedr::error::AppError;
 use picofeedr::feed;
 use picofeedr::feed::FeedListResponse;
 use picofeedr::query::EntryQuery;
-use picofeedr::response::{Envelope, ResponseStatus};
+use picofeedr::response::{
+    Envelope, MarkResult, PingResult, ResponseStatus, TagsResult, VersionResult,
+};
 use picofeedr::status::StatusResponse;
 use picofeedr::sync;
 use picofeedr::sync::SyncSummary;
@@ -104,8 +106,7 @@ fn main() -> ExitCode {
                 maybe_print_diagnostics(&cli, &error);
                 match output {
                     OutputFormat::Json => {
-                        match print_json_or_fallback(&Envelope::<serde_json::Value>::fatal(&error))
-                        {
+                        match print_json_or_fallback(&Envelope::<()>::fatal(&error)) {
                             Ok(()) => {}
                             Err(write_error) => return handle_output_error(&cli, write_error),
                         }
@@ -123,8 +124,7 @@ fn main() -> ExitCode {
                 maybe_print_diagnostics(&cli, &error);
                 match output {
                     OutputFormat::Json => {
-                        match print_json_or_fallback(&Envelope::<serde_json::Value>::fatal(&error))
-                        {
+                        match print_json_or_fallback(&Envelope::<()>::fatal(&error)) {
                             Ok(()) => {}
                             Err(write_error) => return handle_output_error(&cli, write_error),
                         }
@@ -153,21 +153,19 @@ fn run_config_check(cli: &Cli, output: OutputFormat) -> Result<ExitCode, RunFail
     let config = load_config(cli)?;
     let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
     let report = feeds_config.validate();
+    let is_valid = report.valid;
     match output {
         OutputFormat::Json => {
-            let status = if report.valid {
+            let status = if is_valid {
                 ResponseStatus::Ok
             } else {
                 ResponseStatus::Warning
             };
-            print_json_or_fallback(&Envelope::ok_with_status(
-                serde_json::to_value(&report)?,
-                status,
-            ))?;
+            print_json_or_fallback(&Envelope::ok_with_status(report, status))?;
         }
         OutputFormat::Plain => render_config_check_plain(&report)?,
     }
-    Ok(if report.valid {
+    Ok(if is_valid {
         ExitCode::SUCCESS
     } else {
         ExitCode::from(1)
@@ -294,36 +292,50 @@ fn limit_error_details(kind: &str, value: usize, _max_limit: usize) -> Value {
 
 /// Renders JSON output for a command result.
 fn render_json(result: &CommandOutput) -> Result<(), RunFailure> {
-    let status = match result {
-        CommandOutput::Sync { summary }
-            if !matches!(summary.status, sync::SyncStatus::Completed) =>
-        {
-            ResponseStatus::Warning
-        }
-        _ => ResponseStatus::Ok,
-    };
-    let data = match result {
-        CommandOutput::Ping => json!({ "status": "ok" }),
+    fn print_success<T: serde::Serialize>(
+        data: T,
+        status: ResponseStatus,
+    ) -> Result<(), RunFailure> {
+        print_json_or_fallback(&Envelope::ok_with_status(data, status))?;
+        Ok(())
+    }
+
+    match result {
+        CommandOutput::Ping => print_success(PingResult::ok(), ResponseStatus::Ok),
         CommandOutput::Version {
             api_version,
             db_schema_version,
             build,
-        } => json!({
-            "api_version": api_version,
-            "db_schema_version": db_schema_version,
-            "build": build,
-        }),
-        CommandOutput::Tags { tags } => json!({ "tags": tags }),
-        CommandOutput::Status { status } => serde_json::to_value(status)?,
-        CommandOutput::FeedsList { feeds } => serde_json::to_value(feeds)?,
-        CommandOutput::Sync { summary } => serde_json::to_value(summary)?,
-        CommandOutput::List { list } => serde_json::to_value(list)?,
-        CommandOutput::View { detail } => serde_json::to_value(detail)?,
-        CommandOutput::Mark { updated } => json!({ "updated_entry_count": updated }),
-    };
-
-    print_json_or_fallback(&Envelope::ok_with_status(data, status))?;
-    Ok(())
+        } => print_success(
+            VersionResult {
+                api_version: (*api_version).to_string(),
+                db_schema_version: *db_schema_version,
+                build: (*build).to_string(),
+            },
+            ResponseStatus::Ok,
+        ),
+        CommandOutput::Tags { tags } => {
+            print_success(TagsResult { tags: tags.clone() }, ResponseStatus::Ok)
+        }
+        CommandOutput::Status { status } => print_success(status, ResponseStatus::Ok),
+        CommandOutput::FeedsList { feeds } => print_success(feeds, ResponseStatus::Ok),
+        CommandOutput::Sync { summary } => {
+            let envelope_status = if matches!(summary.status, sync::SyncStatus::Completed) {
+                ResponseStatus::Ok
+            } else {
+                ResponseStatus::Warning
+            };
+            print_success(summary, envelope_status)
+        }
+        CommandOutput::List { list } => print_success(list, ResponseStatus::Ok),
+        CommandOutput::View { detail } => print_success(detail, ResponseStatus::Ok),
+        CommandOutput::Mark { updated } => print_success(
+            MarkResult {
+                updated_entry_count: *updated,
+            },
+            ResponseStatus::Ok,
+        ),
+    }
 }
 
 /// Renders human-readable output for a command result.
@@ -571,7 +583,7 @@ fn handle_cli_parse_error(args: &[OsString], error: clap::Error) -> ExitCode {
                 OutputFormat::Json => {
                     let app_error = AppError::config(error.to_string());
                     if let Err(write_error) =
-                        print_json_or_fallback(&Envelope::<serde_json::Value>::fatal(&app_error))
+                        print_json_or_fallback(&Envelope::<()>::fatal(&app_error))
                     {
                         if is_broken_pipe_error(&write_error) {
                             return ExitCode::SUCCESS;
