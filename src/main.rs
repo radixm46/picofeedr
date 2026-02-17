@@ -140,7 +140,11 @@ fn main() -> ExitCode {
 
 /// Executes the CLI command and prints a JSON response.
 fn run(cli: &Cli, output: OutputFormat) -> Result<(), RunFailure> {
-    let result = execute_command(cli)?;
+    let result = if matches!((&cli.command, output), (Command::Sync, OutputFormat::Plain)) {
+        execute_sync_command_plain(cli)?
+    } else {
+        execute_command(cli)?
+    };
     match output {
         OutputFormat::Json => render_json(&result)?,
         OutputFormat::Plain => render_plain(&result)?,
@@ -222,14 +226,7 @@ fn execute_command(cli: &Cli) -> Result<CommandOutput, AppError> {
                     store.bump_revision(time::current_epoch())?;
                     Ok(CommandOutput::FeedsList { feeds })
                 }
-                Command::Sync => {
-                    let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
-                    let summary = sync::run_sync(&mut store, &config, &feeds_config)?;
-                    let now = time::current_epoch();
-                    store.bump_revision(now)?;
-                    store.update_sync(now, summary.status.as_str())?;
-                    Ok(CommandOutput::Sync { summary })
-                }
+                Command::Sync => execute_sync_with_store(&config, &mut store),
                 Command::List {
                     query,
                     sort,
@@ -255,6 +252,59 @@ fn execute_command(cli: &Cli) -> Result<CommandOutput, AppError> {
             }
         }
     }
+}
+
+/// Executes sync command using the shared store path without progress rendering.
+fn execute_sync_with_store(
+    config: &config::AppConfig,
+    store: &mut db::sqlite::SqliteStore,
+) -> Result<CommandOutput, AppError> {
+    let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
+    let summary = sync::run_sync(store, config, &feeds_config)?;
+    let now = time::current_epoch();
+    store.bump_revision(now)?;
+    store.update_sync(now, summary.status.as_str())?;
+    Ok(CommandOutput::Sync { summary })
+}
+
+/// Executes sync command and streams plain progress lines to stdout.
+fn execute_sync_command_plain(cli: &Cli) -> Result<CommandOutput, RunFailure> {
+    let config = load_config(cli)?;
+    debug!(
+        db_path = ?config.database.path,
+        feeds_path = ?config.feeds.source,
+        "loaded configuration"
+    );
+    let mut store = db::sqlite::SqliteStore::open(&config.database.path)?;
+    store.migrate()?;
+    let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
+
+    let stdout = io::stdout();
+    let mut writer = io::BufWriter::new(stdout.lock());
+    let mut write_error: Option<io::Error> = None;
+    let mut on_progress = |event: sync::SyncProgressEvent| {
+        if write_error.is_some() {
+            return;
+        }
+        if let Err(error) = render_sync_progress_line(&mut writer, &event) {
+            write_error = Some(error);
+            return;
+        }
+        if let Err(error) = writer.flush() {
+            write_error = Some(error);
+        }
+    };
+
+    let summary =
+        sync::run_sync_with_progress(&mut store, &config, &feeds_config, Some(&mut on_progress))?;
+    if let Some(error) = write_error {
+        return Err(RunFailure::Io(error));
+    }
+
+    let now = time::current_epoch();
+    store.bump_revision(now)?;
+    store.update_sync(now, summary.status.as_str())?;
+    Ok(CommandOutput::Sync { summary })
 }
 
 /// Resolves the effective list limit from CLI argument and query config.
@@ -488,6 +538,46 @@ fn render_plain(result: &CommandOutput) -> io::Result<()> {
     }
     writer.flush()?;
     Ok(())
+}
+
+/// Renders one sync progress event as a plain output line.
+fn render_sync_progress_line<W: Write>(
+    writer: &mut W,
+    event: &sync::SyncProgressEvent,
+) -> io::Result<()> {
+    match event {
+        sync::SyncProgressEvent::Start { total_feeds } => {
+            writeln!(writer, "sync:start total_feeds={total_feeds}")
+        }
+        sync::SyncProgressEvent::FeedStart {
+            index,
+            total_feeds,
+            url,
+        } => writeln!(
+            writer,
+            "sync:feed start index={index}/{total_feeds} url={url}"
+        ),
+        sync::SyncProgressEvent::FeedOk {
+            index,
+            total_feeds,
+            url,
+            entries,
+        } => writeln!(
+            writer,
+            "sync:feed ok index={index}/{total_feeds} url={url} entries={entries}"
+        ),
+        sync::SyncProgressEvent::FeedError {
+            index,
+            total_feeds,
+            url,
+            code,
+            retryable,
+        } => writeln!(
+            writer,
+            "sync:feed error index={index}/{total_feeds} url={url} code={} retryable={retryable}",
+            code.as_str()
+        ),
+    }
 }
 
 /// Renders human-readable output for feeds config validation.

@@ -76,6 +76,34 @@ impl SyncErrorCode {
     }
 }
 
+/// Sync progress event for interactive plain output.
+#[derive(Debug, Clone)]
+pub enum SyncProgressEvent {
+    /// Sync execution started with the total feed count.
+    Start { total_feeds: usize },
+    /// A feed started processing.
+    FeedStart {
+        index: usize,
+        total_feeds: usize,
+        url: String,
+    },
+    /// A feed finished successfully.
+    FeedOk {
+        index: usize,
+        total_feeds: usize,
+        url: String,
+        entries: usize,
+    },
+    /// A feed failed with a non-fatal sync error.
+    FeedError {
+        index: usize,
+        total_feeds: usize,
+        url: String,
+        code: SyncErrorCode,
+        retryable: bool,
+    },
+}
+
 impl SyncError {
     /// Builds a fetch error entry.
     pub(crate) fn fetch(feed_url: &str, message: String) -> Self {
@@ -105,6 +133,8 @@ pub(crate) struct SyncTarget {
     pub(crate) url: String,
     pub(crate) tags: Vec<String>,
     pub(crate) auto_tag_rules: Vec<CompiledRule>,
+    pub(crate) index: usize,
+    pub(crate) total_feeds: usize,
 }
 
 /// Parsed feed result from fetch workers.
@@ -166,10 +196,26 @@ impl PendingEntry {
 /// Worker result returned from fetch threads.
 #[derive(Debug)]
 pub(crate) enum WorkerResult {
+    /// Feed processing started.
+    Started {
+        index: usize,
+        total_feeds: usize,
+        url: String,
+    },
     /// Parsed feed result.
-    Ok(SyncResult),
+    Ok {
+        index: usize,
+        total_feeds: usize,
+        url: String,
+        result: SyncResult,
+    },
     /// Non-fatal sync error for a feed.
-    Error(SyncError),
+    Error {
+        index: usize,
+        total_feeds: usize,
+        url: String,
+        error: SyncError,
+    },
     /// Fatal error that should abort sync.
     Fatal(AppError),
 }

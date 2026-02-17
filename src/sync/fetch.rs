@@ -8,13 +8,14 @@ use std::io::{Cursor, Read};
 use std::thread;
 use std::time::Duration;
 
-use super::model::{SyncError, SyncResult, SyncTarget, WorkerResult};
+use super::model::{SyncError, SyncProgressEvent, SyncResult, SyncTarget, WorkerResult};
 use super::normalize::normalize_entry;
 
 /// Fetches and parses feeds in parallel.
 pub(crate) fn fetch_parallel(
     targets: &[SyncTarget],
     config: &AppConfig,
+    mut on_progress: Option<&mut dyn FnMut(SyncProgressEvent)>,
 ) -> Result<(Vec<SyncResult>, Vec<SyncError>), AppError> {
     let workers = config.sync.parallel.max(1);
     let (job_tx, job_rx) = unbounded::<SyncTarget>();
@@ -48,8 +49,52 @@ pub(crate) fn fetch_parallel(
             Err(_) => break,
         };
         match result {
-            WorkerResult::Ok(parsed) => results.push(parsed),
-            WorkerResult::Error(error) => errors.push(error),
+            WorkerResult::Started {
+                index,
+                total_feeds,
+                url,
+            } => {
+                if let Some(progress) = on_progress.as_mut() {
+                    progress(SyncProgressEvent::FeedStart {
+                        index,
+                        total_feeds,
+                        url,
+                    });
+                }
+            }
+            WorkerResult::Ok {
+                index,
+                total_feeds,
+                url,
+                result,
+            } => {
+                if let Some(progress) = on_progress.as_mut() {
+                    progress(SyncProgressEvent::FeedOk {
+                        index,
+                        total_feeds,
+                        url,
+                        entries: result.entries.len(),
+                    });
+                }
+                results.push(result);
+            }
+            WorkerResult::Error {
+                index,
+                total_feeds,
+                url,
+                error,
+            } => {
+                if let Some(progress) = on_progress.as_mut() {
+                    progress(SyncProgressEvent::FeedError {
+                        index,
+                        total_feeds,
+                        url,
+                        code: error.code,
+                        retryable: error.retryable,
+                    });
+                }
+                errors.push(error);
+            }
             WorkerResult::Fatal(error) => {
                 fatal = Some(error);
                 drop(cancel_tx);
@@ -82,6 +127,11 @@ fn worker_loop(
             recv(cancel_rx) -> _ => break,
             recv(job_rx) -> job => match job {
                 Ok(target) => {
+                    let _ = result_tx.send(WorkerResult::Started {
+                        index: target.index,
+                        total_feeds: target.total_feeds,
+                        url: target.url.clone(),
+                    });
                     let result = fetch_and_parse(&target, config);
                     let _ = result_tx.send(result);
                 }
@@ -95,11 +145,25 @@ fn worker_loop(
 fn fetch_and_parse(target: &SyncTarget, config: &AppConfig) -> WorkerResult {
     let bytes = match fetch_feed_bytes(&target.url, &config.sync) {
         Ok(bytes) => bytes,
-        Err(error) => return WorkerResult::Error(SyncError::fetch(&target.url, error.to_string())),
+        Err(error) => {
+            return WorkerResult::Error {
+                index: target.index,
+                total_feeds: target.total_feeds,
+                url: target.url.clone(),
+                error: SyncError::fetch(&target.url, error.to_string()),
+            };
+        }
     };
     let feed = match feed_rs::parser::parse(Cursor::new(bytes)) {
         Ok(feed) => feed,
-        Err(error) => return WorkerResult::Error(SyncError::parse(&target.url, error.to_string())),
+        Err(error) => {
+            return WorkerResult::Error {
+                index: target.index,
+                total_feeds: target.total_feeds,
+                url: target.url.clone(),
+                error: SyncError::parse(&target.url, error.to_string()),
+            };
+        }
     };
     let entries = match feed
         .entries
@@ -110,7 +174,12 @@ fn fetch_and_parse(target: &SyncTarget, config: &AppConfig) -> WorkerResult {
         Ok(entries) => entries,
         Err(error) => return WorkerResult::Fatal(error),
     };
-    WorkerResult::Ok(SyncResult { entries })
+    WorkerResult::Ok {
+        index: target.index,
+        total_feeds: target.total_feeds,
+        url: target.url.clone(),
+        result: SyncResult { entries },
+    }
 }
 
 /// Fetches raw feed bytes with retry support.

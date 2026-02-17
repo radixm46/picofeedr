@@ -13,7 +13,7 @@ use crate::error::AppError;
 use crate::feed::feed_id_from_url;
 use std::time::Instant;
 
-pub use model::{SyncStatus, SyncSummary};
+pub use model::{SyncProgressEvent, SyncStatus, SyncSummary};
 
 use autotag::compile_auto_tags;
 use fetch::fetch_parallel;
@@ -25,9 +25,24 @@ pub fn run_sync(
     config: &AppConfig,
     feeds_config: &FeedsConfig,
 ) -> Result<SyncSummary, AppError> {
+    run_sync_with_progress(store, config, feeds_config, None)
+}
+
+/// Runs a sync for all feeds in config and emits feed-level progress events.
+pub fn run_sync_with_progress(
+    store: &mut SqliteStore,
+    config: &AppConfig,
+    feeds_config: &FeedsConfig,
+    mut on_progress: Option<&mut dyn FnMut(SyncProgressEvent)>,
+) -> Result<SyncSummary, AppError> {
     let start = Instant::now();
     let targets = build_sync_targets(feeds_config)?;
-    let (results, errors) = fetch_parallel(&targets, config)?;
+    if let Some(progress) = on_progress.as_mut() {
+        progress(SyncProgressEvent::Start {
+            total_feeds: targets.len(),
+        });
+    }
+    let (results, errors) = fetch_parallel(&targets, config, on_progress)?;
 
     let tx = store.tx()?;
     tx.feed_write_repo()
@@ -57,13 +72,16 @@ pub fn run_sync(
 /// Builds sync targets from feeds configuration.
 fn build_sync_targets(feeds_config: &FeedsConfig) -> Result<Vec<SyncTarget>, AppError> {
     let mut targets = Vec::new();
-    for feed in &feeds_config.feeds {
+    let total_feeds = feeds_config.feeds.len();
+    for (offset, feed) in feeds_config.feeds.iter().enumerate() {
         let feed_id = feed_id_from_url(&feed.url);
         targets.push(SyncTarget {
             feed_id,
             url: feed.url.clone(),
             tags: feed.tags.clone(),
             auto_tag_rules: compile_auto_tags(&feed.auto_tags)?,
+            index: offset + 1,
+            total_feeds,
         });
     }
     Ok(targets)

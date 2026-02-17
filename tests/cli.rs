@@ -697,6 +697,33 @@ fn sync_ingests_entries_and_tags() {
     assert_eq!(hot_data["total_count"], 1);
 }
 
+/// Ensures sync plain output streams feed progress and final summary for successful sync.
+#[test]
+fn sync_plain_shows_feed_level_progress_and_final_summary() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+
+    let output = picofeedr_cmd_plain()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let output_str = String::from_utf8_lossy(&output);
+    assert!(output_str.contains("sync:start total_feeds=1"));
+    assert!(output_str.contains("sync:feed start index=1/1 url=file://"));
+    assert!(output_str.contains("sync:feed ok index=1/1 url=file://"));
+    assert!(output_str.contains("entries=2"));
+    assert!(output_str.contains("status: completed"));
+    assert!(output_str.contains("fetched_feed_count: 1 failed_feed_count: 0 new_entry_count: 2"));
+}
+
 /// Ensures legacy top-level auto_tags are ignored without warnings.
 #[test]
 fn sync_ignores_legacy_top_level_auto_tags() {
@@ -1070,6 +1097,34 @@ fn sync_reports_partial_failed() {
     assert_eq!(errors[0]["code"], "PARSE_FAILED");
 }
 
+/// Ensures sync plain output reports progress and feed-level error details for partial failures.
+#[test]
+fn sync_plain_reports_partial_failed_with_feed_error_lines() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_failure_fixture_files(&temp);
+
+    let output = picofeedr_cmd_plain()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let output_str = String::from_utf8_lossy(&output);
+    assert!(output_str.contains("sync:start total_feeds=2"));
+    assert!(output_str.contains("sync:feed start index=1/2 url=file://"));
+    assert!(output_str.contains("sync:feed start index=2/2 url=file://"));
+    assert!(output_str.contains("sync:feed ok index=1/2 url=file://"));
+    assert!(output_str.contains("sync:feed error index=2/2 url=file://"));
+    assert!(output_str.contains("code=PARSE_FAILED retryable=false"));
+    assert!(output_str.contains("status: partial_failed"));
+}
+
 /// Ensures sync reports failed when all feeds fail.
 #[test]
 fn sync_reports_failed_when_all_feeds_fail() {
@@ -1095,6 +1150,33 @@ fn sync_reports_failed_when_all_feeds_fail() {
     assert_eq!(data["failed_feed_count"], 1);
     let errors = data["errors"].as_array().expect("errors array");
     assert_eq!(errors.len(), 1);
+}
+
+/// Ensures sync plain output reports feed-level error details when all feeds fail.
+#[test]
+fn sync_plain_reports_failed_with_feed_error_lines() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_all_failed_fixture_files(&temp);
+
+    let output = picofeedr_cmd_plain()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let output_str = String::from_utf8_lossy(&output);
+    assert!(output_str.contains("sync:start total_feeds=1"));
+    assert!(output_str.contains("sync:feed start index=1/1 url=file://"));
+    assert!(output_str.contains("sync:feed error index=1/1 url=file://"));
+    assert!(output_str.contains("code=PARSE_FAILED retryable=false"));
+    assert!(output_str.contains("status: failed"));
+    assert!(output_str.contains("errors: 1"));
 }
 
 /// Ensures list returns paginated results with tag filters.

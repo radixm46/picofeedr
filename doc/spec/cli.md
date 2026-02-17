@@ -85,6 +85,17 @@ picofeedr sync
 { "feed_url": "<url>", "code": "FETCH_FAILED|PARSE_FAILED", "message": "<string>", "retryable": <bool> }
 ```
 
+`--output plain` では、`sync` 実行中に feed 単位の進捗を逐次出力するのだ。
+
+```text
+sync:start total_feeds=<N>
+sync:feed start index=<i>/<N> url=<feed_url>
+sync:feed ok index=<i>/<N> url=<feed_url> entries=<k>
+sync:feed error index=<i>/<N> url=<feed_url> code=<FETCH_FAILED|PARSE_FAILED> retryable=<true|false>
+```
+
+進捗行の後に、従来どおり最終サマリ（`status` / 件数 / `errors`）を出力するのだ。
+
 ### A6.4 DB状態メタデータ（軽量）
 
 ```
