@@ -43,33 +43,32 @@ impl FeedsConfig {
                 ]),
             )
         })?;
-        let feeds_value = root.get("feeds").ok_or_else(|| {
+        let feeds_value = root.get("picofeedr").ok_or_else(|| {
             AppError::config_with_details(
-                "feeds.yaml missing top-level 'feeds'",
+                "feeds.yaml missing top-level 'picofeedr'",
                 error_details([
                     ("path", JsonValue::from(path.to_string_lossy().to_string())),
-                    ("hint", JsonValue::from("missing_top_level_feeds")),
+                    ("hint", JsonValue::from("missing_top_level_picofeedr")),
                 ]),
             )
         })?;
         let feeds_map = feeds_value.as_mapping().ok_or_else(|| {
             AppError::config_with_details(
-                "feeds.yaml 'feeds' must be a mapping",
+                "feeds.yaml 'picofeedr' must be a mapping",
                 error_details([
                     ("path", JsonValue::from(path.to_string_lossy().to_string())),
-                    ("hint", JsonValue::from("feeds_must_be_mapping")),
+                    ("hint", JsonValue::from("picofeedr_must_be_mapping")),
                 ]),
             )
         })?;
         let auto_tags = parse_auto_tags(feeds_map.get(Value::String("auto_tags".to_string())))?;
         let mut auto_tag_rules = Vec::new();
-        append_scoped_rules("feeds.auto_tags", &auto_tags, &mut auto_tag_rules);
         let mut feeds = Vec::new();
-        flatten_groups(
+        flatten_group(
             feeds_value,
             &[],
-            &auto_tags,
-            "feeds",
+            &[],
+            "picofeedr",
             &mut feeds,
             &mut auto_tag_rules,
         )?;
@@ -233,38 +232,6 @@ fn parse_auto_tags(value: Option<&Value>) -> Result<Vec<AutoTagRule>, AppError> 
             Ok(rules)
         }
     }
-}
-
-/// Flattens nested feed groups into a list of feed configs.
-fn flatten_groups(
-    value: &Value,
-    inherited: &[String],
-    inherited_auto_tags: &[AutoTagRule],
-    current_path: &str,
-    out: &mut Vec<FeedConfig>,
-    auto_tag_rules: &mut Vec<ScopedAutoTagRule>,
-) -> Result<(), AppError> {
-    let map = value
-        .as_mapping()
-        .ok_or_else(|| AppError::config("feeds.yaml 'feeds' must be a mapping"))?;
-    for (key, group) in map {
-        if matches!(key, Value::String(name) if current_path == "feeds" && name == "auto_tags") {
-            continue;
-        }
-        let key = key
-            .as_str()
-            .ok_or_else(|| AppError::config("feeds group key must be a string"))?;
-        let group_path = format!("{current_path}.{key}");
-        flatten_group(
-            group,
-            inherited,
-            inherited_auto_tags,
-            &group_path,
-            out,
-            auto_tag_rules,
-        )?;
-    }
-    Ok(())
 }
 
 /// Flattens a single group node with inherited tags.

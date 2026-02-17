@@ -12,19 +12,21 @@ It intentionally captures current contracts before introducing behavior changes.
 
 ## Top-Level Contract
 
-- `feeds` is required.
-- `feeds` must be a YAML mapping.
-- Top-level keys other than `feeds` are ignored by the loader.
+- `picofeedr` is required.
+- `picofeedr` must be a YAML mapping.
+- Top-level keys other than `picofeedr` are ignored by the loader.
 
-If top-level `feeds` is missing, loading fails with a configuration error.
+If top-level `picofeedr` is missing, loading fails with a configuration error.
 
 ## Feed Tree Model
 
-The value under top-level `feeds` is a nested group tree.
+The value under top-level `picofeedr` is a nested group tree.
 
-At the root of `feeds`:
+At the root group (`picofeedr`):
 
+- `tags`: optional list of strings inherited by descendants
 - `auto_tags`: optional list of auto-tag rules
+- `feeds`: optional list of feed entries
 - any other key: treated as a feed group name
 
 Each feed group is a YAML mapping. Within a group:
@@ -56,7 +58,7 @@ The loader trims surrounding whitespace from `url`.
 
 ## Auto Tags
 
-- `auto_tags` can be defined at the root (`feeds.auto_tags`) and at any nested group (`feeds.<group>.auto_tags`).
+- `auto_tags` can be defined at the root (`picofeedr.auto_tags`) and at any nested group (`picofeedr.<group>.auto_tags`).
 - Parent `auto_tags` are inherited by descendant groups and feeds.
 - Feed-level effective rules are the merged list of inherited + local rules.
 - `auto_tags` participates in validation and sync-time rule compilation.

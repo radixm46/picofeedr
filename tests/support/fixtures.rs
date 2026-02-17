@@ -166,7 +166,7 @@ impl SyncFixtureBuilder {
 
         let feed_url = format!("file://{}", feed_path.display());
         let feeds = format!(
-            r#"feeds:
+            r#"picofeedr:
   auto_tags:
     - title_contains: [First]
       add_tags: [hot]
@@ -213,7 +213,7 @@ impl SyncFixtureBuilder {
 
         let feed_url = format!("file://{}", feed_path.display());
         let feeds = format!(
-            r#"feeds:
+            r#"picofeedr:
   tech:
     tags: [tech]
     feeds:
@@ -253,7 +253,7 @@ root_dir = "{}"
         temp.path().display()
     );
 
-    let feeds = r#"feeds:
+    let feeds = r#"picofeedr:
   tech:
     tags: [tech]
     rust:
@@ -328,7 +328,7 @@ pub fn write_sync_failure_fixture_files(temp: &TempDir) -> SyncFixturePaths {
     let feed_ok_url = format!("file://{}", feed_ok_path.display());
     let feed_bad_url = format!("file://{}", feed_bad_path.display());
     let feeds = format!(
-        r#"feeds:
+        r#"picofeedr:
   tech:
     tags: [tech]
     feeds:
@@ -368,7 +368,7 @@ pub fn write_sync_all_failed_fixture_files(temp: &TempDir) -> SyncFixturePaths {
 
     let feed_bad_url = format!("file://{}", feed_bad_path.display());
     let feeds = format!(
-        r#"feeds:
+        r#"picofeedr:
   tech:
     tags: [tech]
     feeds:

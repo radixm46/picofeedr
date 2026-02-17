@@ -1,0 +1,37 @@
+picofeedr:
+  auto_tags:
+    - title_contains: [security, cve]
+      add_tags: [security-alert]
+      priority: 10
+    - title_regex: "(?i)release\\s+notes?"
+      add_tags: [release-note]
+
+  news:
+    tags: [news]
+    feeds:
+      - title: Daily Bulletin
+        url: https://feeds.example.invalid/news/daily.xml
+      - title: World Wire
+        url: https://feeds.example.invalid/news/world.xml
+
+  tech:
+    tags: [tech]
+    auto_tags:
+      - title_contains: [rust]
+        add_tags: [rust]
+    feeds:
+      - title: Platform Blog
+        url: https://feeds.example.invalid/tech/platform.xml
+    security:
+      tags: [security]
+      feeds:
+        - title: Incident Reports
+          url: https://feeds.example.invalid/tech/security/incidents.xml
+    dev:
+      tags: [dev]
+      auto_tags:
+        - title_contains: [benchmark]
+          add_tags: [perf]
+      feeds:
+        - title: Compiler Notes
+          url: https://feeds.example.invalid/tech/dev/compiler.xml

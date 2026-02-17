@@ -63,7 +63,7 @@ fn config_check_returns_validation_report() {
 fn config_check_fails_on_duplicate_url() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_fixture_files(&temp);
-    let feeds = r#"feeds:
+    let feeds = r#"picofeedr:
   group:
     feeds:
       - url: https://example.com/feed
@@ -103,7 +103,7 @@ fn config_check_fails_on_duplicate_url() {
 fn config_check_fails_on_empty_url() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_fixture_files(&temp);
-    let feeds = r#"feeds:
+    let feeds = r#"picofeedr:
   group:
     feeds:
       - url: ""
@@ -163,7 +163,7 @@ fn config_check_does_not_require_db() {
 fn config_check_ignores_unknown_top_level_keys() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_fixture_files(&temp);
-    let feeds = r#"feeds:
+    let feeds = r#"picofeedr:
   group:
     feeds:
       - url: https://example.com/feed
@@ -392,7 +392,7 @@ fn fatal_config_cases_are_enveloped() {
             setup: fatal_case_invalid_feeds_yaml,
         },
         FatalEnvelopeCase {
-            name: "feeds yaml without feeds key",
+            name: "feeds yaml without picofeedr key",
             setup: fatal_case_missing_top_level_feeds_key,
         },
         FatalEnvelopeCase {
@@ -479,7 +479,7 @@ fn fatal_case_invalid_feeds_yaml(temp: &TempDir) -> FatalEnvelopeInputs {
     let feeds_path = temp.path().join("feeds.yaml");
     let db_path = temp.path().join("db.sqlite");
     write_config_with_feeds_source(&config_path, &db_path, &feeds_path);
-    fs::write(&feeds_path, "feeds: [").expect("write feeds");
+    fs::write(&feeds_path, "picofeedr: [").expect("write feeds");
     FatalEnvelopeInputs {
         config_path: config_path.display().to_string(),
         db_path: Some(db_path.display().to_string()),
@@ -487,7 +487,7 @@ fn fatal_case_invalid_feeds_yaml(temp: &TempDir) -> FatalEnvelopeInputs {
     }
 }
 
-/// Creates inputs for the missing `feeds` top-level key fatal-envelope case.
+/// Creates inputs for the missing `picofeedr` top-level key fatal-envelope case.
 fn fatal_case_missing_top_level_feeds_key(temp: &TempDir) -> FatalEnvelopeInputs {
     let config_path = temp.path().join("config.toml");
     let feeds_path = temp.path().join("feeds.yaml");
@@ -522,7 +522,7 @@ output = "bogus"
         temp.path().display()
     );
     fs::write(&config_path, config).expect("write config");
-    fs::write(feeds_path, "feeds: {}").expect("write feeds");
+    fs::write(feeds_path, "picofeedr: {}").expect("write feeds");
     FatalEnvelopeInputs {
         config_path: config_path.display().to_string(),
         db_path: Some(db_path.display().to_string()),
@@ -705,7 +705,7 @@ fn sync_ignores_legacy_top_level_auto_tags() {
     let feed_path = temp.path().join("feed.xml");
     let feed_url = format!("file://{}", feed_path.display());
     let feeds = format!(
-        r#"feeds:
+        r#"picofeedr:
   tech:
     tags: [tech]
     feeds:
@@ -747,7 +747,7 @@ fn subgroup_auto_tags_apply_only_to_descendants() {
     fs::write(&feed_b, sample_feed_xml("steam-b", "Steam Weekly")).expect("write feed b");
 
     let feeds = format!(
-        r#"feeds:
+        r#"picofeedr:
   tech:
     auto_tags:
       - title_contains: [Steam]
@@ -792,7 +792,7 @@ fn parent_and_child_auto_tags_are_both_applied() {
     let feed = temp.path().join("combo.xml");
     fs::write(&feed, sample_feed_xml("combo", "Steam Digest")).expect("write feed");
     let feeds = format!(
-        r#"feeds:
+        r#"picofeedr:
   parent:
     auto_tags:
       - title_contains: [Digest]
@@ -847,7 +847,7 @@ fn sibling_group_not_affected_by_subgroup_auto_tags() {
         .expect("write sibling feed");
 
     let feeds = format!(
-        r#"feeds:
+        r#"picofeedr:
   parent:
     tech:
       auto_tags:
@@ -893,7 +893,7 @@ fn duplicate_tags_from_multiple_matching_rules_are_deduped() {
     let feed = temp.path().join("dup.xml");
     fs::write(&feed, sample_feed_xml("dup", "Steam Digest")).expect("write feed");
     let feeds = format!(
-        r#"feeds:
+        r#"picofeedr:
   root:
     auto_tags:
       - title_contains: [Steam]
@@ -943,7 +943,7 @@ fn duplicate_tags_from_multiple_matching_rules_are_deduped() {
 fn config_check_reports_invalid_nested_auto_tag_rule_path() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_fixture_files(&temp);
-    let feeds = r#"feeds:
+    let feeds = r#"picofeedr:
   group:
     auto_tags:
       - title_contains: [Steam]
@@ -969,7 +969,7 @@ fn config_check_reports_invalid_nested_auto_tag_rule_path() {
     assert!(
         errors
             .iter()
-            .any(|issue| issue["path"] == "feeds.group.auto_tags[0].add_tags"),
+            .any(|issue| issue["path"] == "picofeedr.group.auto_tags[0].add_tags"),
         "expected nested auto_tags path"
     );
 }

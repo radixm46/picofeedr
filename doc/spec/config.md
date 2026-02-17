@@ -59,7 +59,7 @@ level = "info"            # error | warn | info | debug | trace（主にstderr�
 ```
 # ~/.config/picofeedr/feeds.yaml
 
-feeds:
+picofeedr:
   auto_tags:
     - title_regex: '(?i)CVE-\d{4}-\d+'
       add_tags: [cve, security-alert]
@@ -105,13 +105,13 @@ feeds:
 
 * 親グループのタグは子グループに継承される
 * 例：`tech.programming.rust` のフィードは `[tech, programming, rust]` タグを持つ
-* トップレベルは `feeds` のみを解釈し、それ以外のキーは無視する
+* トップレベルは `picofeedr` のみを解釈し、それ以外のキーは無視する
 
 ## A9. 自動タグ（feeds.yaml）
 
 ### A9.1 ルール定義
 
-`auto_tags` は `feeds.auto_tags` だけでなく、任意のグループ配下にも定義できるのだ。
+`auto_tags` は `picofeedr.auto_tags` だけでなく、任意のグループ配下にも定義できるのだ。
 
 親グループの `auto_tags` は子グループ・配下 feed に継承されるのだ。
 

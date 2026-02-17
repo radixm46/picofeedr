@@ -14,6 +14,7 @@
 - `doc/spec/overview.md`：ゴール、実行形態（CLI/RPC）
 - `doc/spec/config.md`：`config.toml` / `feeds.yaml`（自動タグ含む）
 - `doc/spec/feeds.md`：`feeds.yaml` の読み込み仕様（現行実装準拠）
+- `doc/spec/feeds.sample.yaml`：架空URLで書いた `feeds.yaml` サンプル
 - `doc/spec/db.md`：DB設計方針と運用想定
 - `doc/spec/api-naming.md`：JSON命名規約と型安定ルール
 - `doc/spec/cli.md`：CLIコマンドとJSON入出力
