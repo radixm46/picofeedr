@@ -162,7 +162,7 @@ pub fn view_entry(
             )
         })?;
 
-    let entry_pks = entry_repo.find_entry_pks_by_ids(&[entry_id.clone()])?;
+    let entry_pks = entry_repo.find_entry_pks_by_ids(std::slice::from_ref(&entry_id))?;
     let entry_pk = entry_pks.get(&entry_id).copied().ok_or_else(|| {
         AppError::entry_not_found_with_details(
             format!("Entry {entry_id} not found"),
