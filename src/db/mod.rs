@@ -8,8 +8,8 @@ pub mod sqlite;
 pub struct FeedRow {
     /// Internal feed primary key.
     pub feed_pk: i64,
-    /// Stable feed key.
-    pub feed_key: String,
+    /// Stable feed id.
+    pub feed_id: String,
     /// Feed URL.
     pub url: String,
     /// Optional title.
@@ -23,8 +23,8 @@ pub struct FeedRow {
 /// Feed input for upserts.
 #[derive(Debug, Clone)]
 pub struct FeedInput {
-    /// Stable feed key.
-    pub feed_key: String,
+    /// Stable feed id.
+    pub feed_id: String,
     /// Feed URL.
     pub url: String,
     /// Optional title.
@@ -40,8 +40,8 @@ pub struct FeedInput {
 /// Entry insert payload for the database.
 #[derive(Debug, Clone)]
 pub struct EntryInput {
-    /// Stable entry key.
-    pub entry_key: String,
+    /// Stable entry id.
+    pub entry_id: String,
     /// Feed foreign key (`feeds.id`).
     pub feed_pk: i64,
     /// Source identifier from the feed.

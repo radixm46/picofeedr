@@ -27,7 +27,7 @@
   - 例: 不正cursor -> `{ "kind": "invalid_cursor", "field": "cursor", "value": "not-a-cursor", "hint": "base64url_decode_failed" }`
 
 - `ENTRY_NOT_FOUND`
-  - shape: `{ "resource": "entry", "entry_id": <int> }`
+  - shape: `{ "resource": "entry", "entry_id": <string> }`
 
 - `CONFIG_ERROR`
   - shape: `{ "path": "<path|null>", "hint": "<hint|null>" }`

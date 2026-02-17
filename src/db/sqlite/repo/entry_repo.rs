@@ -44,35 +44,35 @@ impl<'a> EntryReadRepo<'a> {
         Self { conn }
     }
 
-    /// Resolves internal entry ids keyed by stable entry key.
-    pub fn find_entry_ids_by_keys(
+    /// Resolves internal entry primary keys keyed by stable entry id.
+    pub fn find_entry_pks_by_ids(
         &self,
-        entry_keys: &[String],
+        entry_ids: &[String],
     ) -> Result<HashMap<String, i64>, AppError> {
-        const ENTRY_KEY_CHUNK_SIZE: usize = 500;
+        const ENTRY_ID_CHUNK_SIZE: usize = 500;
 
         let mut ids = HashMap::new();
-        for chunk in entry_keys.chunks(ENTRY_KEY_CHUNK_SIZE) {
+        for chunk in entry_ids.chunks(ENTRY_ID_CHUNK_SIZE) {
             let placeholders = std::iter::repeat_n("?", chunk.len())
                 .collect::<Vec<_>>()
                 .join(", ");
-            let sql = q::select_entry_ids_by_keys(&placeholders);
+            let sql = q::select_entry_pks_by_ids(&placeholders);
             let mut stmt = self.conn.prepare(&sql)?;
             let mut rows = stmt.query(params_from_iter(chunk.iter()))?;
             while let Some(row) = rows.next()? {
                 let id: i64 = row.get(0)?;
-                let key: String = row.get(1)?;
-                ids.insert(key, id);
+                let entry_id: String = row.get(1)?;
+                ids.insert(entry_id, id);
             }
         }
         Ok(ids)
     }
 
-    /// Ensures all requested entry keys exist.
-    pub fn ensure_all_entry_keys_exist(&self, entry_keys: &[String]) -> Result<(), AppError> {
-        let existing = self.find_entry_ids_by_keys(entry_keys)?;
-        for entry_key in entry_keys {
-            if !existing.contains_key(entry_key) {
+    /// Ensures all requested entry ids exist.
+    pub fn ensure_all_entry_ids_exist(&self, entry_ids: &[String]) -> Result<(), AppError> {
+        let existing = self.find_entry_pks_by_ids(entry_ids)?;
+        for entry_id in entry_ids {
+            if !existing.contains_key(entry_id) {
                 return Err(AppError::entry_not_found("some entries not found"));
             }
         }
@@ -133,17 +133,17 @@ impl<'a> EntryReadRepo<'a> {
         Ok((entries, sort_keys))
     }
 
-    /// Loads tags grouped by entry id.
-    pub fn load_tags(&self, entry_ids: &[i64]) -> Result<HashMap<i64, Vec<String>>, AppError> {
-        if entry_ids.is_empty() {
+    /// Loads tags grouped by entry primary key.
+    pub fn load_tags(&self, entry_pks: &[i64]) -> Result<HashMap<i64, Vec<String>>, AppError> {
+        if entry_pks.is_empty() {
             return Ok(HashMap::new());
         }
-        let placeholders = std::iter::repeat_n("?", entry_ids.len())
+        let placeholders = std::iter::repeat_n("?", entry_pks.len())
             .collect::<Vec<_>>()
             .join(",");
         let sql = q::load_tags_by_entry_ids(&placeholders);
         let mut stmt = self.conn.prepare(&sql)?;
-        let mut rows = stmt.query(params_from_iter(entry_ids.iter()))?;
+        let mut rows = stmt.query(params_from_iter(entry_pks.iter()))?;
         let mut tags: HashMap<i64, Vec<String>> = HashMap::new();
         while let Some(row) = rows.next()? {
             let entry_pk: i64 = row.get(0)?;
@@ -243,17 +243,17 @@ impl<'a> EntryWriteRepo<'a> {
         Self { conn }
     }
 
-    /// Resolves internal entry ids keyed by stable entry key.
-    pub fn find_entry_ids_by_keys(
+    /// Resolves internal entry primary keys keyed by stable entry id.
+    pub fn find_entry_pks_by_ids(
         &self,
-        entry_keys: &[String],
+        entry_ids: &[String],
     ) -> Result<HashMap<String, i64>, AppError> {
-        EntryReadRepo::new(self.conn).find_entry_ids_by_keys(entry_keys)
+        EntryReadRepo::new(self.conn).find_entry_pks_by_ids(entry_ids)
     }
 
-    /// Ensures all requested entry keys exist.
-    pub fn ensure_all_entry_keys_exist(&self, entry_keys: &[String]) -> Result<(), AppError> {
-        EntryReadRepo::new(self.conn).ensure_all_entry_keys_exist(entry_keys)
+    /// Ensures all requested entry ids exist.
+    pub fn ensure_all_entry_ids_exist(&self, entry_ids: &[String]) -> Result<(), AppError> {
+        EntryReadRepo::new(self.conn).ensure_all_entry_ids_exist(entry_ids)
     }
 
     /// Ensures and resolves tag ids for add operation.

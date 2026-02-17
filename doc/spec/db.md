@@ -71,7 +71,7 @@
 ### 4.2 `feeds`
 
 * **購読ではなく帰属**のためのカタログ
-* `feed_key` はアプリ定義の安定ID（正規化URLやハッシュ等）
+* `feed_id` はアプリ定義の安定ID（正規化URLやハッシュ等）
 * `url/title/site_url/meta_json` などは表示・説明のための最小情報
 * `meta_json` には `feeds.yaml` の設定値（tags / auto_tags ルール）を保存しないのだ
 
@@ -79,10 +79,10 @@
 
 * 本DBの中核：エントリ索引
 * `id`：DB内部参照用の整数PK（JOIN最適化、外部キーのサイズ削減）
-* `entry_key`: Stable app-defined ID (unique)
-  * `entry_key = sha256("{feed_key}:{source_id}")`
+* `entry_id`: Stable app-defined ID (unique)
+  * `entry_id = sha256("{feed_id}:{source_id}")`
 * `source_id`: Canonical identifier string in the form `{namespace}|{cleaned_id}`
-  * `namespace` uses `feed_key` (sha256 of feed URL)
+  * `namespace` uses `feed_id` (sha256 of feed URL)
   * `cleaned_id` is selected in order:
     1. feed-provided id/guid
     2. link

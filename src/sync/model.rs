@@ -99,7 +99,7 @@ impl SyncError {
 /// Sync target with feed metadata and tags.
 #[derive(Debug, Clone)]
 pub(crate) struct SyncTarget {
-    pub(crate) feed_key: String,
+    pub(crate) feed_id: String,
     pub(crate) url: String,
     pub(crate) tags: Vec<String>,
 }
@@ -113,7 +113,7 @@ pub(crate) struct SyncResult {
 /// Normalized entry with tags and content payload.
 #[derive(Debug)]
 pub(crate) struct SyncEntry {
-    pub(crate) feed_key: String,
+    pub(crate) feed_id: String,
     pub(crate) entry: PendingEntry,
     pub(crate) content: Option<EntryContentInput>,
     /// Content payload for filesystem storage.
@@ -131,7 +131,7 @@ pub(crate) struct EntryContentPlan {
 /// Pending entry data before feed primary key resolution.
 #[derive(Debug)]
 pub(crate) struct PendingEntry {
-    pub(crate) entry_key: String,
+    pub(crate) entry_id: String,
     pub(crate) source_id: Option<String>,
     pub(crate) link: Option<String>,
     pub(crate) title: Option<String>,
@@ -146,7 +146,7 @@ impl PendingEntry {
     /// Builds an EntryInput by attaching feed primary key.
     pub(crate) fn with_feed_pk(self, feed_pk: i64) -> crate::db::EntryInput {
         crate::db::EntryInput {
-            entry_key: self.entry_key,
+            entry_id: self.entry_id,
             feed_pk,
             source_id: self.source_id,
             link: self.link,

@@ -25,12 +25,12 @@ impl<'a> FeedReadRepo<'a> {
         feeds::list_feeds_with_conn(self.conn)
     }
 
-    /// Resolves feed primary keys by feed keys.
-    pub fn find_feed_pks_by_keys(
+    /// Resolves feed primary keys by feed ids.
+    pub fn find_feed_pks_by_ids(
         &self,
-        feed_keys: &[String],
+        feed_ids: &[String],
     ) -> Result<HashMap<String, i64>, AppError> {
-        feeds::find_feed_pks_by_keys_with_conn(self.conn, feed_keys)
+        feeds::find_feed_pks_by_ids_with_conn(self.conn, feed_ids)
     }
 }
 
@@ -80,7 +80,7 @@ impl<'a> FeedWriteRepo<'a> {
 /// Builds a FeedInput payload from a FeedConfig entry.
 fn feed_input(feed: &FeedConfig) -> FeedInput {
     FeedInput {
-        feed_key: feed_id_from_url(&feed.url),
+        feed_id: feed_id_from_url(&feed.url),
         url: feed.url.clone(),
         title: feed.title.clone(),
         author: None,

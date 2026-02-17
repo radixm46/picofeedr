@@ -1,5 +1,16 @@
 # 変更履歴
 
+## v0.9（2026-02-17, breaking）
+
+- **DB層のID命名を公開語彙と整合**
+  - `feeds.feed_key` を `feeds.feed_id` へ変更
+  - `entries.entry_key` を `entries.entry_id` へ変更
+  - `entries.feed_id`（FK）を `entries.feed_pk` へ変更
+  - `entry_contents/entry_enclosures/entry_tags` の `entry_id`（FK）を `entry_pk` へ変更
+- **Rust内部語彙を一貫化**
+  - 内部DB主キーは `*_pk` で統一
+  - 公開IDは `*_id`（opaque string）で統一
+
 ## v0.8（2026-02-14, breaking）
 
 - **list/view/mark の公開IDを opaque string へ移行**

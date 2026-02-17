@@ -26,7 +26,7 @@ Table feeds {
     Not a "subscription list".
     '''
     id integer [pk, increment]
-    feed_key text [not null, unique] // app-defined stable id (e.g., normalized URL or hash)
+    feed_id text [not null, unique] // app-defined stable id (e.g., normalized URL or hash)
     url text [not null]              // fetch/canonical URL you want to show as source
     title text
     author text
@@ -37,20 +37,20 @@ Table feeds {
     updated_at integer               // last time feed metadata changed (optional)
 
     indexes {
-        (feed_key)
+        (feed_id)
         (url)
     }
 }
 
 Table entries {
     Note: '''
-    Entry index. entry_key is app-defined stable id.
+    Entry index. entry_id is app-defined stable id.
     - source_id: Atom <id> / RSS <guid> / fallback identifier (e.g. link).
     - published_at can be NULL; use first_seen_at as a stable timeline fallback.
     '''
     id integer [pk, increment]
-    entry_key text [not null, unique]  // app-defined stable id (e.g., feed_key + source_id; or hash-based)
-    feed_id integer [not null]
+    entry_id text [not null, unique]  // app-defined stable id (e.g., feed_id + source_id; or hash-based)
+    feed_pk integer [not null]
 
     source_id text                     // Atom <id> / RSS <guid> / fallback (nullable)
 
@@ -66,18 +66,18 @@ Table entries {
     meta_json text                     // JSON object (categories, flags, source fields, etc)
 
     indexes {
-        (entry_key)
-        (feed_id)
+        (entry_id)
+        (feed_pk)
 
-        (feed_id, published_at)
-        (feed_id, `COALESCE(published_at, updated_at, first_seen_at)`, id)
-        (feed_id, first_seen_at)
+        (feed_pk, published_at)
+        (feed_pk, `COALESCE(published_at, updated_at, first_seen_at)`, id)
+        (feed_pk, first_seen_at)
 
         (published_at)
         (`COALESCE(published_at, updated_at, first_seen_at)`, id)
         (first_seen_at)
 
-        (feed_id, source_id)
+        (feed_pk, source_id)
 
         (link)
     }
@@ -86,14 +86,14 @@ Table entries {
 Table entry_enclosures {
     Note: "enclosure table (member of entry)"
     id integer [pk, increment]
-    entry_id integer [not null]
+    entry_pk integer [not null]
     url text [not null]
     mime_type text
     length integer                     // was text -> integer
 
     indexes {
-        (entry_id)
-        (entry_id, url) [unique]
+        (entry_pk)
+        (entry_pk, url) [unique]
     }
 }
 
@@ -102,7 +102,7 @@ Table entry_contents {
     1:1 content storage.
     DB is not obligated to store full content; it may store content in SQLite or refer to a hash-addressed file store.
     '''
-    entry_id integer [pk]              // also FK to entries.id
+    entry_pk integer [pk]              // also FK to entries.id
     storage text [not null]            // 'none' | 'db' | 'fs' (enforce in app)
     ref text                           // hash key (e.g. sha256 hex) when storage='fs' (nullable)
     content_type text                  // 'text/html', 'text/plain', ...
@@ -115,13 +115,13 @@ Table entry_tags {
     Note: '''
     Junction table. Consider WITHOUT ROWID in actual SQL for size/perf.
     '''
-    entry_id integer [not null]
+    entry_pk integer [not null]
     tag_id integer [not null]
 
-    primary key (entry_id, tag_id)
+    primary key (entry_pk, tag_id)
     indexes {
-        (tag_id, entry_id)
-        (entry_id)
+        (tag_id, entry_pk)
+        (entry_pk)
         (tag_id)
     }
 }
@@ -138,8 +138,8 @@ Table tags {
     indexes { (name) }
 }
 
-Ref: feeds.id > entries.feed_id [delete: restrict]
-Ref: entries.id > entry_contents.entry_id [delete: cascade]
-Ref: entries.id > entry_enclosures.entry_id [delete: cascade]
-Ref: entries.id > entry_tags.entry_id [delete: cascade]
+Ref: feeds.id > entries.feed_pk [delete: restrict]
+Ref: entries.id > entry_contents.entry_pk [delete: cascade]
+Ref: entries.id > entry_enclosures.entry_pk [delete: cascade]
+Ref: entries.id > entry_tags.entry_pk [delete: cascade]
 Ref: tags.id > entry_tags.tag_id [delete: cascade]

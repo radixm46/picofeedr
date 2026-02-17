@@ -60,9 +60,9 @@ pub fn run_sync(
 fn build_sync_targets(feeds_config: &FeedsConfig) -> Result<Vec<SyncTarget>, AppError> {
     let mut targets = Vec::new();
     for feed in &feeds_config.feeds {
-        let feed_key = feed_id_from_url(&feed.url);
+        let feed_id = feed_id_from_url(&feed.url);
         targets.push(SyncTarget {
-            feed_key,
+            feed_id,
             url: feed.url.clone(),
             tags: feed.tags.clone(),
         });

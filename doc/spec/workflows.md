@@ -76,7 +76,7 @@ WHERE id IN (
       SELECT 1
       FROM entry_tags et
       JOIN tags t ON et.tag_id = t.id
-      WHERE et.entry_id = e.id
+      WHERE et.entry_pk = e.id
         AND t.name = 'unread'
     )
 );

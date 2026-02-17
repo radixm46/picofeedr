@@ -25,8 +25,8 @@ pub(crate) fn normalize_entry(
     let first_seen_at = current_epoch();
 
     let (content, content_type) = select_content(entry);
-    let identity = EntryIdentity::from_entry(&target.feed_key, entry, content.as_deref());
-    let entry_key = identity.entry_key;
+    let identity = EntryIdentity::from_entry(&target.feed_id, entry, content.as_deref());
+    let entry_id = identity.entry_id;
     let content_plan = build_entry_content(config, content, content_type)?;
 
     let mut tags = Vec::new();
@@ -37,9 +37,9 @@ pub(crate) fn normalize_entry(
     let tags = dedupe_tags(tags);
 
     Ok(SyncEntry {
-        feed_key: target.feed_key.clone(),
+        feed_id: target.feed_id.clone(),
         entry: PendingEntry {
-            entry_key,
+            entry_id,
             source_id: Some(identity.source_id),
             link,
             title,

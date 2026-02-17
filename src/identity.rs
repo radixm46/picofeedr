@@ -8,8 +8,8 @@ use sha2::{Digest, Sha256};
 pub struct EntryIdentity {
     /// Canonical source identifier `{namespace}|{cleaned_id}`.
     pub source_id: String,
-    /// Stable entry key for database identity.
-    pub entry_key: String,
+    /// Stable entry id for database identity.
+    pub entry_id: String,
 }
 
 /// Returns a URL-safe base64-encoded SHA-256 digest without padding.
@@ -41,11 +41,7 @@ struct EntryIdentityInput<'a> {
 
 impl EntryIdentity {
     /// Builds entry identity from a feed entry and optional content payload.
-    pub fn from_entry(
-        feed_key: &str,
-        entry: &feed_rs::model::Entry,
-        content: Option<&str>,
-    ) -> Self {
+    pub fn from_entry(feed_id: &str, entry: &feed_rs::model::Entry, content: Option<&str>) -> Self {
         let raw_id = if entry.id.is_empty() {
             None
         } else {
@@ -61,7 +57,7 @@ impl EntryIdentity {
         let published_at = entry.published.map(|value| value.timestamp());
         let updated_at = entry.updated.map(|value| value.timestamp());
         let identity = EntryIdentityInput {
-            namespace: feed_key,
+            namespace: feed_id,
             raw_id,
             link,
             content,
@@ -75,10 +71,10 @@ impl EntryIdentity {
 
     fn from_input(identity: &EntryIdentityInput<'_>) -> Self {
         let source_id = build_entry_source_id(identity);
-        let entry_key = build_entry_key(identity.namespace, &source_id);
+        let entry_id = build_entry_id(identity.namespace, &source_id);
         Self {
             source_id,
-            entry_key,
+            entry_id,
         }
     }
 }
@@ -107,9 +103,9 @@ fn build_entry_source_id(identity: &EntryIdentityInput<'_>) -> String {
     format!("{}|{}", identity.namespace, fallback)
 }
 
-/// Builds a stable entry key from feed key and source_id.
-fn build_entry_key(feed_key: &str, source_id: &str) -> String {
-    sha256_base64url_nopad(&format!("{feed_key}:{source_id}"))
+/// Builds a stable entry id from feed id and source_id.
+fn build_entry_id(feed_id: &str, source_id: &str) -> String {
+    sha256_base64url_nopad(&format!("{feed_id}:{source_id}"))
 }
 
 /// Builds a deterministic fallback ID when feed identifiers are missing.

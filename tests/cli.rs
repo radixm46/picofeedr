@@ -750,7 +750,7 @@ fn sync_writes_content_to_fs_store() {
     let conn = Connection::open(&paths.db_path).expect("open db");
     let (storage, reference, content): (String, Option<String>, Option<String>) = conn
         .query_row(
-            "SELECT storage, ref, content FROM entry_contents ORDER BY entry_id LIMIT 1",
+            "SELECT storage, ref, content FROM entry_contents ORDER BY entry_pk LIMIT 1",
             [],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
@@ -784,7 +784,7 @@ fn storage_root_override_updates_fs_storage_root() {
     let conn = Connection::open(&override_db_path).expect("open overridden db");
     let (storage, reference): (String, Option<String>) = conn
         .query_row(
-            "SELECT storage, ref FROM entry_contents ORDER BY entry_id LIMIT 1",
+            "SELECT storage, ref FROM entry_contents ORDER BY entry_pk LIMIT 1",
             [],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )

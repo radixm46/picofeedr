@@ -17,7 +17,7 @@ pub(crate) fn insert_entry_with_conn(
     let inserted = conn.execute(
         q::INSERT_ENTRY,
         params![
-            entry.entry_key,
+            entry.entry_id,
             entry.feed_pk,
             entry.source_id,
             entry.link,
@@ -32,7 +32,7 @@ pub(crate) fn insert_entry_with_conn(
     let entry_pk: i64 = if inserted {
         conn.last_insert_rowid()
     } else {
-        conn.query_row(q::SELECT_ENTRY_ID_BY_KEY, params![entry.entry_key], |row| {
+        conn.query_row(q::SELECT_ENTRY_PK_BY_ID, params![entry.entry_id], |row| {
             row.get(0)
         })?
     };
@@ -116,13 +116,13 @@ mod tests {
     }
 
     /// Inserts a feed and returns its id.
-    fn insert_feed(conn: &Connection, feed_key: &str) -> i64 {
+    fn insert_feed(conn: &Connection, feed_id: &str) -> i64 {
         upsert_feed_with_conn(
             conn,
             &FeedInput {
-                feed_key: feed_key.to_string(),
-                url: format!("https://example.com/{feed_key}"),
-                title: Some(feed_key.to_string()),
+                feed_id: feed_id.to_string(),
+                url: format!("https://example.com/{feed_id}"),
+                title: Some(feed_id.to_string()),
                 author: None,
                 site_url: None,
                 meta_json: None,
@@ -130,19 +130,19 @@ mod tests {
             1,
         )
         .expect("upsert feed");
-        conn.query_row(q_feeds::SELECT_FEED_ID_BY_KEY, params![feed_key], |row| {
+        conn.query_row(q_feeds::SELECT_FEED_PK_BY_ID, params![feed_id], |row| {
             row.get(0)
         })
-        .expect("feed id")
+        .expect("feed pk")
     }
 
-    /// Keeps entry id stable when inserting duplicate entry_key.
+    /// Keeps entry id stable when inserting duplicate entry_id.
     #[test]
     fn insert_entry_returns_existing_id_on_conflict() {
         let conn = test_conn();
         let feed_pk = insert_feed(&conn, "feed-a");
         let input = EntryInput {
-            entry_key: "entry-a".to_string(),
+            entry_id: "entry-a".to_string(),
             feed_pk,
             source_id: Some("src-a".to_string()),
             link: Some("https://example.com/a".to_string()),
@@ -168,7 +168,7 @@ mod tests {
         let conn = test_conn();
         let feed_pk = insert_feed(&conn, "feed-a");
         let input = EntryInput {
-            entry_key: "entry-a".to_string(),
+            entry_id: "entry-a".to_string(),
             feed_pk,
             source_id: Some("src-a".to_string()),
             link: Some("https://example.com/a".to_string()),

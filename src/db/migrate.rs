@@ -44,6 +44,15 @@ mod tests {
         Ok(names)
     }
 
+    /// Returns column names for one table.
+    fn table_columns(conn: &Connection, table: &str) -> rusqlite::Result<HashSet<String>> {
+        let mut stmt = conn.prepare(&format!("PRAGMA table_info('{table}')"))?;
+        let names = stmt
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<rusqlite::Result<HashSet<_>>>()?;
+        Ok(names)
+    }
+
     /// Migration should create expression indexes used by effective-date sorting.
     #[test]
     fn migrate_creates_effective_date_expression_indexes() {
@@ -59,5 +68,22 @@ mod tests {
             names.contains("idx_entries_feed_effective_date"),
             "idx_entries_feed_effective_date is missing"
         );
+    }
+
+    /// Migration should expose DB column names aligned with public id vocabulary.
+    #[test]
+    fn migrate_uses_feed_id_and_entry_id_columns() {
+        let conn = Connection::open_in_memory().expect("in-memory sqlite");
+        migrate(&conn).expect("migration should succeed");
+
+        let feed_columns = table_columns(&conn, "feeds").expect("feeds table columns");
+        assert!(feed_columns.contains("feed_id"));
+        assert!(!feed_columns.contains("feed_key"));
+
+        let entry_columns = table_columns(&conn, "entries").expect("entries table columns");
+        assert!(entry_columns.contains("entry_id"));
+        assert!(entry_columns.contains("feed_pk"));
+        assert!(!entry_columns.contains("entry_key"));
+        assert!(!entry_columns.contains("feed_id"));
     }
 }

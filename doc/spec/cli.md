@@ -44,7 +44,7 @@ picofeedr ping
 失敗例（`ENTRY_NOT_FOUND`）:
 
 ```json
-{ "status": "error", "result": null, "error": { "code": "ENTRY_NOT_FOUND", "message": "Entry 999999 not found", "retryable": false, "details": { "resource": "entry", "entry_id": 999999 } }, "meta": { "api_version": "<string>", "db_schema_version": <int>, "generated_at": <epoch> } }
+{ "status": "error", "result": null, "error": { "code": "ENTRY_NOT_FOUND", "message": "Entry <entry_id> not found", "retryable": false, "details": { "resource": "entry", "entry_id": "<entry_id>" } }, "meta": { "api_version": "<string>", "db_schema_version": <int>, "generated_at": <epoch> } }
 ```
 
 ### A6.2 フィード管理

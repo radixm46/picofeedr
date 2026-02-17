@@ -2,13 +2,13 @@
 
 /// Selects all feeds in id order.
 pub(crate) const SELECT_FEEDS: &str =
-    "SELECT id, feed_key, url, title, author, site_url FROM feeds ORDER BY id";
+    "SELECT id, feed_id, url, title, author, site_url FROM feeds ORDER BY id";
 
 /// Upserts feed record.
 pub(crate) const UPSERT_FEED: &str = r#"
-INSERT INTO feeds (feed_key, url, title, author, site_url, meta_json, created_at, updated_at)
+INSERT INTO feeds (feed_id, url, title, author, site_url, meta_json, created_at, updated_at)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-ON CONFLICT(feed_key) DO UPDATE SET
+ON CONFLICT(feed_id) DO UPDATE SET
    url = excluded.url,
    title = excluded.title,
    author = excluded.author,
@@ -18,10 +18,10 @@ ON CONFLICT(feed_key) DO UPDATE SET
 "#;
 
 /// Finds feed primary keys by feed key for a dynamic IN list.
-pub(crate) fn select_feed_pks_by_keys(placeholders: &str) -> String {
-    format!("SELECT feed_key, id FROM feeds WHERE feed_key IN ({placeholders})")
+pub(crate) fn select_feed_pks_by_ids(placeholders: &str) -> String {
+    format!("SELECT feed_id, id FROM feeds WHERE feed_id IN ({placeholders})")
 }
 
 /// Selects one feed id by feed key.
 #[cfg(test)]
-pub(crate) const SELECT_FEED_ID_BY_KEY: &str = "SELECT id FROM feeds WHERE feed_key = ?1";
+pub(crate) const SELECT_FEED_PK_BY_ID: &str = "SELECT id FROM feeds WHERE feed_id = ?1";

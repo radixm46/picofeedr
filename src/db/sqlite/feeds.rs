@@ -16,7 +16,7 @@ pub(crate) fn list_feeds_with_conn(conn: &Connection) -> Result<Vec<FeedRow>, Ap
         .query_map([], |row| {
             Ok(FeedRow {
                 feed_pk: row.get(0)?,
-                feed_key: row.get(1)?,
+                feed_id: row.get(1)?,
                 url: row.get(2)?,
                 title: row.get(3)?,
                 author: row.get(4)?,
@@ -36,7 +36,7 @@ pub(crate) fn upsert_feed_with_conn(
     conn.execute(
         q::UPSERT_FEED,
         params![
-            feed.feed_key,
+            feed.feed_id,
             feed.url,
             feed.title,
             feed.author,
@@ -49,48 +49,48 @@ pub(crate) fn upsert_feed_with_conn(
     Ok(())
 }
 
-/// Fetches feed primary keys by feed_key using chunked IN queries.
-pub(crate) fn find_feed_pks_by_keys_with_conn(
+/// Fetches feed primary keys by feed_id using chunked IN queries.
+pub(crate) fn find_feed_pks_by_ids_with_conn(
     conn: &Connection,
-    feed_keys: &[String],
+    feed_ids: &[String],
 ) -> Result<HashMap<String, i64>, AppError> {
-    const FEED_KEY_CHUNK_SIZE: usize = 500;
+    const FEED_ID_CHUNK_SIZE: usize = 500;
 
-    if feed_keys.is_empty() {
+    if feed_ids.is_empty() {
         return Ok(HashMap::new());
     }
-    let mut feed_pks_by_key = HashMap::new();
-    for chunk in feed_keys.chunks(FEED_KEY_CHUNK_SIZE) {
+    let mut feed_pks_by_id = HashMap::new();
+    for chunk in feed_ids.chunks(FEED_ID_CHUNK_SIZE) {
         let placeholders = std::iter::repeat_n("?", chunk.len())
             .collect::<Vec<_>>()
             .join(", ");
-        let sql = q::select_feed_pks_by_keys(&placeholders);
+        let sql = q::select_feed_pks_by_ids(&placeholders);
         let mut stmt = conn.prepare(&sql)?;
         let mut rows = stmt.query(params_from_iter(chunk.iter()))?;
         while let Some(row) = rows.next()? {
-            let feed_key: String = row.get(0)?;
-            let id: i64 = row.get(1)?;
-            feed_pks_by_key.insert(feed_key, id);
+            let feed_id: String = row.get(0)?;
+            let feed_pk: i64 = row.get(1)?;
+            feed_pks_by_id.insert(feed_id, feed_pk);
         }
     }
-    Ok(feed_pks_by_key)
+    Ok(feed_pks_by_id)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{find_feed_pks_by_keys_with_conn, upsert_feed_with_conn};
+    use super::{find_feed_pks_by_ids_with_conn, upsert_feed_with_conn};
     use crate::db::FeedInput;
     use rusqlite::Connection;
 
-    /// Resolves IDs for existing keys and skips missing keys.
+    /// Resolves feed primary keys for existing feed ids and skips missing ids.
     #[test]
-    fn find_feed_pks_by_keys_returns_existing_keys_only() {
+    fn find_feed_pks_by_ids_returns_existing_ids_only() {
         let conn = Connection::open_in_memory().expect("in-memory sqlite");
         crate::db::migrate::migrate(&conn).expect("migrate");
         upsert_feed_with_conn(
             &conn,
             &FeedInput {
-                feed_key: "feed-a".to_string(),
+                feed_id: "feed-a".to_string(),
                 url: "https://example.com/a".to_string(),
                 title: Some("A".to_string()),
                 author: None,
@@ -103,7 +103,7 @@ mod tests {
         upsert_feed_with_conn(
             &conn,
             &FeedInput {
-                feed_key: "feed-b".to_string(),
+                feed_id: "feed-b".to_string(),
                 url: "https://example.com/b".to_string(),
                 title: Some("B".to_string()),
                 author: None,
@@ -114,13 +114,13 @@ mod tests {
         )
         .expect("upsert feed b");
 
-        let keys = vec![
+        let ids = vec![
             "feed-a".to_string(),
             "feed-missing".to_string(),
             "feed-b".to_string(),
             "feed-a".to_string(),
         ];
-        let feed_pks = find_feed_pks_by_keys_with_conn(&conn, &keys).expect("find feed pks");
+        let feed_pks = find_feed_pks_by_ids_with_conn(&conn, &ids).expect("find feed pks");
         assert_eq!(feed_pks.len(), 2);
         assert!(feed_pks.contains_key("feed-a"));
         assert!(feed_pks.contains_key("feed-b"));

@@ -109,6 +109,8 @@ struct Cursor {
     query_hash: String,
 }
 
+type EntryListPage = (Vec<EntrySummary>, Vec<FeedSummary>, Option<String>);
+
 /// Lists entries using tag filters and cursor pagination.
 pub fn list_entries(
     store: &SqliteStore,
@@ -160,7 +162,7 @@ pub fn view_entry(
             )
         })?;
 
-    let entry_pks = entry_repo.find_entry_ids_by_keys(&[entry_id.clone()])?;
+    let entry_pks = entry_repo.find_entry_pks_by_ids(&[entry_id.clone()])?;
     let entry_pk = entry_pks.get(&entry_id).copied().ok_or_else(|| {
         AppError::entry_not_found_with_details(
             format!("Entry {entry_id} not found"),
@@ -219,8 +221,8 @@ pub fn mark_entries(
     }
     let tx = store.tx()?;
     let tx_entry_repo = tx.entry_write_repo();
-    tx_entry_repo.ensure_all_entry_keys_exist(&unique_ids)?;
-    let entry_pks = tx_entry_repo.find_entry_ids_by_keys(&unique_ids)?;
+    tx_entry_repo.ensure_all_entry_ids_exist(&unique_ids)?;
+    let entry_pks = tx_entry_repo.find_entry_pks_by_ids(&unique_ids)?;
     let add_ids = tx_entry_repo.ensure_tag_ids(add_tags)?;
     let remove_ids = tx_entry_repo.lookup_tag_ids(remove_tags)?;
     let mut updated = 0usize;
@@ -266,7 +268,7 @@ fn build_where_clause(
     if let Some(feed) = &query.feed {
         match feed {
             FeedFilter::Id(id) => {
-                clauses.push(q::EXISTS_FEED_KEY_FOR_ENTRY.to_string());
+                clauses.push(q::EXISTS_FEED_ID_FOR_ENTRY.to_string());
                 params.push(Value::from(id.clone()));
             }
             FeedFilter::Title(title) => {
@@ -317,7 +319,7 @@ fn fetch_entries(
     sort: SortOrder,
     limit: usize,
     query_hash: &str,
-) -> Result<(Vec<EntrySummary>, Vec<FeedSummary>, Option<String>), AppError> {
+) -> Result<EntryListPage, AppError> {
     let key_expr = sort_key_expr(sort);
     let order_clause = sort_order_clause(sort);
     let (mut rows, mut sort_keys) =

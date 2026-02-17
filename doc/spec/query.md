@@ -70,7 +70,7 @@ QuotedLiteral::= '"' ( '\\"' | '\\\\' | <other> )* '"'
 EXISTS (
   SELECT 1 FROM entry_tags et
   JOIN tags t ON et.tag_id = t.id
-  WHERE et.entry_id = e.id AND t.name = ?
+  WHERE et.entry_pk = e.id AND t.name = ?
 )
 
 -- Not(expr)

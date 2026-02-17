@@ -39,11 +39,11 @@ pub fn render_feed_list(config: &FeedsConfig, db_feeds: &[FeedRow]) -> FeedListR
         .iter()
         .map(|row| {
             let tags = config_map
-                .get(&row.feed_key)
+                .get(&row.feed_id)
                 .map(|feed| feed.tags.clone())
                 .unwrap_or_default();
             FeedListItem {
-                feed_id: row.feed_key.clone(),
+                feed_id: row.feed_id.clone(),
                 url: row.url.clone(),
                 title: row.title.clone(),
                 site_url: row.site_url.clone(),
@@ -55,12 +55,12 @@ pub fn render_feed_list(config: &FeedsConfig, db_feeds: &[FeedRow]) -> FeedListR
     FeedListResponse { feeds }
 }
 
-/// Builds a lookup map from feed_key to FeedConfig.
+/// Builds a lookup map from feed_id to FeedConfig.
 fn build_config_map(config: &FeedsConfig) -> HashMap<String, FeedConfig> {
     let mut map = HashMap::new();
     for feed in &config.feeds {
-        let feed_key = feed_id_from_url(&feed.url);
-        map.insert(feed_key, feed.clone());
+        let feed_id = feed_id_from_url(&feed.url);
+        map.insert(feed_id, feed.clone());
     }
     map
 }
