@@ -71,7 +71,10 @@
 ### 4.2 `feeds`
 
 * **購読ではなく帰属**のためのカタログ
-* `feed_id` はアプリ定義の安定ID（正規化URLやハッシュ等）
+* `feed_id` はアプリ定義の安定ID
+* 現行実装では `feed_id = "k_" + base64url_nopad(sha256(feed_url_bytes))`
+  * 例: `k_nEYNGhY1VhMY6HOx32gKp764cXqV8XUpAdM2Js3GBQA`
+* 旧形式（URL文字列そのもの等）の `feed_id` は移行用の一時状態であり、最終DBには残さないのだ
 * `url/title/site_url/meta_json` などは表示・説明のための最小情報
 * `meta_json` には `feeds.yaml` の設定値（tags / auto_tags ルール）を保存しないのだ
 
@@ -80,9 +83,9 @@
 * 本DBの中核：エントリ索引
 * `id`：DB内部参照用の整数PK（JOIN最適化、外部キーのサイズ削減）
 * `entry_id`: Stable app-defined ID (unique)
-  * `entry_id = sha256("{feed_id}:{source_id}")`
+  * `entry_id = "k_" + base64url_nopad(sha256("{feed_id}:{source_id}"))`
 * `source_id`: Canonical identifier string in the form `{namespace}|{cleaned_id}`
-  * `namespace` uses `feed_id` (sha256 of feed URL)
+  * `namespace` uses `feed_id`
   * `cleaned_id` is selected in order:
     1. feed-provided id/guid
     2. link
@@ -125,6 +128,14 @@
 
 ## 5. 運用想定
 
+### 5.0 IDエンコードの互換契約
+
+* `feed_id` / `entry_id` のエンコードは `k_ + base64url_nopad(sha256(...))` で固定する
+* 互換性のため、IDのバイト列入力は UTF-8 とする
+* base64 は URL-safe alphabet（`A-Z a-z 0-9 - _`）を使い、`=` パディングは付けない
+* `k_` 接頭辞は「ハッシュ由来のopaque ID」であることを示す識別子として予約する
+* 公開IDは opaque として扱う契約を維持する（クライアントは分解・再生成を前提にしない）
+
 ### 5.1 未読管理（タグで実施）
 
 * CLI 本体設定に `unread_tag` を持つ（デフォルト `unread`）
@@ -151,6 +162,17 @@
 * 本文をファイルツリーに置くことで、DBファイルの肥大化を抑えやすい（クラウド同期の負荷も下げやすい）
 * DBは索引・状態（タグ）を含むため、破損・巻き戻りで過去エントリや未読状態が失われる可能性は受け入れる
 * 同期の安定性のため、運用上は WAL/同期モードに注意（例：WAL の `-wal/-shm` を同時に同期できるかを確認）
+
+### 5.5 移行後DBの期待不変条件
+
+他システムから移行した後、`sync` 実行前に次を満たしていることを期待するのだ。
+
+* `feeds.feed_id` は全件 `k_` 形式である（旧形式IDを残さない）
+* 同一 `feeds.url` に対して `feeds` 行は高々1件
+* `entries.entry_id` は全件 `k_` 形式である
+* 同一実体を表す重複エントリ（同一 `feed_url + link` の多重行）を残さない
+
+上記を満たさない場合、既存実体が新規として再計上され、`first_seen_at` 基準の一覧で偏りが発生しうるのだ。
 
 ---
 
