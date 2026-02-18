@@ -1,9 +1,10 @@
 //! Picofeedr CLI entrypoint.
 
+mod output;
+
 use clap::Parser;
 use picofeedr::cli::{Cli, Command, MarkCommand, OutputFormat, SortOrder};
 use picofeedr::config;
-use picofeedr::config::feeds::ConfigCheckReport;
 use picofeedr::db;
 use picofeedr::entry;
 use picofeedr::entry::{EntryDetail, EntryListResponse};
@@ -11,15 +12,13 @@ use picofeedr::error::{AppError, ErrorDetails, error_details};
 use picofeedr::feed;
 use picofeedr::feed::FeedListResponse;
 use picofeedr::query::EntryQuery;
-use picofeedr::response::{
-    Envelope, MarkResult, PingResult, ResponseStatus, TagsResult, VersionResult,
-};
+use picofeedr::response::{Envelope, ResponseStatus};
 use picofeedr::status::StatusResponse;
 use picofeedr::sync;
 use picofeedr::sync::SyncSummary;
 use picofeedr::{TagManager, current_epoch};
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::env;
 use std::error::Error;
 use std::ffi::OsString;
@@ -105,7 +104,7 @@ fn main() -> ExitCode {
                 maybe_print_diagnostics(&cli, &error);
                 match output {
                     OutputFormat::Json => {
-                        match print_json_or_fallback(&Envelope::<()>::fatal(&error)) {
+                        match output::print_json_or_fallback(&Envelope::<()>::fatal(&error)) {
                             Ok(()) => {}
                             Err(write_error) => return handle_output_error(&cli, write_error),
                         }
@@ -123,7 +122,7 @@ fn main() -> ExitCode {
                 maybe_print_diagnostics(&cli, &error);
                 match output {
                     OutputFormat::Json => {
-                        match print_json_or_fallback(&Envelope::<()>::fatal(&error)) {
+                        match output::print_json_or_fallback(&Envelope::<()>::fatal(&error)) {
                             Ok(()) => {}
                             Err(write_error) => return handle_output_error(&cli, write_error),
                         }
@@ -145,8 +144,8 @@ fn run(cli: &Cli, output: OutputFormat) -> Result<(), RunFailure> {
         execute_command(cli)?
     };
     match output {
-        OutputFormat::Json => render_json(&result)?,
-        OutputFormat::Plain => render_plain(&result)?,
+        OutputFormat::Json => output::render_json(&result)?,
+        OutputFormat::Plain => output::render_plain(&result)?,
     }
     Ok(())
 }
@@ -164,9 +163,9 @@ fn run_config_check(cli: &Cli, output: OutputFormat) -> Result<ExitCode, RunFail
             } else {
                 ResponseStatus::Warning
             };
-            print_json_or_fallback(&Envelope::ok_with_status(report, status))?;
+            output::print_json_or_fallback(&Envelope::ok_with_status(report, status))?;
         }
-        OutputFormat::Plain => render_config_check_plain(&report)?,
+        OutputFormat::Plain => output::render_config_check_plain(&report)?,
     }
     Ok(if is_valid {
         ExitCode::SUCCESS
@@ -285,7 +284,7 @@ fn execute_sync_command_plain(cli: &Cli) -> Result<CommandOutput, RunFailure> {
         if write_error.is_some() {
             return;
         }
-        if let Err(error) = render_sync_progress_line(&mut writer, &event) {
+        if let Err(error) = output::render_sync_progress_line(&mut writer, &event) {
             write_error = Some(error);
             return;
         }
@@ -339,291 +338,6 @@ fn limit_error_details(kind: &str, value: usize, _max_limit: usize) -> ErrorDeta
     ])
 }
 
-/// Renders JSON output for a command result.
-fn render_json(result: &CommandOutput) -> Result<(), RunFailure> {
-    fn print_success<T: serde::Serialize>(
-        data: T,
-        status: ResponseStatus,
-    ) -> Result<(), RunFailure> {
-        print_json_or_fallback(&Envelope::ok_with_status(data, status))?;
-        Ok(())
-    }
-
-    match result {
-        CommandOutput::Ping => print_success(PingResult::ok(), ResponseStatus::Ok),
-        CommandOutput::Version {
-            api_version,
-            db_schema_version,
-            build,
-        } => print_success(
-            VersionResult {
-                api_version: (*api_version).to_string(),
-                db_schema_version: *db_schema_version,
-                build: (*build).to_string(),
-            },
-            ResponseStatus::Ok,
-        ),
-        CommandOutput::Tags { tags } => {
-            print_success(TagsResult { tags: tags.clone() }, ResponseStatus::Ok)
-        }
-        CommandOutput::Status { status } => print_success(status, ResponseStatus::Ok),
-        CommandOutput::FeedsList { feeds } => print_success(feeds, ResponseStatus::Ok),
-        CommandOutput::Sync { summary } => {
-            let envelope_status = if matches!(summary.status, sync::SyncStatus::Completed) {
-                ResponseStatus::Ok
-            } else {
-                ResponseStatus::Warning
-            };
-            print_success(summary, envelope_status)
-        }
-        CommandOutput::List { list } => print_success(list, ResponseStatus::Ok),
-        CommandOutput::View { detail } => print_success(detail, ResponseStatus::Ok),
-        CommandOutput::Mark { updated } => print_success(
-            MarkResult {
-                updated_entry_count: *updated,
-            },
-            ResponseStatus::Ok,
-        ),
-    }
-}
-
-/// Renders human-readable output for a command result.
-fn render_plain(result: &CommandOutput) -> io::Result<()> {
-    let stdout = io::stdout();
-    let mut writer = io::BufWriter::new(stdout.lock());
-    match result {
-        CommandOutput::Ping => writeln!(writer, "ok")?,
-        CommandOutput::Version {
-            api_version,
-            db_schema_version,
-            build,
-        } => writeln!(
-            writer,
-            "api_version={api_version} db_schema_version={db_schema_version} build={build}"
-        )?,
-        CommandOutput::Tags { tags } => {
-            for tag in tags {
-                writeln!(writer, "{tag}")?;
-            }
-        }
-        CommandOutput::Status { status } => {
-            writeln!(writer, "revision: {}", status.revision)?;
-            writeln!(
-                writer,
-                "last_write_at: {}",
-                status
-                    .last_write_at
-                    .map(|value| value.to_string())
-                    .unwrap_or_else(|| "null".to_string())
-            )?;
-            writeln!(writer, "db_schema_version: {}", status.db_schema_version)?;
-            writeln!(writer, "api_version: {}", status.api_version)?;
-            writeln!(
-                writer,
-                "last_sync_at: {}",
-                status
-                    .last_sync_at
-                    .map(|value| value.to_string())
-                    .unwrap_or_else(|| "null".to_string())
-            )?;
-            writeln!(
-                writer,
-                "last_sync_status: {}",
-                status.last_sync_status.as_deref().unwrap_or("null")
-            )?;
-        }
-        CommandOutput::FeedsList { feeds } => {
-            for feed in &feeds.feeds {
-                let title = feed.title.as_deref().unwrap_or("(untitled)");
-                let tags = format_tags(&feed.tags);
-                if tags.is_empty() {
-                    writeln!(writer, "[{}] {}", feed.feed_id, title)?;
-                } else {
-                    writeln!(writer, "[{}] {} [{}]", feed.feed_id, title, tags)?;
-                }
-                writeln!(writer, "  url: {}", feed.url)?;
-                if let Some(site_url) = &feed.site_url {
-                    writeln!(writer, "  site: {site_url}")?;
-                }
-                if let Some(author) = &feed.author {
-                    writeln!(writer, "  author: {author}")?;
-                }
-            }
-        }
-        CommandOutput::Sync { summary } => {
-            writeln!(writer, "status: {}", summary.status.as_str())?;
-            writeln!(
-                writer,
-                "fetched_feed_count: {} failed_feed_count: {} new_entry_count: {} duration_ms: {}",
-                summary.fetched_feed_count,
-                summary.failed_feed_count,
-                summary.new_entry_count,
-                summary.duration_ms
-            )?;
-            if !summary.errors.is_empty() {
-                writeln!(writer, "errors: {}", summary.errors.len())?;
-                for error in &summary.errors {
-                    writeln!(
-                        writer,
-                        "  {} {} retryable={}",
-                        error.feed_url,
-                        error.code.as_str(),
-                        error.retryable
-                    )?;
-                    writeln!(writer, "    {}", error.message)?;
-                }
-            }
-        }
-        CommandOutput::List { list } => {
-            writeln!(writer, "total_count: {}", list.total_count)?;
-            if let Some(cursor) = &list.next_page_token {
-                writeln!(writer, "next_page_token: {cursor}")?;
-            }
-            let feed_titles = list
-                .feeds
-                .iter()
-                .map(|feed| {
-                    (
-                        feed.feed_id.clone(),
-                        feed.title.as_deref().unwrap_or("(untitled)").to_string(),
-                    )
-                })
-                .collect::<HashMap<_, _>>();
-            for entry in &list.items {
-                let title = entry.title.as_deref().unwrap_or("(untitled)");
-                let feed_title = feed_titles
-                    .get(&entry.feed_id)
-                    .map(String::as_str)
-                    .unwrap_or("(unknown)");
-                let tags = format_tags(&entry.tags);
-                if tags.is_empty() {
-                    writeln!(writer, "[{}] {title} ({feed_title})", entry.entry_id)?;
-                } else {
-                    writeln!(
-                        writer,
-                        "[{}] {title} ({feed_title}) [{tags}]",
-                        entry.entry_id
-                    )?;
-                }
-            }
-        }
-        CommandOutput::View { detail } => {
-            let title = detail.title.as_deref().unwrap_or("(untitled)");
-            writeln!(writer, "{} {title}", detail.entry_id)?;
-            if let Some(feed_title) = &detail.feed_title {
-                writeln!(writer, "feed: {feed_title} (id: {})", detail.feed_id)?;
-            } else {
-                writeln!(writer, "feed_id: {}", detail.feed_id)?;
-            }
-            if let Some(author) = &detail.author {
-                writeln!(writer, "author: {author}")?;
-            }
-            if let Some(link) = &detail.link {
-                writeln!(writer, "link: {link}")?;
-            }
-            if !detail.tags.is_empty() {
-                writeln!(writer, "tags: {}", format_tags(&detail.tags))?;
-            }
-            if let Some(published) = detail.published_at {
-                writeln!(writer, "published_at: {published}")?;
-            }
-            writeln!(writer, "first_seen_at: {}", detail.first_seen_at)?;
-            if let Some(content) = &detail.content {
-                writeln!(writer)?;
-                writeln!(writer, "{content}")?;
-            }
-        }
-        CommandOutput::Mark { updated } => writeln!(writer, "updated_entry_count: {updated}")?,
-    }
-    writer.flush()?;
-    Ok(())
-}
-
-/// Renders one sync progress event as a plain output line.
-fn render_sync_progress_line<W: Write>(
-    writer: &mut W,
-    event: &sync::SyncProgressEvent,
-) -> io::Result<()> {
-    match event {
-        sync::SyncProgressEvent::Start { total_feeds } => {
-            writeln!(writer, "sync:start total_feeds={total_feeds}")
-        }
-        sync::SyncProgressEvent::FeedStart {
-            index,
-            total_feeds,
-            url,
-        } => writeln!(
-            writer,
-            "sync:feed start index={index}/{total_feeds} url={url}"
-        ),
-        sync::SyncProgressEvent::FeedOk {
-            index,
-            total_feeds,
-            url,
-            entries,
-        } => writeln!(
-            writer,
-            "sync:feed ok index={index}/{total_feeds} url={url} entries={entries}"
-        ),
-        sync::SyncProgressEvent::FeedError {
-            index,
-            total_feeds,
-            url,
-            code,
-            retryable,
-        } => writeln!(
-            writer,
-            "sync:feed error index={index}/{total_feeds} url={url} code={} retryable={retryable}",
-            code.as_str()
-        ),
-    }
-}
-
-/// Renders human-readable output for feeds config validation.
-fn render_config_check_plain(report: &ConfigCheckReport) -> io::Result<()> {
-    let stdout = io::stdout();
-    let mut writer = io::BufWriter::new(stdout.lock());
-    writeln!(writer, "valid: {}", report.valid)?;
-    writeln!(writer, "checked_feeds: {}", report.checked_feeds)?;
-    writeln!(writer, "errors: {}", report.errors.len())?;
-    for issue in &report.errors {
-        if let Some(path) = &issue.path {
-            writeln!(writer, "  {} {} ({path})", issue.code, issue.message)?;
-        } else {
-            writeln!(writer, "  {} {}", issue.code, issue.message)?;
-        }
-    }
-    writeln!(writer, "warnings: {}", report.warnings.len())?;
-    for issue in &report.warnings {
-        if let Some(path) = &issue.path {
-            writeln!(writer, "  {} {} ({path})", issue.code, issue.message)?;
-        } else {
-            writeln!(writer, "  {} {}", issue.code, issue.message)?;
-        }
-    }
-    writer.flush()?;
-    Ok(())
-}
-
-/// Formats tags for plain output.
-fn format_tags(tags: &[String]) -> String {
-    tags.join(", ")
-}
-
-/// Prints JSON to stdout, falling back to a hard-coded INTERNAL error JSON on failure.
-fn print_json_or_fallback<T: serde::Serialize>(value: &T) -> io::Result<()> {
-    let stdout = io::stdout();
-    let mut writer = io::BufWriter::new(stdout.lock());
-    match serde_json::to_string(value) {
-        Ok(json) => writeln!(writer, "{json}")?,
-        Err(_) => writeln!(writer, "{FALLBACK_INTERNAL_ERROR_JSON}")?,
-    }
-    writer.flush()
-}
-
-/// Fallback JSON printed when JSON serialization fails unexpectedly.
-const FALLBACK_INTERNAL_ERROR_JSON: &str = "{\"status\":\"error\",\"result\":null,\"error\":{\"code\":\"INTERNAL\",\"message\":\"Failed to serialize response\",\"retryable\":false,\"details\":null},\"meta\":{\"api_version\":\"unknown\",\"db_schema_version\":0,\"generated_at\":0}}";
-
 /// Loads config and applies CLI overrides.
 fn load_config(cli: &Cli) -> Result<config::AppConfig, AppError> {
     let mut config = config::AppConfig::load(cli.config.clone())?;
@@ -672,7 +386,7 @@ fn handle_cli_parse_error(args: &[OsString], error: clap::Error) -> ExitCode {
                 OutputFormat::Json => {
                     let app_error = AppError::config(error.to_string());
                     if let Err(write_error) =
-                        print_json_or_fallback(&Envelope::<()>::fatal(&app_error))
+                        output::print_json_or_fallback(&Envelope::<()>::fatal(&app_error))
                     {
                         if is_broken_pipe_error(&write_error) {
                             return ExitCode::SUCCESS;
