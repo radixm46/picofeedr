@@ -151,8 +151,8 @@ pub fn view_entry(
 ) -> Result<EntryDetail, AppError> {
     let entry_repo = store.entry_read_repo();
     let row = entry_repo.view_entry_row(entry_id)?;
-    let (entry_id, feed_id, feed_title, title, link, author, published_at, first_seen_at) = row
-        .ok_or_else(|| {
+    let (entry_pk, entry_id, feed_id, feed_title, title, link, author, published_at, first_seen_at) =
+        row.ok_or_else(|| {
             AppError::entry_not_found_with_details(
                 format!("Entry {entry_id} not found"),
                 error_details([
@@ -161,17 +161,6 @@ pub fn view_entry(
                 ]),
             )
         })?;
-
-    let entry_pks = entry_repo.find_entry_pks_by_ids(std::slice::from_ref(&entry_id))?;
-    let entry_pk = entry_pks.get(&entry_id).copied().ok_or_else(|| {
-        AppError::entry_not_found_with_details(
-            format!("Entry {entry_id} not found"),
-            error_details([
-                ("resource", JsonValue::from("entry")),
-                ("entry_id", JsonValue::from(entry_id.clone())),
-            ]),
-        )
-    })?;
     let tags = entry_repo
         .load_tags(&[entry_pk])?
         .remove(&entry_pk)

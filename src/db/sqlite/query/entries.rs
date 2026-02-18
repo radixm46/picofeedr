@@ -43,7 +43,7 @@ pub(crate) const COUNT_ENTRY_TAGS_BY_ENTRY_ID: &str =
 
 /// Reads one entry detail row joined with feed title.
 pub(crate) const SELECT_ENTRY_DETAIL_BY_ID: &str = r#"
-SELECT e.entry_id, f.feed_id, f.title, e.title, e.link, e.author, e.published_at, e.first_seen_at
+SELECT e.id, e.entry_id, f.feed_id, f.title, e.title, e.link, e.author, e.published_at, e.first_seen_at
 FROM entries e
 JOIN feeds f ON e.feed_pk = f.id
 WHERE e.entry_id = ?1

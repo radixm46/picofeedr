@@ -13,6 +13,7 @@ use std::path::Path;
 
 /// Tuple payload for the entry detail base row selected from SQLite.
 pub(crate) type EntryDetailRow = (
+    i64,
     String,
     String,
     Option<String>,
@@ -158,14 +159,15 @@ impl<'a> EntryReadRepo<'a> {
         self.conn
             .query_row(q::SELECT_ENTRY_DETAIL_BY_ID, params![entry_id], |row| {
                 Ok((
-                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(0)?,
                     row.get::<_, String>(1)?,
-                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, String>(2)?,
                     row.get::<_, Option<String>>(3)?,
                     row.get::<_, Option<String>>(4)?,
                     row.get::<_, Option<String>>(5)?,
-                    row.get::<_, Option<i64>>(6)?,
-                    row.get::<_, i64>(7)?,
+                    row.get::<_, Option<String>>(6)?,
+                    row.get::<_, Option<i64>>(7)?,
+                    row.get::<_, i64>(8)?,
                 ))
             })
             .optional()
@@ -280,5 +282,57 @@ impl<'a> EntryWriteRepo<'a> {
             .conn
             .execute(q::DELETE_ENTRY_TAG, params![entry_pk, tag_id])?;
         Ok(rows)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::EntryReadRepo;
+    use rusqlite::Connection;
+
+    #[test]
+    fn view_entry_row_returns_entry_pk_with_detail_fields() {
+        let conn = Connection::open_in_memory().expect("open in-memory sqlite");
+        conn.execute(
+            "CREATE TABLE feeds (id INTEGER PRIMARY KEY, feed_id TEXT NOT NULL, title TEXT)",
+            [],
+        )
+        .expect("create feeds table");
+        conn.execute(
+            "CREATE TABLE entries (
+                id INTEGER PRIMARY KEY,
+                entry_id TEXT NOT NULL,
+                feed_pk INTEGER NOT NULL,
+                title TEXT,
+                link TEXT,
+                author TEXT,
+                published_at INTEGER,
+                first_seen_at INTEGER NOT NULL
+            )",
+            [],
+        )
+        .expect("create entries table");
+        conn.execute(
+            "INSERT INTO feeds (id, feed_id, title) VALUES (1, 'feed-1', 'Feed Title')",
+            [],
+        )
+        .expect("insert feed");
+        conn.execute(
+            "INSERT INTO entries (id, entry_id, feed_pk, title, link, author, published_at, first_seen_at)
+             VALUES (42, 'entry-1', 1, 'Entry Title', 'https://example.com/e1', 'Alice', 1704067200, 1704067200)",
+            [],
+        )
+        .expect("insert entry");
+
+        let row = EntryReadRepo::new(&conn)
+            .view_entry_row("entry-1")
+            .expect("view row")
+            .expect("row exists");
+
+        assert_eq!(row.0, 42);
+        assert_eq!(row.1, "entry-1");
+        assert_eq!(row.2, "feed-1");
+        assert_eq!(row.3.as_deref(), Some("Feed Title"));
+        assert_eq!(row.4.as_deref(), Some("Entry Title"));
     }
 }
