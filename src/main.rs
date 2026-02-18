@@ -17,8 +17,7 @@ use picofeedr::response::{
 use picofeedr::status::StatusResponse;
 use picofeedr::sync;
 use picofeedr::sync::SyncSummary;
-use picofeedr::tag::TagManager;
-use picofeedr::time;
+use picofeedr::{TagManager, current_epoch};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::env;
@@ -223,7 +222,7 @@ fn execute_command(cli: &Cli) -> Result<CommandOutput, AppError> {
                     feed::reconcile_feeds(&mut store, &feeds_config, &config.unread_tag)?;
                     let db_feeds = store.list_feeds()?;
                     let feeds = feed::render_feed_list(&feeds_config, &db_feeds);
-                    store.bump_revision(time::current_epoch())?;
+                    store.bump_revision(current_epoch())?;
                     Ok(CommandOutput::FeedsList { feeds })
                 }
                 Command::Sync => execute_sync_with_store(&config, &mut store),
@@ -245,7 +244,7 @@ fn execute_command(cli: &Cli) -> Result<CommandOutput, AppError> {
                 }
                 Command::Mark { command } => {
                     let updated = execute_mark(&mut store, &config, command)?;
-                    store.bump_revision(time::current_epoch())?;
+                    store.bump_revision(current_epoch())?;
                     Ok(CommandOutput::Mark { updated })
                 }
                 Command::Ping | Command::Version => unreachable!("handled above"),
@@ -261,7 +260,7 @@ fn execute_sync_with_store(
 ) -> Result<CommandOutput, AppError> {
     let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
     let summary = sync::run_sync(store, config, &feeds_config)?;
-    let now = time::current_epoch();
+    let now = current_epoch();
     store.bump_revision(now)?;
     store.update_sync(now, summary.status.as_str())?;
     Ok(CommandOutput::Sync { summary })
@@ -301,7 +300,7 @@ fn execute_sync_command_plain(cli: &Cli) -> Result<CommandOutput, RunFailure> {
         return Err(RunFailure::Io(error));
     }
 
-    let now = time::current_epoch();
+    let now = current_epoch();
     store.bump_revision(now)?;
     store.update_sync(now, summary.status.as_str())?;
     Ok(CommandOutput::Sync { summary })
