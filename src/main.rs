@@ -1,30 +1,23 @@
 //! Picofeedr CLI entrypoint.
 
+mod command_exec;
 mod output;
 
 use clap::Parser;
-use picofeedr::cli::{Cli, Command, MarkCommand, OutputFormat, SortOrder};
+use picofeedr::cli::{Cli, Command, OutputFormat};
 use picofeedr::config;
-use picofeedr::db;
-use picofeedr::entry;
 use picofeedr::entry::{EntryDetail, EntryListResponse};
-use picofeedr::error::{AppError, ErrorDetails, error_details};
-use picofeedr::feed;
+use picofeedr::error::AppError;
 use picofeedr::feed::FeedListResponse;
-use picofeedr::query::EntryQuery;
 use picofeedr::response::{Envelope, ResponseStatus};
 use picofeedr::status::StatusResponse;
-use picofeedr::sync;
 use picofeedr::sync::SyncSummary;
-use picofeedr::{TagManager, current_epoch};
-use serde_json::Value;
-use std::collections::HashSet;
 use std::env;
 use std::error::Error;
 use std::ffi::OsString;
-use std::io::{self, Write};
+use std::io;
 use std::process::ExitCode;
-use tracing::{debug, trace};
+use tracing::debug;
 
 /// Execution results for CLI commands.
 enum CommandOutput {
@@ -139,9 +132,9 @@ fn main() -> ExitCode {
 /// Executes the CLI command and prints a JSON response.
 fn run(cli: &Cli, output: OutputFormat) -> Result<(), RunFailure> {
     let result = if matches!((&cli.command, output), (Command::Sync, OutputFormat::Plain)) {
-        execute_sync_command_plain(cli)?
+        command_exec::execute_sync_command_plain(cli)?
     } else {
-        execute_command(cli)?
+        command_exec::execute_command(cli)?
     };
     match output {
         OutputFormat::Json => output::render_json(&result)?,
@@ -152,7 +145,7 @@ fn run(cli: &Cli, output: OutputFormat) -> Result<(), RunFailure> {
 
 /// Runs static feeds config validation without touching the database.
 fn run_config_check(cli: &Cli, output: OutputFormat) -> Result<ExitCode, RunFailure> {
-    let config = load_config(cli)?;
+    let config = command_exec::load_config(cli)?;
     let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
     let report = feeds_config.validate();
     let is_valid = report.valid;
@@ -174,179 +167,6 @@ fn run_config_check(cli: &Cli, output: OutputFormat) -> Result<ExitCode, RunFail
     })
 }
 
-/// Executes the CLI command and returns the result.
-fn execute_command(cli: &Cli) -> Result<CommandOutput, AppError> {
-    trace!("execute_command start");
-    match &cli.command {
-        Command::Ping => Ok(CommandOutput::Ping),
-        Command::Version => Ok(CommandOutput::Version {
-            api_version: env!("CARGO_PKG_VERSION"),
-            db_schema_version: db::migrate::current_schema_version(),
-            build: "dev",
-        }),
-        Command::Tags
-        | Command::Status
-        | Command::Feeds { .. }
-        | Command::Sync
-        | Command::List { .. }
-        | Command::View { .. }
-        | Command::Mark { .. } => {
-            let config = load_config(cli)?;
-            debug!(
-                db_path = ?config.database.path,
-                feeds_path = ?config.feeds.source,
-                "loaded configuration"
-            );
-            let mut store = db::sqlite::SqliteStore::open(&config.database.path)?;
-            store.migrate()?;
-
-            match &cli.command {
-                Command::Tags => {
-                    let tag_manager = TagManager::new(&store);
-                    let tags = tag_manager.list_tags()?;
-                    Ok(CommandOutput::Tags { tags })
-                }
-                Command::Status => {
-                    let meta = store.read_system_meta()?;
-                    let status = StatusResponse::from_meta(
-                        &meta,
-                        db::migrate::current_schema_version(),
-                        env!("CARGO_PKG_VERSION"),
-                    );
-                    Ok(CommandOutput::Status { status })
-                }
-                Command::Feeds { config_check } => {
-                    let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
-                    debug_assert!(!config_check);
-                    feed::reconcile_feeds(&mut store, &feeds_config, &config.unread_tag)?;
-                    let db_feeds = store.list_feeds()?;
-                    let feeds = feed::render_feed_list(&feeds_config, &db_feeds);
-                    store.bump_revision(current_epoch())?;
-                    Ok(CommandOutput::FeedsList { feeds })
-                }
-                Command::Sync => execute_sync_with_store(&config, &mut store),
-                Command::List {
-                    query,
-                    sort,
-                    limit,
-                    cursor,
-                } => {
-                    let query = EntryQuery::parse(query.as_deref(), &config.unread_tag)?;
-                    let sort = sort.unwrap_or(SortOrder::FirstSeenDesc);
-                    let limit = resolve_list_limit(*limit, config.query)?;
-                    let list = entry::list_entries(&store, &query, sort, limit, cursor.as_deref())?;
-                    Ok(CommandOutput::List { list })
-                }
-                Command::View { id } => {
-                    let detail = entry::view_entry(&store, &config, id)?;
-                    Ok(CommandOutput::View { detail })
-                }
-                Command::Mark { command } => {
-                    let updated = execute_mark(&mut store, &config, command)?;
-                    store.bump_revision(current_epoch())?;
-                    Ok(CommandOutput::Mark { updated })
-                }
-                Command::Ping | Command::Version => unreachable!("handled above"),
-            }
-        }
-    }
-}
-
-/// Executes sync command using the shared store path without progress rendering.
-fn execute_sync_with_store(
-    config: &config::AppConfig,
-    store: &mut db::sqlite::SqliteStore,
-) -> Result<CommandOutput, AppError> {
-    let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
-    let summary = sync::run_sync(store, config, &feeds_config)?;
-    let now = current_epoch();
-    store.bump_revision(now)?;
-    store.update_sync(now, summary.status.as_str())?;
-    Ok(CommandOutput::Sync { summary })
-}
-
-/// Executes sync command and streams plain progress lines to stdout.
-fn execute_sync_command_plain(cli: &Cli) -> Result<CommandOutput, RunFailure> {
-    let config = load_config(cli)?;
-    debug!(
-        db_path = ?config.database.path,
-        feeds_path = ?config.feeds.source,
-        "loaded configuration"
-    );
-    let mut store = db::sqlite::SqliteStore::open(&config.database.path)?;
-    store.migrate()?;
-    let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
-
-    let stdout = io::stdout();
-    let mut writer = io::BufWriter::new(stdout.lock());
-    let mut write_error: Option<io::Error> = None;
-    let mut on_progress = |event: sync::SyncProgressEvent| {
-        if write_error.is_some() {
-            return;
-        }
-        if let Err(error) = output::render_sync_progress_line(&mut writer, &event) {
-            write_error = Some(error);
-            return;
-        }
-        if let Err(error) = writer.flush() {
-            write_error = Some(error);
-        }
-    };
-
-    let summary =
-        sync::run_sync_with_progress(&mut store, &config, &feeds_config, Some(&mut on_progress))?;
-    if let Some(error) = write_error {
-        return Err(RunFailure::Io(error));
-    }
-
-    let now = current_epoch();
-    store.bump_revision(now)?;
-    store.update_sync(now, summary.status.as_str())?;
-    Ok(CommandOutput::Sync { summary })
-}
-
-/// Resolves the effective list limit from CLI argument and query config.
-fn resolve_list_limit(limit: Option<usize>, query: config::QueryConfig) -> Result<usize, AppError> {
-    let resolved = limit.unwrap_or(query.default_limit);
-    if resolved == 0 {
-        return Err(AppError::invalid_query_with_details(
-            "--limit must be greater than 0",
-            limit_error_details("zero_or_negative", resolved, query.max_limit),
-        ));
-    }
-    if resolved > query.max_limit {
-        return Err(AppError::invalid_query_with_details(
-            format!("--limit must be less than or equal to {}", query.max_limit),
-            limit_error_details("exceeds_max_limit", resolved, query.max_limit),
-        ));
-    }
-    Ok(resolved)
-}
-
-/// Builds standardized details payload for limit validation failures.
-fn limit_error_details(kind: &str, value: usize, _max_limit: usize) -> ErrorDetails {
-    let hint = match kind {
-        "zero_or_negative" => "limit_must_be_greater_than_zero",
-        "exceeds_max_limit" => "limit_exceeds_configured_max_limit",
-        _ => "invalid_limit",
-    };
-    error_details([
-        ("kind", Value::from("limit_out_of_range")),
-        ("field", Value::from("limit")),
-        ("value", Value::from(value)),
-        ("hint", Value::from(hint)),
-    ])
-}
-
-/// Loads config and applies CLI overrides.
-fn load_config(cli: &Cli) -> Result<config::AppConfig, AppError> {
-    let mut config = config::AppConfig::load(cli.config.clone())?;
-    if let Some(root_dir) = cli.storage_root.clone() {
-        config.override_root_dir(root_dir)?;
-    }
-    Ok(config)
-}
-
 /// Resolves effective output format (CLI > config > default).
 fn resolve_output(cli: &Cli, config: Option<&config::AppConfig>) -> OutputFormat {
     if let Some(output) = cli.output {
@@ -365,7 +185,7 @@ fn resolve_effective_output(cli: &Cli) -> OutputFormat {
     }
     match cli.command {
         Command::Ping | Command::Version => OutputFormat::Plain,
-        _ => match load_config(cli) {
+        _ => match command_exec::load_config(cli) {
             Ok(config) => resolve_output(cli, Some(&config)),
             Err(_) => OutputFormat::Plain,
         },
@@ -470,7 +290,7 @@ fn resolve_effective_log_level(cli: &Cli) -> config::LogLevel {
     if cli.debug {
         return config::LogLevel::Debug;
     }
-    match load_config(cli) {
+    match command_exec::load_config(cli) {
         Ok(config) => config.log.level,
         Err(_) => config::LogLevel::Info,
     }
@@ -498,42 +318,4 @@ fn init_logging(level: config::LogLevel) {
         .with_writer(io::stderr)
         .with_ansi(false)
         .try_init();
-}
-
-fn execute_mark(
-    store: &mut db::sqlite::SqliteStore,
-    config: &config::AppConfig,
-    command: &MarkCommand,
-) -> Result<usize, AppError> {
-    match command {
-        MarkCommand::Read { ids } => {
-            entry::mark_entries(store, ids, &[], std::slice::from_ref(&config.unread_tag))
-        }
-        MarkCommand::Unread { ids } => {
-            entry::mark_entries(store, ids, std::slice::from_ref(&config.unread_tag), &[])
-        }
-        MarkCommand::Tag { ids, add, remove } => {
-            let add_tags = parse_tag_list(add.as_deref());
-            let remove_tags = parse_tag_list(remove.as_deref());
-            entry::mark_entries(store, ids, &add_tags, &remove_tags)
-        }
-    }
-}
-
-fn parse_tag_list(raw: Option<&str>) -> Vec<String> {
-    let Some(raw) = raw else {
-        return Vec::new();
-    };
-    let mut seen = HashSet::new();
-    let mut tags = Vec::new();
-    for part in raw.split(',') {
-        let tag = part.trim();
-        if tag.is_empty() {
-            continue;
-        }
-        if seen.insert(tag.to_string()) {
-            tags.push(tag.to_string());
-        }
-    }
-    tags
 }
