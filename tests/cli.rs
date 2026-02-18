@@ -5,8 +5,11 @@ mod support;
 use assert_cmd::cargo::cargo_bin_cmd;
 use rusqlite::Connection;
 use std::fs;
+use std::io::{Read, Write};
+use std::net::TcpListener;
 use std::path::Path;
 use std::process::{Command as ProcessCommand, Output, Stdio};
+use std::thread;
 use support::assertions::{
     assert_envelope_status, assert_error_envelope, assert_plain_contract, extract_error_code,
     extract_error_details, extract_error_payload, extract_ok_data,
@@ -1177,6 +1180,69 @@ fn sync_plain_reports_failed_with_feed_error_lines() {
     assert!(output_str.contains("code=PARSE_FAILED retryable=false"));
     assert!(output_str.contains("status: failed"));
     assert!(output_str.contains("errors: 1"));
+}
+
+/// Ensures HTTP 404 fetch failures are marked as non-retryable.
+#[test]
+fn sync_http_404_fetch_failed_is_not_retryable() {
+    let temp = TempDir::new().expect("tempdir");
+    let feeds_path = temp.path().join("feeds.yaml");
+    let config_path = temp.path().join("config.toml");
+    let db_path = temp.path().join("db.sqlite");
+
+    let (feed_url, server_thread) = spawn_http_404_feed_server();
+    let feeds = format!(
+        r#"picofeedr:
+  tech:
+    tags: [tech]
+    feeds:
+      - url: {feed_url}
+        title: Missing Feed
+"#
+    );
+    fs::write(&feeds_path, feeds).expect("write feeds");
+
+    let config = format!(
+        r#"unread_tag = "unread"
+
+[feeds]
+source = "{}"
+
+[storage]
+root_dir = "{}"
+
+[sync]
+timeout = 1
+retry_count = 0
+retry_delay = 0
+"#,
+        feeds_path.display(),
+        temp.path().display()
+    );
+    fs::write(&config_path, config).expect("write config");
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(config_path.display().to_string())
+        .arg("--storage-root")
+        .arg(db_root(db_path.to_str().expect("db path")))
+        .arg("sync")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    server_thread.join().expect("join 404 server thread");
+
+    let data = extract_ok_data(&output);
+    assert_envelope_status(&output, "warning");
+    assert_eq!(data["status"], "failed");
+    assert_eq!(data["failed_feed_count"], 1);
+    let errors = data["errors"].as_array().expect("errors array");
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0]["code"], "FETCH_FAILED");
+    assert_eq!(errors[0]["retryable"], false);
 }
 
 /// Ensures list returns paginated results with tag filters.
@@ -2399,4 +2465,21 @@ fn run_with_closed_stdout(args: Vec<String>) -> Output {
     let mut child = command.spawn().expect("spawn picofeedr");
     drop(child.stdout.take());
     child.wait_with_output().expect("wait for picofeedr")
+}
+
+/// Starts a local HTTP server that returns one 404 response.
+fn spawn_http_404_feed_server() -> (String, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind 404 server");
+    let addr = listener.local_addr().expect("local addr");
+    let handle = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept request");
+        let mut request_buf = [0_u8; 1024];
+        let _ = stream.read(&mut request_buf);
+        let response =
+            "HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\nConnection: close\r\n\r\nnot found";
+        stream
+            .write_all(response.as_bytes())
+            .expect("write 404 response");
+    });
+    (format!("http://{addr}/missing"), handle)
 }

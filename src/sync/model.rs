@@ -106,12 +106,12 @@ pub enum SyncProgressEvent {
 
 impl SyncError {
     /// Builds a fetch error entry.
-    pub(crate) fn fetch(feed_url: &str, message: String) -> Self {
+    pub(crate) fn fetch(feed_url: &str, message: String, retryable: bool) -> Self {
         Self {
             feed_url: feed_url.to_string(),
             code: SyncErrorCode::FetchFailed,
             message,
-            retryable: !feed_url.starts_with("file://"),
+            retryable,
         }
     }
 

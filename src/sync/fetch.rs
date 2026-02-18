@@ -11,6 +11,12 @@ use std::time::Duration;
 use super::model::{SyncError, SyncProgressEvent, SyncResult, SyncTarget, WorkerResult};
 use super::normalize::normalize_entry;
 
+/// Feed fetch failure with retryability metadata.
+struct FetchError {
+    message: String,
+    retryable: bool,
+}
+
 /// Fetches and parses feeds in parallel.
 pub(crate) fn fetch_parallel(
     targets: &[SyncTarget],
@@ -150,7 +156,7 @@ fn fetch_and_parse(target: &SyncTarget, config: &AppConfig) -> WorkerResult {
                 index: target.index,
                 total_feeds: target.total_feeds,
                 url: target.url.clone(),
-                error: SyncError::fetch(&target.url, error.to_string()),
+                error: SyncError::fetch(&target.url, error.message, error.retryable),
             };
         }
     };
@@ -183,10 +189,12 @@ fn fetch_and_parse(target: &SyncTarget, config: &AppConfig) -> WorkerResult {
 }
 
 /// Fetches raw feed bytes with retry support.
-fn fetch_feed_bytes(url: &str, sync: &SyncConfig) -> Result<Vec<u8>, AppError> {
+fn fetch_feed_bytes(url: &str, sync: &SyncConfig) -> Result<Vec<u8>, FetchError> {
     if let Some(path) = url.strip_prefix("file://") {
-        return fs::read(path)
-            .map_err(|error| AppError::io(format!("Failed to read feed file {url}: {error}")));
+        return fs::read(path).map_err(|error| FetchError {
+            message: format!("Failed to read feed file {url}: {error}"),
+            retryable: false,
+        });
     }
     let agent = ureq::AgentBuilder::new()
         .timeout_read(Duration::from_secs(sync.timeout_secs))
@@ -198,14 +206,26 @@ fn fetch_feed_bytes(url: &str, sync: &SyncConfig) -> Result<Vec<u8>, AppError> {
             Ok(response) => {
                 let mut bytes = Vec::new();
                 let mut reader = response.into_reader();
-                reader
-                    .read_to_end(&mut bytes)
-                    .map_err(|error| AppError::io(format!("Failed to read feed body: {error}")))?;
+                reader.read_to_end(&mut bytes).map_err(|error| FetchError {
+                    message: format!("Failed to read feed body: {error}"),
+                    retryable: true,
+                })?;
                 return Ok(bytes);
             }
             Err(error) => {
+                if let ureq::Error::Status(code, _) = &error
+                    && (400..500).contains(code)
+                {
+                    return Err(FetchError {
+                        message: format!("Failed to fetch {url}: {error}"),
+                        retryable: false,
+                    });
+                }
                 if attempt >= sync.retry_count {
-                    return Err(AppError::io(format!("Failed to fetch {url}: {error}")));
+                    return Err(FetchError {
+                        message: format!("Failed to fetch {url}: {error}"),
+                        retryable: true,
+                    });
                 }
                 if sync.retry_delay_secs > 0 {
                     thread::sleep(Duration::from_secs(sync.retry_delay_secs));
@@ -213,5 +233,8 @@ fn fetch_feed_bytes(url: &str, sync: &SyncConfig) -> Result<Vec<u8>, AppError> {
             }
         }
     }
-    Err(AppError::io(format!("Failed to fetch {url}")))
+    Err(FetchError {
+        message: format!("Failed to fetch {url}"),
+        retryable: true,
+    })
 }
