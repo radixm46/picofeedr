@@ -261,7 +261,7 @@ impl SyncConfig {
             timeout_secs: raw.timeout.unwrap_or(30),
             user_agent: raw
                 .user_agent
-                .unwrap_or_else(|| "picofeedr/0.1.0".to_string()),
+                .unwrap_or_else(|| format!("picofeedr/{}", env!("CARGO_PKG_VERSION"))),
             retry_count: raw.retry_count.unwrap_or(3),
             retry_delay_secs: raw.retry_delay.unwrap_or(5),
         })
@@ -395,5 +395,19 @@ fn parse_log_level(value: Option<&str>) -> Result<LogLevel, AppError> {
                 ),
             ]),
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SyncConfig;
+
+    #[test]
+    fn default_sync_user_agent_uses_package_version() {
+        let sync = SyncConfig::from_raw(None).expect("sync defaults");
+        assert_eq!(
+            sync.user_agent,
+            format!("picofeedr/{}", env!("CARGO_PKG_VERSION"))
+        );
     }
 }

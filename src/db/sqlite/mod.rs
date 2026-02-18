@@ -83,13 +83,6 @@ impl SqliteStore {
         Ok(Self { conn })
     }
 
-    /// Begins a raw transaction.
-    ///
-    /// This is kept for internal compatibility. Prefer `tx()` in new code.
-    pub fn transaction(&mut self) -> Result<rusqlite::Transaction<'_>, AppError> {
-        Ok(self.conn.transaction()?)
-    }
-
     /// Begins a wrapped transaction for repository-based write operations.
     pub fn tx(&mut self) -> Result<Tx<'_>, AppError> {
         Ok(Tx::new(self.conn.transaction()?))
