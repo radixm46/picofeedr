@@ -1494,6 +1494,46 @@ fn list_filters_by_feed() {
     assert_eq!(data["total_count"], 2);
 }
 
+/// Ensures missing feed id filter returns ENTRY_NOT_FOUND.
+#[test]
+fn list_filter_by_missing_feed_id_returns_entry_not_found() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("list")
+        .arg("--query")
+        .arg("feed:missing-feed-id")
+        .arg("--sort")
+        .arg("first_seen_desc")
+        .arg("--limit")
+        .arg("10")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    assert_error_envelope(&output, "ENTRY_NOT_FOUND", false);
+    let error = extract_error_payload(&output);
+    assert_eq!(error["message"], "Feed missing-feed-id not found");
+    assert_eq!(error["details"]["resource"], "feed");
+    assert_eq!(error["details"]["feed_id"], "missing-feed-id");
+}
+
 /// Ensures title filters work.
 #[test]
 fn list_filters_by_title() {

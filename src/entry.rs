@@ -111,6 +111,11 @@ struct Cursor {
 
 type EntryListPage = (Vec<EntrySummary>, Vec<FeedSummary>, Option<String>);
 
+enum FeedIdPredicate {
+    NotRequested,
+    Resolved(i64),
+}
+
 /// Lists entries using tag filters and cursor pagination.
 pub fn list_entries(
     store: &SqliteStore,
@@ -122,9 +127,12 @@ pub fn list_entries(
     let entry_repo = store.entry_read_repo();
     let system_meta = store.sync_read_repo().read_system_meta()?;
     let query_hash = compute_query_hash(query);
-    let (count_where_sql, count_params) = build_where_clause(query, sort, None, &query_hash)?;
+    let feed_id_predicate = resolve_feed_id_predicate(store, query)?;
+    let (count_where_sql, count_params) =
+        build_where_clause(query, sort, None, &query_hash, &feed_id_predicate)?;
     let total_count = entry_repo.count_entries(&count_where_sql, &count_params)?;
-    let (page_where_sql, page_params) = build_where_clause(query, sort, cursor, &query_hash)?;
+    let (page_where_sql, page_params) =
+        build_where_clause(query, sort, cursor, &query_hash, &feed_id_predicate)?;
     let (items, feeds, next_page_token) = fetch_entries(
         &entry_repo,
         &page_where_sql,
@@ -141,6 +149,28 @@ pub fn list_entries(
         revision: system_meta.revision,
         last_write_at: system_meta.updated_at,
     })
+}
+
+fn resolve_feed_id_predicate(
+    store: &SqliteStore,
+    query: &EntryQuery,
+) -> Result<FeedIdPredicate, AppError> {
+    let Some(FeedFilter::Id(feed_id)) = &query.feed else {
+        return Ok(FeedIdPredicate::NotRequested);
+    };
+    let resolved = store
+        .feed_read_repo()
+        .find_feed_pks_by_ids(std::slice::from_ref(feed_id))?;
+    match resolved.get(feed_id) {
+        Some(feed_pk) => Ok(FeedIdPredicate::Resolved(*feed_pk)),
+        None => Err(AppError::entry_not_found_with_details(
+            format!("Feed {feed_id} not found"),
+            error_details([
+                ("resource", JsonValue::from("feed")),
+                ("feed_id", JsonValue::from(feed_id.clone())),
+            ]),
+        )),
+    }
 }
 
 /// Loads entry detail by id.
@@ -245,6 +275,7 @@ fn build_where_clause(
     sort: SortOrder,
     cursor: Option<&str>,
     query_hash: &str,
+    feed_id_predicate: &FeedIdPredicate,
 ) -> Result<(String, Vec<Value>), AppError> {
     let mut clauses = Vec::new();
     let mut params = Vec::new();
@@ -256,10 +287,15 @@ fn build_where_clause(
     }
     if let Some(feed) = &query.feed {
         match feed {
-            FeedFilter::Id(id) => {
-                clauses.push(q::EXISTS_FEED_ID_FOR_ENTRY.to_string());
-                params.push(Value::from(id.clone()));
-            }
+            FeedFilter::Id(_) => match feed_id_predicate {
+                FeedIdPredicate::Resolved(feed_pk) => {
+                    clauses.push(q::ENTRY_FEED_PK_EQ.to_string());
+                    params.push(Value::from(*feed_pk));
+                }
+                FeedIdPredicate::NotRequested => {
+                    return Err(AppError::internal("feed id filter state is not resolved"));
+                }
+            },
             FeedFilter::Title(title) => {
                 clauses.push(q::EXISTS_FEED_TITLE_FOR_ENTRY.to_string());
                 params.push(Value::from(title.clone()));

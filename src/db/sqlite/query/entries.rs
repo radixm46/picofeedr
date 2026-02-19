@@ -60,9 +60,8 @@ pub(crate) const SELECT_ENTRY_ENCLOSURES_BY_ENTRY_ID: &str =
 pub(crate) const EXISTS_FEED_TITLE_FOR_ENTRY: &str =
     "EXISTS (SELECT 1 FROM feeds f WHERE f.id = e.feed_pk AND f.title = ?)";
 
-/// Existence predicate for feed key filter.
-pub(crate) const EXISTS_FEED_ID_FOR_ENTRY: &str =
-    "EXISTS (SELECT 1 FROM feeds f WHERE f.id = e.feed_pk AND f.feed_id = ?)";
+/// Predicate for filtering by feed primary key.
+pub(crate) const ENTRY_FEED_PK_EQ: &str = "e.feed_pk = ?";
 
 /// Existence predicate for tag expression.
 pub(crate) const EXISTS_TAG_FOR_ENTRY: &str = "EXISTS (SELECT 1 FROM entry_tags et JOIN tags t ON et.tag_id = t.id \
