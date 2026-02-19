@@ -4,7 +4,6 @@
 pub(crate) const INSERT_ENTRY: &str = "INSERT OR IGNORE INTO entries (\
         entry_id,\
         feed_pk,\
-        source_id,\
         link,\
         title,\
         author,\
@@ -12,7 +11,7 @@ pub(crate) const INSERT_ENTRY: &str = "INSERT OR IGNORE INTO entries (\
         updated_at,\
         first_seen_at,\
         meta_json\
-    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)";
+    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)";
 
 /// Selects entry id from stable entry key.
 pub(crate) const SELECT_ENTRY_PK_BY_ID: &str = "SELECT id FROM entries WHERE entry_id = ?1";

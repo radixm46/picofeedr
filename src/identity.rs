@@ -6,8 +6,6 @@ use sha2::{Digest, Sha256};
 
 /// Derived identifiers for a feed entry.
 pub struct EntryIdentity {
-    /// Canonical source identifier `{namespace}|{cleaned_id}`.
-    pub source_id: String,
     /// Stable entry id for database identity.
     pub entry_id: String,
 }
@@ -72,10 +70,7 @@ impl EntryIdentity {
     fn from_input(identity: &EntryIdentityInput<'_>) -> Self {
         let source_id = build_entry_source_id(identity);
         let entry_id = build_entry_id(identity.namespace, &source_id);
-        Self {
-            source_id,
-            entry_id,
-        }
+        Self { entry_id }
     }
 }
 
@@ -202,5 +197,22 @@ mod tests {
             sha1_hex("title:|published:0|updated:0|author:")
         );
         assert_eq!(fallback, expected);
+    }
+
+    #[test]
+    fn from_input_derives_entry_id_from_canonical_source_id() {
+        let identity = EntryIdentityInput {
+            namespace: "feed-a",
+            raw_id: Some("  id-1 "),
+            link: None,
+            content: None,
+            title: None,
+            published_at: None,
+            updated_at: None,
+            author: None,
+        };
+        let derived = EntryIdentity::from_input(&identity);
+        let expected = build_entry_id("feed-a", "feed-a|id-1");
+        assert_eq!(derived.entry_id, expected);
     }
 }

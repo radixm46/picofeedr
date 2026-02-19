@@ -44,8 +44,6 @@ pub struct EntryInput {
     pub entry_id: String,
     /// Feed foreign key (`feeds.id`).
     pub feed_pk: i64,
-    /// Source identifier from the feed.
-    pub source_id: Option<String>,
     /// Link URL.
     pub link: Option<String>,
     /// Entry title.

@@ -165,7 +165,6 @@ pub(crate) struct EntryContentPlan {
 #[derive(Debug)]
 pub(crate) struct PendingEntry {
     pub(crate) entry_id: String,
-    pub(crate) source_id: Option<String>,
     pub(crate) link: Option<String>,
     pub(crate) title: Option<String>,
     pub(crate) author: Option<String>,
@@ -181,7 +180,6 @@ impl PendingEntry {
         crate::db::EntryInput {
             entry_id: self.entry_id,
             feed_pk,
-            source_id: self.source_id,
             link: self.link,
             title: self.title,
             author: self.author,

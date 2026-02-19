@@ -19,7 +19,6 @@ pub(crate) fn insert_entry_with_conn(
         params![
             entry.entry_id,
             entry.feed_pk,
-            entry.source_id,
             entry.link,
             entry.title,
             entry.author,
@@ -144,7 +143,6 @@ mod tests {
         let input = EntryInput {
             entry_id: "entry-a".to_string(),
             feed_pk,
-            source_id: Some("src-a".to_string()),
             link: Some("https://example.com/a".to_string()),
             title: Some("A".to_string()),
             author: None,
@@ -170,7 +168,6 @@ mod tests {
         let input = EntryInput {
             entry_id: "entry-a".to_string(),
             feed_pk,
-            source_id: Some("src-a".to_string()),
             link: Some("https://example.com/a".to_string()),
             title: Some("A".to_string()),
             author: None,

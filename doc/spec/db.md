@@ -83,16 +83,7 @@
 * 本DBの中核：エントリ索引
 * `id`：DB内部参照用の整数PK（JOIN最適化、外部キーのサイズ削減）
 * `entry_id`: Stable app-defined ID (unique)
-  * `entry_id = "k_" + base64url_nopad(sha256("{feed_id}:{source_id}"))`
-* `source_id`: Canonical identifier string in the form `{namespace}|{cleaned_id}`
-  * `namespace` uses `feed_id`
-  * `cleaned_id` is selected in order:
-    1. feed-provided id/guid
-    2. link
-    3. `urn:sha1:<sha1(content)>`
-    4. `urn:sha1:<sha1(title|published_at|updated_at|author)>`
-    5. last resort `urn:sha1:<sha1(seed)>`（※seedは決定的に構成する。値が全て空でも同一seedになるため、衝突しうるのだ）
-  * `cleaned_id` trims and collapses whitespace
+  * canonical identifier（feed-provided id/guid, link, content hash など）からアプリ内で計算する
 * `published_at` / `updated_at`：ソースが主張する時刻（欠損・嘘を許容）
 * `first_seen_at`：ローカルが初めて観測した時刻（NOT NULL）
 
@@ -178,8 +169,7 @@
 
 ## 6. 設計上の判断メモ
 
-* `source_id` は保持：移行・デバッグ・外部照合のため（内部PK `id` と役割が別）
-* `source_id_type` は不要：必要なら `source_id` を自己記述にして型情報を内包
+* canonical identifier は `entry_id` 計算のためにアプリ内でのみ使用し、DBには永続化しない
 * `last_seen_at` は削除：RSS/Atom が rolling window（最新N件）であることが多く、単純な消失検知に向かないため
 * タグはキャッシュではなく状態：unread 等の状態管理に使うため、ルール再評価で全再生成する思想を取らない
 

@@ -83,7 +83,18 @@ mod tests {
         let entry_columns = table_columns(&conn, "entries").expect("entries table columns");
         assert!(entry_columns.contains("entry_id"));
         assert!(entry_columns.contains("feed_pk"));
+        assert!(!entry_columns.contains("source_id"));
         assert!(!entry_columns.contains("entry_key"));
         assert!(!entry_columns.contains("feed_id"));
+    }
+
+    /// Migration should not create deprecated source-id index on entries.
+    #[test]
+    fn migrate_does_not_create_feed_source_index() {
+        let conn = Connection::open_in_memory().expect("in-memory sqlite");
+        migrate(&conn).expect("migration should succeed");
+
+        let names = entries_index_names(&conn).expect("index list should be queryable");
+        assert!(!names.contains("idx_entries_feed_source"));
     }
 }

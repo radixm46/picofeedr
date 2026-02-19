@@ -45,14 +45,11 @@ Table feeds {
 Table entries {
     Note: '''
     Entry index. entry_id is app-defined stable id.
-    - source_id: Atom <id> / RSS <guid> / fallback identifier (e.g. link).
     - published_at can be NULL; use first_seen_at as a stable timeline fallback.
     '''
     id integer [pk, increment]
-    entry_id text [not null, unique]  // app-defined stable id (e.g., feed_id + source_id; or hash-based)
+    entry_id text [not null, unique]  // app-defined stable id derived from canonical source identity
     feed_pk integer [not null]
-
-    source_id text                     // Atom <id> / RSS <guid> / fallback (nullable)
 
     link text                          // may be null in some feeds
     title text                         // allow null: some items are sparse
@@ -76,8 +73,6 @@ Table entries {
         (published_at)
         (`COALESCE(published_at, updated_at, first_seen_at)`, id)
         (first_seen_at)
-
-        (feed_pk, source_id)
 
         (link)
     }

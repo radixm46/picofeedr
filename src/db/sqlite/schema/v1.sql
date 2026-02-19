@@ -23,7 +23,6 @@ CREATE TABLE IF NOT EXISTS entries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     entry_id TEXT NOT NULL UNIQUE,
     feed_pk INTEGER NOT NULL,
-    source_id TEXT,
     link TEXT,
     title TEXT,
     author TEXT,
@@ -74,7 +73,6 @@ CREATE INDEX IF NOT EXISTS idx_entries_feed_published ON entries(feed_pk, publis
 CREATE INDEX IF NOT EXISTS idx_entries_feed_first_seen ON entries(feed_pk, first_seen_at);
 CREATE INDEX IF NOT EXISTS idx_entries_published ON entries(published_at);
 CREATE INDEX IF NOT EXISTS idx_entries_first_seen ON entries(first_seen_at);
-CREATE INDEX IF NOT EXISTS idx_entries_feed_source ON entries(feed_pk, source_id);
 CREATE INDEX IF NOT EXISTS idx_entries_link ON entries(link);
 CREATE INDEX IF NOT EXISTS idx_entries_effective_date ON entries(COALESCE(published_at, updated_at, first_seen_at), id);
 CREATE INDEX IF NOT EXISTS idx_entries_feed_effective_date ON entries(feed_pk, COALESCE(published_at, updated_at, first_seen_at), id);
