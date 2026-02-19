@@ -11,7 +11,3 @@ pub(crate) const COUNT_META_ROWS: &str = "SELECT COUNT(1) FROM es_meta";
 
 /// Inserts initial metadata row.
 pub(crate) const INSERT_META_ROW: &str = "INSERT INTO es_meta (id, meta_json) VALUES (1, ?1)";
-
-/// PRAGMA query used by migration tests for entries index listing.
-#[cfg(test)]
-pub(crate) const PRAGMA_INDEX_LIST_ENTRIES: &str = "PRAGMA index_list('entries')";

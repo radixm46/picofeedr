@@ -38,7 +38,6 @@ Table feeds {
 
     indexes {
         (feed_id)
-        (url)
     }
 }
 
@@ -64,7 +63,6 @@ Table entries {
 
     indexes {
         (entry_id)
-        (feed_pk)
 
         (feed_pk, published_at)
         (feed_pk, `COALESCE(published_at, updated_at, first_seen_at)`, id)
@@ -73,8 +71,6 @@ Table entries {
         (published_at)
         (`COALESCE(published_at, updated_at, first_seen_at)`, id)
         (first_seen_at)
-
-        (link)
     }
 }
 

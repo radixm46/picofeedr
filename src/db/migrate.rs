@@ -31,13 +31,12 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
 #[cfg(test)]
 mod tests {
     use super::migrate;
-    use crate::db::sqlite::query::sync;
     use rusqlite::Connection;
     use std::collections::HashSet;
 
-    /// Returns index names defined on the entries table.
-    fn entries_index_names(conn: &Connection) -> rusqlite::Result<HashSet<String>> {
-        let mut stmt = conn.prepare(sync::PRAGMA_INDEX_LIST_ENTRIES)?;
+    /// Returns index names defined on one table.
+    fn table_index_names(conn: &Connection, table: &str) -> rusqlite::Result<HashSet<String>> {
+        let mut stmt = conn.prepare(&format!("PRAGMA index_list('{table}')"))?;
         let names = stmt
             .query_map([], |row| row.get::<_, String>(1))?
             .collect::<rusqlite::Result<HashSet<_>>>()?;
@@ -59,7 +58,7 @@ mod tests {
         let conn = Connection::open_in_memory().expect("in-memory sqlite");
         migrate(&conn).expect("migration should succeed");
 
-        let names = entries_index_names(&conn).expect("index list should be queryable");
+        let names = table_index_names(&conn, "entries").expect("index list should be queryable");
         assert!(
             names.contains("idx_entries_effective_date"),
             "idx_entries_effective_date is missing"
@@ -94,7 +93,23 @@ mod tests {
         let conn = Connection::open_in_memory().expect("in-memory sqlite");
         migrate(&conn).expect("migration should succeed");
 
-        let names = entries_index_names(&conn).expect("index list should be queryable");
+        let names = table_index_names(&conn, "entries").expect("index list should be queryable");
         assert!(!names.contains("idx_entries_feed_source"));
+    }
+
+    /// Migration should not create redundant unused indexes in current schema.
+    #[test]
+    fn migrate_does_not_create_redundant_unused_indexes() {
+        let conn = Connection::open_in_memory().expect("in-memory sqlite");
+        migrate(&conn).expect("migration should succeed");
+
+        let entry_names =
+            table_index_names(&conn, "entries").expect("entries index list should be queryable");
+        assert!(!entry_names.contains("idx_entries_feed_pk"));
+        assert!(!entry_names.contains("idx_entries_link"));
+
+        let feed_names =
+            table_index_names(&conn, "feeds").expect("feeds index list should be queryable");
+        assert!(!feed_names.contains("idx_feeds_url"));
     }
 }
