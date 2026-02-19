@@ -71,11 +71,9 @@ CREATE INDEX IF NOT EXISTS idx_entries_first_seen ON entries(first_seen_at);
 CREATE INDEX IF NOT EXISTS idx_entries_effective_date ON entries(COALESCE(published_at, updated_at, first_seen_at), id);
 CREATE INDEX IF NOT EXISTS idx_entries_feed_effective_date ON entries(feed_pk, COALESCE(published_at, updated_at, first_seen_at), id);
 
-CREATE INDEX IF NOT EXISTS idx_entry_enclosures_entry_pk ON entry_enclosures(entry_pk);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_entry_enclosures_entry_pk_url ON entry_enclosures(entry_pk, url);
 
 CREATE INDEX IF NOT EXISTS idx_entry_contents_ref ON entry_contents(ref);
 
 CREATE INDEX IF NOT EXISTS idx_entry_tags_tag_entry ON entry_tags(tag_id, entry_pk);
-CREATE INDEX IF NOT EXISTS idx_entry_tags_entry_pk ON entry_tags(entry_pk);
 CREATE INDEX IF NOT EXISTS idx_entry_tags_tag ON entry_tags(tag_id);

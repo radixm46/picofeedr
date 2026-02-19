@@ -118,5 +118,13 @@ mod tests {
         let tag_names =
             table_index_names(&conn, "tags").expect("tags index list should be queryable");
         assert!(!tag_names.contains("idx_tags_name"));
+
+        let enclosure_names = table_index_names(&conn, "entry_enclosures")
+            .expect("entry_enclosures index list should be queryable");
+        assert!(!enclosure_names.contains("idx_entry_enclosures_entry_pk"));
+
+        let entry_tag_names = table_index_names(&conn, "entry_tags")
+            .expect("entry_tags index list should be queryable");
+        assert!(!entry_tag_names.contains("idx_entry_tags_entry_pk"));
     }
 }

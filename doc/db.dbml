@@ -78,7 +78,6 @@ Table entry_enclosures {
     length integer                     // was text -> integer
 
     indexes {
-        (entry_pk)
         (entry_pk, url) [unique]
     }
 }
@@ -107,7 +106,6 @@ Table entry_tags {
     primary key (entry_pk, tag_id)
     indexes {
         (tag_id, entry_pk)
-        (entry_pk)
         (tag_id)
     }
 }
