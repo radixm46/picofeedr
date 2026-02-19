@@ -111,5 +111,12 @@ mod tests {
         let feed_names =
             table_index_names(&conn, "feeds").expect("feeds index list should be queryable");
         assert!(!feed_names.contains("idx_feeds_url"));
+        assert!(!feed_names.contains("idx_feeds_feed_id"));
+
+        assert!(!entry_names.contains("idx_entries_entry_id"));
+
+        let tag_names =
+            table_index_names(&conn, "tags").expect("tags index list should be queryable");
+        assert!(!tag_names.contains("idx_tags_name"));
     }
 }

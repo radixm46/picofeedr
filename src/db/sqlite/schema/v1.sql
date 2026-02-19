@@ -64,9 +64,6 @@ CREATE TABLE IF NOT EXISTS entry_tags (
     FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_feeds_feed_id ON feeds(feed_id);
-
-CREATE INDEX IF NOT EXISTS idx_entries_entry_id ON entries(entry_id);
 CREATE INDEX IF NOT EXISTS idx_entries_feed_published ON entries(feed_pk, published_at);
 CREATE INDEX IF NOT EXISTS idx_entries_feed_first_seen ON entries(feed_pk, first_seen_at);
 CREATE INDEX IF NOT EXISTS idx_entries_published ON entries(published_at);
@@ -82,5 +79,3 @@ CREATE INDEX IF NOT EXISTS idx_entry_contents_ref ON entry_contents(ref);
 CREATE INDEX IF NOT EXISTS idx_entry_tags_tag_entry ON entry_tags(tag_id, entry_pk);
 CREATE INDEX IF NOT EXISTS idx_entry_tags_entry_pk ON entry_tags(entry_pk);
 CREATE INDEX IF NOT EXISTS idx_entry_tags_tag ON entry_tags(tag_id);
-
-CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name);

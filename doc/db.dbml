@@ -36,9 +36,6 @@ Table feeds {
     created_at integer [not null]    // unix epoch sec: first time seen via any entry
     updated_at integer               // last time feed metadata changed (optional)
 
-    indexes {
-        (feed_id)
-    }
 }
 
 Table entries {
@@ -62,8 +59,6 @@ Table entries {
     meta_json text                     // JSON object (categories, flags, source fields, etc)
 
     indexes {
-        (entry_id)
-
         (feed_pk, published_at)
         (feed_pk, `COALESCE(published_at, updated_at, first_seen_at)`, id)
         (feed_pk, first_seen_at)
@@ -125,8 +120,6 @@ Table tags {
     '''
     id integer [pk, increment]
     name text [unique, not null]
-
-    indexes { (name) }
 }
 
 Ref: feeds.id > entries.feed_pk [delete: restrict]
