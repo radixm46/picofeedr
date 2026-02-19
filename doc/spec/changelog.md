@@ -1,5 +1,14 @@
 # 変更履歴
 
+## v0.10（2026-02-19）
+
+- **`entry_tags` を `WITHOUT ROWID` 化**
+  - junction テーブル特性に合わせて `PRIMARY KEY(entry_pk, tag_id)` を rowid なしで保持
+- **冗長インデックスを削除**
+  - `idx_entry_tags_tag` を廃止し、`idx_entry_tags_tag_entry(tag_id, entry_pk)` のみに整理
+- **メタ初期化の整合性を改善**
+  - `es_meta.meta_json.schema_version` の初期値を `CURRENT_SCHEMA_VERSION` 参照に統一
+
 ## v0.9（2026-02-17, breaking）
 
 - **DB層のID命名を公開語彙と整合**

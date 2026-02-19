@@ -114,6 +114,8 @@
 * タグは **自由命名（Unicode）**、階層や命名規則の強制はしない
 * `tags.name` が表示名であり、別名/内部名の分離は当面しない
 * `entry_tags` は junction のみ（`origin` は不要：再評価エンジンを想定しないため）
+* `entry_tags` は SQLite 実装で `WITHOUT ROWID` を採用する
+* `entry_tags` の索引は `PRIMARY KEY(entry_pk, tag_id)` と `idx_entry_tags_tag_entry(tag_id, entry_pk)` のみを保持する
 
 ---
 

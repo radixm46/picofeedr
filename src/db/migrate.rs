@@ -18,7 +18,7 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
     let exists: i64 = conn.query_row(sync::COUNT_META_ROWS, [], |row| row.get(0))?;
     if exists == 0 {
         let meta_json = json!({
-            "schema_version": 1,
+            "schema_version": schema::CURRENT_SCHEMA_VERSION,
             "created_at": current_epoch(),
             "app_id": "picofeedr"
         })
@@ -50,6 +50,15 @@ mod tests {
             .query_map([], |row| row.get::<_, String>(1))?
             .collect::<rusqlite::Result<HashSet<_>>>()?;
         Ok(names)
+    }
+
+    /// Returns CREATE TABLE SQL for one table.
+    fn table_create_sql(conn: &Connection, table: &str) -> rusqlite::Result<String> {
+        conn.query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?1",
+            [table],
+            |row| row.get(0),
+        )
     }
 
     /// Asserts that all expected index names are absent from the table.
@@ -122,5 +131,19 @@ mod tests {
             &["idx_entry_enclosures_entry_pk"],
         );
         assert_indexes_absent(&conn, "entry_tags", &["idx_entry_tags_entry_pk"]);
+        assert_indexes_absent(&conn, "entry_tags", &["idx_entry_tags_tag"]);
+    }
+
+    /// Migration should create entry_tags as WITHOUT ROWID.
+    #[test]
+    fn migrate_creates_entry_tags_without_rowid() {
+        let conn = Connection::open_in_memory().expect("in-memory sqlite");
+        migrate(&conn).expect("migration should succeed");
+
+        let sql = table_create_sql(&conn, "entry_tags").expect("entry_tags create sql");
+        assert!(
+            sql.to_ascii_uppercase().contains("WITHOUT ROWID"),
+            "entry_tags is expected to use WITHOUT ROWID: {sql}"
+        );
     }
 }

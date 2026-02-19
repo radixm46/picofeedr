@@ -98,7 +98,7 @@ Table entry_contents {
 
 Table entry_tags {
     Note: '''
-    Junction table. Consider WITHOUT ROWID in actual SQL for size/perf.
+    Junction table. Implemented as WITHOUT ROWID in SQLite for size/write efficiency.
     '''
     entry_pk integer [not null]
     tag_id integer [not null]
@@ -106,7 +106,6 @@ Table entry_tags {
     primary key (entry_pk, tag_id)
     indexes {
         (tag_id, entry_pk)
-        (tag_id)
     }
 }
 
