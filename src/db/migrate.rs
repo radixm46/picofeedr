@@ -52,6 +52,17 @@ mod tests {
         Ok(names)
     }
 
+    /// Asserts that all expected index names are absent from the table.
+    fn assert_indexes_absent(conn: &Connection, table: &str, names: &[&str]) {
+        let actual = table_index_names(conn, table).expect("index list should be queryable");
+        for name in names {
+            assert!(
+                !actual.contains(*name),
+                "unexpected index {name} exists on {table}"
+            );
+        }
+    }
+
     /// Migration should create expression indexes used by effective-date sorting.
     #[test]
     fn migrate_creates_effective_date_expression_indexes() {
@@ -87,44 +98,29 @@ mod tests {
         assert!(!entry_columns.contains("feed_id"));
     }
 
-    /// Migration should not create deprecated source-id index on entries.
+    /// Migration should not create removed/redundant indexes in current schema.
     #[test]
-    fn migrate_does_not_create_feed_source_index() {
+    fn migrate_does_not_create_removed_indexes() {
         let conn = Connection::open_in_memory().expect("in-memory sqlite");
         migrate(&conn).expect("migration should succeed");
 
-        let names = table_index_names(&conn, "entries").expect("index list should be queryable");
-        assert!(!names.contains("idx_entries_feed_source"));
-    }
-
-    /// Migration should not create redundant unused indexes in current schema.
-    #[test]
-    fn migrate_does_not_create_redundant_unused_indexes() {
-        let conn = Connection::open_in_memory().expect("in-memory sqlite");
-        migrate(&conn).expect("migration should succeed");
-
-        let entry_names =
-            table_index_names(&conn, "entries").expect("entries index list should be queryable");
-        assert!(!entry_names.contains("idx_entries_feed_pk"));
-        assert!(!entry_names.contains("idx_entries_link"));
-
-        let feed_names =
-            table_index_names(&conn, "feeds").expect("feeds index list should be queryable");
-        assert!(!feed_names.contains("idx_feeds_url"));
-        assert!(!feed_names.contains("idx_feeds_feed_id"));
-
-        assert!(!entry_names.contains("idx_entries_entry_id"));
-
-        let tag_names =
-            table_index_names(&conn, "tags").expect("tags index list should be queryable");
-        assert!(!tag_names.contains("idx_tags_name"));
-
-        let enclosure_names = table_index_names(&conn, "entry_enclosures")
-            .expect("entry_enclosures index list should be queryable");
-        assert!(!enclosure_names.contains("idx_entry_enclosures_entry_pk"));
-
-        let entry_tag_names = table_index_names(&conn, "entry_tags")
-            .expect("entry_tags index list should be queryable");
-        assert!(!entry_tag_names.contains("idx_entry_tags_entry_pk"));
+        assert_indexes_absent(
+            &conn,
+            "entries",
+            &[
+                "idx_entries_feed_source",
+                "idx_entries_feed_pk",
+                "idx_entries_link",
+                "idx_entries_entry_id",
+            ],
+        );
+        assert_indexes_absent(&conn, "feeds", &["idx_feeds_url", "idx_feeds_feed_id"]);
+        assert_indexes_absent(&conn, "tags", &["idx_tags_name"]);
+        assert_indexes_absent(
+            &conn,
+            "entry_enclosures",
+            &["idx_entry_enclosures_entry_pk"],
+        );
+        assert_indexes_absent(&conn, "entry_tags", &["idx_entry_tags_entry_pk"]);
     }
 }
