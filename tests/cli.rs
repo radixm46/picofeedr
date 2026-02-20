@@ -2388,6 +2388,84 @@ fn mark_tag_remove_fails_when_any_entry_is_missing() {
     assert_eq!(tech_after["total_count"], 2);
 }
 
+/// Ensures tag:A|missing returns same count as tag:A (OR with unknown tag).
+#[test]
+fn list_tag_or_with_missing_tag_keeps_existing_matches() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let tech_data = list_query_json(&paths.config_path, &paths.db_path, "tag:tech");
+    let or_data = list_query_json(&paths.config_path, &paths.db_path, "tag:tech|doesnotexist");
+    assert_eq!(or_data["total_count"], tech_data["total_count"]);
+}
+
+/// Ensures tag:A -tag:missing returns same count as tag:A (NOT unknown tag = full match).
+#[test]
+fn list_tag_not_missing_tag_matches_all_when_combined() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let tech_data = list_query_json(&paths.config_path, &paths.db_path, "tag:tech");
+    let not_missing = list_query_json(
+        &paths.config_path,
+        &paths.db_path,
+        "tag:tech -tag:doesnotexist",
+    );
+    assert_eq!(not_missing["total_count"], tech_data["total_count"]);
+}
+
+/// Ensures tag:missing returns 0 results.
+#[test]
+fn list_tag_only_missing_tag_returns_zero() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let data = list_query_json(&paths.config_path, &paths.db_path, "tag:doesnotexist");
+    assert_eq!(data["total_count"], 0);
+}
+
+/// Ensures tag:A&missing returns 0 results (AND with unknown tag).
+#[test]
+fn list_tag_and_with_missing_tag_returns_zero() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let data = list_query_json(&paths.config_path, &paths.db_path, "tag:tech&doesnotexist");
+    assert_eq!(data["total_count"], 0);
+}
+
 /// Runs `list` in JSON mode and returns its `data` object.
 fn list_query_json(config_path: &str, db_path: &str, query: &str) -> serde_json::Value {
     let output = picofeedr_cmd_json()

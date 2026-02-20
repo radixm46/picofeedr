@@ -63,9 +63,16 @@ pub(crate) const EXISTS_FEED_TITLE_FOR_ENTRY: &str =
 /// Predicate for filtering by feed primary key.
 pub(crate) const ENTRY_FEED_PK_EQ: &str = "e.feed_pk = ?";
 
-/// Existence predicate for tag expression.
-pub(crate) const EXISTS_TAG_FOR_ENTRY: &str = "EXISTS (SELECT 1 FROM entry_tags et JOIN tags t ON et.tag_id = t.id \
-     WHERE et.entry_pk = e.id AND t.name = ?)";
+/// Existence predicate for tag by resolved id.
+pub(crate) const EXISTS_TAG_ID_FOR_ENTRY: &str =
+    "EXISTS (SELECT 1 FROM entry_tags et WHERE et.entry_pk = e.id AND et.tag_id = ?)";
+
+/// Builds existence predicate for OR-list of resolved tag ids.
+pub(crate) fn exists_tag_ids_for_entry(placeholders: &str) -> String {
+    format!(
+        "EXISTS (SELECT 1 FROM entry_tags et WHERE et.entry_pk = e.id AND et.tag_id IN ({placeholders}))"
+    )
+}
 
 /// Prefix for WHERE clause construction.
 pub(crate) const WHERE_PREFIX: &str = "WHERE ";

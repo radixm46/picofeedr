@@ -154,6 +154,29 @@ impl<'a> EntryReadRepo<'a> {
         Ok(tags)
     }
 
+    /// Resolves tag ids keyed by name for the given name slice.
+    pub fn find_tag_ids_by_names(
+        &self,
+        names: &[String],
+    ) -> Result<HashMap<String, i64>, AppError> {
+        if names.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let placeholders = std::iter::repeat_n("?", names.len())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = q::select_tag_ids_by_names(&placeholders);
+        let mut stmt = self.conn.prepare(&sql)?;
+        let mut rows = stmt.query(params_from_iter(names.iter()))?;
+        let mut map = HashMap::new();
+        while let Some(row) = rows.next()? {
+            let id: i64 = row.get(0)?;
+            let name: String = row.get(1)?;
+            map.insert(name, id);
+        }
+        Ok(map)
+    }
+
     /// Loads one entry detail row tuple for view operation.
     pub fn view_entry_row(&self, entry_id: &str) -> Result<Option<EntryDetailRow>, AppError> {
         self.conn

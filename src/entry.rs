@@ -13,7 +13,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use sha1::{Digest, Sha1};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 /// Entry summary for list responses.
 #[derive(Debug, Serialize, JsonSchema)]
@@ -128,11 +128,24 @@ pub fn list_entries(
     let system_meta = store.sync_read_repo().read_system_meta()?;
     let query_hash = compute_query_hash(query);
     let feed_id_predicate = resolve_feed_id_predicate(store, query)?;
-    let (count_where_sql, count_params) =
-        build_where_clause(query, sort, None, &query_hash, &feed_id_predicate)?;
+    let resolved_tag_ids = resolve_tag_id_map(store, query)?;
+    let (count_where_sql, count_params) = build_where_clause(
+        query,
+        sort,
+        None,
+        &query_hash,
+        &feed_id_predicate,
+        &resolved_tag_ids,
+    )?;
     let total_count = entry_repo.count_entries(&count_where_sql, &count_params)?;
-    let (page_where_sql, page_params) =
-        build_where_clause(query, sort, cursor, &query_hash, &feed_id_predicate)?;
+    let (page_where_sql, page_params) = build_where_clause(
+        query,
+        sort,
+        cursor,
+        &query_hash,
+        &feed_id_predicate,
+        &resolved_tag_ids,
+    )?;
     let (items, feeds, next_page_token) = fetch_entries(
         &entry_repo,
         &page_where_sql,
@@ -171,6 +184,35 @@ fn resolve_feed_id_predicate(
             ]),
         )),
     }
+}
+
+/// Collects all tag name literals referenced in an expression.
+fn collect_tag_names(expr: &TagExpr, out: &mut BTreeSet<String>) {
+    match expr {
+        TagExpr::Tag(name) => {
+            out.insert(name.clone());
+        }
+        TagExpr::Not(inner) => collect_tag_names(inner, out),
+        TagExpr::And(items) | TagExpr::Or(items) => {
+            for item in items {
+                collect_tag_names(item, out);
+            }
+        }
+    }
+}
+
+/// Resolves all tag names in the query to their database ids in one round-trip.
+fn resolve_tag_id_map(
+    store: &SqliteStore,
+    query: &EntryQuery,
+) -> Result<HashMap<String, i64>, AppError> {
+    let Some(tag_expr) = &query.tag_expr else {
+        return Ok(HashMap::new());
+    };
+    let mut names = BTreeSet::new();
+    collect_tag_names(tag_expr, &mut names);
+    let names_vec: Vec<String> = names.into_iter().collect();
+    store.entry_read_repo().find_tag_ids_by_names(&names_vec)
 }
 
 /// Loads entry detail by id.
@@ -276,13 +318,14 @@ fn build_where_clause(
     cursor: Option<&str>,
     query_hash: &str,
     feed_id_predicate: &FeedIdPredicate,
+    resolved_tag_ids: &HashMap<String, i64>,
 ) -> Result<(String, Vec<Value>), AppError> {
     let mut clauses = Vec::new();
     let mut params = Vec::new();
     if let Some(tag_expr) = &query.tag_expr {
         clauses.push(format!(
             "({})",
-            build_tag_expr_clause(tag_expr, &mut params)
+            build_tag_expr_clause(tag_expr, &mut params, resolved_tag_ids)
         ));
     }
     if let Some(feed) = &query.feed {
@@ -485,24 +528,69 @@ fn compute_query_hash(query: &EntryQuery) -> String {
 }
 
 /// Builds SQL for a tag expression and appends bind params.
-fn build_tag_expr_clause(expr: &TagExpr, params: &mut Vec<Value>) -> String {
+fn build_tag_expr_clause(
+    expr: &TagExpr,
+    params: &mut Vec<Value>,
+    resolved_tag_ids: &HashMap<String, i64>,
+) -> String {
     match expr {
-        TagExpr::Tag(tag) => {
-            params.push(Value::from(tag.clone()));
-            q::EXISTS_TAG_FOR_ENTRY.to_string()
+        TagExpr::Tag(tag) => match resolved_tag_ids.get(tag) {
+            Some(id) => {
+                params.push(Value::from(*id));
+                q::EXISTS_TAG_ID_FOR_ENTRY.to_string()
+            }
+            None => "0=1".to_string(),
+        },
+        TagExpr::Not(inner) => {
+            format!(
+                "NOT ({})",
+                build_tag_expr_clause(inner, params, resolved_tag_ids)
+            )
         }
-        TagExpr::Not(inner) => format!("NOT ({})", build_tag_expr_clause(inner, params)),
         TagExpr::And(items) => {
             let clauses = items
                 .iter()
-                .map(|item| format!("({})", build_tag_expr_clause(item, params)))
+                .map(|item| {
+                    format!(
+                        "({})",
+                        build_tag_expr_clause(item, params, resolved_tag_ids)
+                    )
+                })
                 .collect::<Vec<_>>();
             clauses.join(" AND ")
         }
         TagExpr::Or(items) => {
+            // When every child is a plain Tag, collapse into a single IN clause.
+            if items.iter().all(|item| matches!(item, TagExpr::Tag(_))) {
+                let ids: Vec<i64> = items
+                    .iter()
+                    .filter_map(|item| {
+                        if let TagExpr::Tag(name) = item {
+                            resolved_tag_ids.get(name).copied()
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                if ids.is_empty() {
+                    return "0=1".to_string();
+                }
+                let placeholders = std::iter::repeat_n("?", ids.len())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                for id in ids {
+                    params.push(Value::from(id));
+                }
+                return q::exists_tag_ids_for_entry(&placeholders);
+            }
             let clauses = items
                 .iter()
-                .map(|item| format!("({})", build_tag_expr_clause(item, params)))
+                .map(|item| {
+                    format!(
+                        "({})",
+                        build_tag_expr_clause(item, params, resolved_tag_ids)
+                    )
+                })
                 .collect::<Vec<_>>();
             clauses.join(" OR ")
         }
