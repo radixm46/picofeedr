@@ -43,22 +43,11 @@ pub fn run_sync_with_progress(
         });
     }
     let (results, errors) = fetch_parallel(&targets, config, on_progress)?;
-
-    let tx = store.tx()?;
-    tx.feed_write_repo()
-        .reconcile_feeds(feeds_config, &config.unread_tag)?;
-    let new_entry_count = tx.sync_write_repo().ingest_results(config, results)?;
-    tx.commit()?;
+    let new_entry_count = persist_sync_results(store, config, feeds_config, results)?;
 
     let duration_ms = start.elapsed().as_millis() as u64;
     let failed_feed_count = errors.len();
-    let status = if failed_feed_count > 0 && failed_feed_count == targets.len() {
-        SyncStatus::Failed
-    } else if failed_feed_count > 0 {
-        SyncStatus::PartialFailed
-    } else {
-        SyncStatus::Completed
-    };
+    let status = derive_sync_status(targets.len(), failed_feed_count);
     Ok(SyncSummary {
         status,
         fetched_feed_count: targets.len(),
@@ -67,6 +56,38 @@ pub fn run_sync_with_progress(
         duration_ms,
         errors,
     })
+}
+
+/// Persists feed metadata and ingests fetched results with per-feed transactions.
+fn persist_sync_results(
+    store: &mut SqliteStore,
+    config: &AppConfig,
+    feeds_config: &FeedsConfig,
+    results: Vec<model::SyncResult>,
+) -> Result<usize, AppError> {
+    let tx = store.tx()?;
+    tx.feed_write_repo()
+        .reconcile_feeds(feeds_config, &config.unread_tag)?;
+    tx.commit()?;
+
+    let mut new_entry_count = 0;
+    for result in results {
+        let tx = store.tx()?;
+        new_entry_count += tx.sync_write_repo().ingest_results(config, vec![result])?;
+        tx.commit()?;
+    }
+    Ok(new_entry_count)
+}
+
+/// Computes sync status from failed feed count.
+fn derive_sync_status(total_feeds: usize, failed_feed_count: usize) -> SyncStatus {
+    if failed_feed_count > 0 && failed_feed_count == total_feeds {
+        SyncStatus::Failed
+    } else if failed_feed_count > 0 {
+        SyncStatus::PartialFailed
+    } else {
+        SyncStatus::Completed
+    }
 }
 
 /// Builds sync targets from feeds configuration.
@@ -85,4 +106,135 @@ fn build_sync_targets(feeds_config: &FeedsConfig) -> Result<Vec<SyncTarget>, App
         });
     }
     Ok(targets)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::model::{PendingEntry, SyncEntry, SyncResult};
+    use super::{build_sync_targets, derive_sync_status, persist_sync_results};
+    use crate::config::AppConfig;
+    use crate::config::feeds::FeedsConfig;
+    use crate::db::sqlite::SqliteStore;
+    use tempfile::TempDir;
+
+    fn escape_path(path: &std::path::Path) -> String {
+        path.to_string_lossy()
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
+    }
+
+    fn write_config_files(temp: &TempDir) -> (std::path::PathBuf, std::path::PathBuf) {
+        let feeds_path = temp.path().join("feeds.yaml");
+        let config_path = temp.path().join("config.toml");
+        let feeds_yaml = r#"
+picofeedr:
+  feeds:
+    - url: "https://example.com/feed-a.xml"
+      tags: ["tech"]
+    - url: "https://example.com/feed-b.xml"
+      tags: ["news"]
+"#;
+        std::fs::write(&feeds_path, feeds_yaml).expect("write feeds");
+
+        let config_toml = format!(
+            r#"
+[feeds]
+source = "{}"
+
+[storage]
+root_dir = "{}"
+
+[sync]
+parallel = 1
+timeout = 1
+user_agent = "picofeedr-test"
+retry_count = 0
+retry_delay = 0
+"#,
+            escape_path(&feeds_path),
+            escape_path(temp.path()),
+        );
+        std::fs::write(&config_path, config_toml).expect("write config");
+        (config_path, feeds_path)
+    }
+
+    fn make_result(feed_id: &str, entry_id: &str) -> SyncResult {
+        SyncResult {
+            entries: vec![SyncEntry {
+                feed_id: feed_id.to_string(),
+                entry: PendingEntry {
+                    entry_id: entry_id.to_string(),
+                    link: Some(format!("https://example.com/{entry_id}")),
+                    title: Some(entry_id.to_string()),
+                    author: None,
+                    published_at: None,
+                    updated_at: None,
+                    first_seen_at: 1,
+                    meta_json: None,
+                },
+                content: None,
+                content_payload: None,
+                tags: vec!["tech".to_string()],
+            }],
+        }
+    }
+
+    #[test]
+    fn derive_sync_status_maps_failed_count() {
+        assert_eq!(derive_sync_status(2, 0), super::SyncStatus::Completed);
+        assert_eq!(derive_sync_status(2, 1), super::SyncStatus::PartialFailed);
+        assert_eq!(derive_sync_status(2, 2), super::SyncStatus::Failed);
+    }
+
+    #[test]
+    fn persist_sync_results_counts_new_entries_across_feeds() {
+        let temp = TempDir::new().expect("temp dir");
+        let (config_path, feeds_path) = write_config_files(&temp);
+        let config = AppConfig::load(Some(config_path)).expect("load config");
+        let feeds_config = FeedsConfig::load(&feeds_path).expect("load feeds");
+        let targets = build_sync_targets(&feeds_config).expect("build targets");
+        let results = vec![
+            make_result(&targets[0].feed_id, "entry-a"),
+            make_result(&targets[1].feed_id, "entry-b"),
+        ];
+
+        let mut store = SqliteStore::open(&config.database.path).expect("open store");
+        store.migrate().expect("migrate");
+        let count =
+            persist_sync_results(&mut store, &config, &feeds_config, results).expect("persist");
+        assert_eq!(count, 2);
+
+        let ids = vec!["entry-a".to_string(), "entry-b".to_string()];
+        let found = store
+            .entry_read_repo()
+            .find_entry_pks_by_ids(&ids)
+            .expect("find ids");
+        assert_eq!(found.len(), 2);
+    }
+
+    #[test]
+    fn persist_sync_results_keeps_committed_feeds_on_later_error() {
+        let temp = TempDir::new().expect("temp dir");
+        let (config_path, feeds_path) = write_config_files(&temp);
+        let config = AppConfig::load(Some(config_path)).expect("load config");
+        let feeds_config = FeedsConfig::load(&feeds_path).expect("load feeds");
+        let targets = build_sync_targets(&feeds_config).expect("build targets");
+        let results = vec![
+            make_result(&targets[0].feed_id, "entry-a"),
+            make_result("missing-feed-id", "entry-b"),
+        ];
+
+        let mut store = SqliteStore::open(&config.database.path).expect("open store");
+        store.migrate().expect("migrate");
+        let error = persist_sync_results(&mut store, &config, &feeds_config, results)
+            .expect_err("missing feed should fail");
+        assert!(error.to_string().contains("Missing feed"));
+
+        let ids = vec!["entry-a".to_string()];
+        let found = store
+            .entry_read_repo()
+            .find_entry_pks_by_ids(&ids)
+            .expect("find committed ids");
+        assert_eq!(found.len(), 1);
+    }
 }

@@ -54,6 +54,7 @@ impl<'a> SyncWriteRepo<'a> {
         config: &AppConfig,
         results: Vec<SyncResult>,
     ) -> Result<usize, AppError> {
+        let mut ingest = entries::IngestContext::new(self.conn)?;
         let feed_ids = collect_unique_feed_ids(&results);
         let feed_pks_by_feed_id = FeedReadRepo::new(self.conn).find_feed_pks_by_ids(&feed_ids)?;
         let mut new_entries = 0;
@@ -64,7 +65,7 @@ impl<'a> SyncWriteRepo<'a> {
                     .copied()
                     .ok_or_else(|| AppError::db(format!("Missing feed for {}", entry.feed_id)))?;
                 let input = entry.entry.with_feed_pk(feed_pk);
-                let insert = entries::insert_entry_with_conn(self.conn, &input)?;
+                let insert = ingest.insert_entry(&input)?;
                 if insert.inserted {
                     if let Some(content) = entry.content.as_ref() {
                         if content.storage == EntryContentStorage::Fs {
@@ -76,25 +77,19 @@ impl<'a> SyncWriteRepo<'a> {
                             })?;
                             let created =
                                 write_content_fs(&config.storage.data_dir, reference, payload)?;
-                            if let Err(error) = entries::insert_entry_content_with_conn(
-                                self.conn,
-                                insert.entry_pk,
-                                content,
-                            ) {
+                            if let Err(error) =
+                                ingest.insert_entry_content(insert.entry_pk, content)
+                            {
                                 if created {
                                     let _ = remove_content_fs(&config.storage.data_dir, reference);
                                 }
                                 return Err(error);
                             }
                         } else {
-                            entries::insert_entry_content_with_conn(
-                                self.conn,
-                                insert.entry_pk,
-                                content,
-                            )?;
+                            ingest.insert_entry_content(insert.entry_pk, content)?;
                         }
                     }
-                    entries::insert_entry_tags_with_conn(self.conn, insert.entry_pk, &entry.tags)?;
+                    ingest.insert_entry_tags(insert.entry_pk, &entry.tags)?;
                     new_entries += 1;
                 }
             }

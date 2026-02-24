@@ -12,6 +12,7 @@ use super::model::{SyncError, SyncProgressEvent, SyncResult, SyncTarget, WorkerR
 use super::normalize::normalize_entry;
 
 /// Feed fetch failure with retryability metadata.
+#[derive(Debug)]
 struct FetchError {
     message: String,
     retryable: bool,
@@ -128,6 +129,7 @@ fn worker_loop(
     result_tx: Sender<WorkerResult>,
     config: &AppConfig,
 ) {
+    let agent = build_agent(&config.sync);
     loop {
         select! {
             recv(cancel_rx) -> _ => break,
@@ -138,7 +140,7 @@ fn worker_loop(
                         total_feeds: target.total_feeds,
                         url: target.url.clone(),
                     });
-                    let result = fetch_and_parse(&target, config);
+                    let result = fetch_and_parse(&target, config, &agent);
                     let _ = result_tx.send(result);
                 }
                 Err(_) => break,
@@ -148,8 +150,8 @@ fn worker_loop(
 }
 
 /// Fetches a single feed and parses entries.
-fn fetch_and_parse(target: &SyncTarget, config: &AppConfig) -> WorkerResult {
-    let bytes = match fetch_feed_bytes(&target.url, &config.sync) {
+fn fetch_and_parse(target: &SyncTarget, config: &AppConfig, agent: &ureq::Agent) -> WorkerResult {
+    let bytes = match fetch_feed_bytes(&target.url, &config.sync, agent) {
         Ok(bytes) => bytes,
         Err(error) => {
             return WorkerResult::Error {
@@ -188,18 +190,25 @@ fn fetch_and_parse(target: &SyncTarget, config: &AppConfig) -> WorkerResult {
     }
 }
 
+fn build_agent(sync: &SyncConfig) -> ureq::Agent {
+    ureq::AgentBuilder::new()
+        .timeout_read(Duration::from_secs(sync.timeout_secs))
+        .timeout_write(Duration::from_secs(sync.timeout_secs))
+        .build()
+}
+
 /// Fetches raw feed bytes with retry support.
-fn fetch_feed_bytes(url: &str, sync: &SyncConfig) -> Result<Vec<u8>, FetchError> {
+fn fetch_feed_bytes(
+    url: &str,
+    sync: &SyncConfig,
+    agent: &ureq::Agent,
+) -> Result<Vec<u8>, FetchError> {
     if let Some(path) = url.strip_prefix("file://") {
         return fs::read(path).map_err(|error| FetchError {
             message: format!("Failed to read feed file {url}: {error}"),
             retryable: false,
         });
     }
-    let agent = ureq::AgentBuilder::new()
-        .timeout_read(Duration::from_secs(sync.timeout_secs))
-        .timeout_write(Duration::from_secs(sync.timeout_secs))
-        .build();
     for attempt in 0..=sync.retry_count {
         let response = agent.get(url).set("User-Agent", &sync.user_agent).call();
         match response {
@@ -237,4 +246,64 @@ fn fetch_feed_bytes(url: &str, sync: &SyncConfig) -> Result<Vec<u8>, FetchError>
         message: format!("Failed to fetch {url}"),
         retryable: true,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_agent, fetch_feed_bytes};
+    use crate::config::SyncConfig;
+    use std::fs;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::thread;
+    use tempfile::TempDir;
+
+    fn test_sync_config() -> SyncConfig {
+        SyncConfig {
+            parallel: 1,
+            timeout_secs: 2,
+            user_agent: "picofeedr-test".to_string(),
+            retry_count: 0,
+            retry_delay_secs: 0,
+        }
+    }
+
+    #[test]
+    fn fetch_feed_bytes_reads_file_url() {
+        let temp = TempDir::new().expect("temp dir");
+        let feed_path = temp.path().join("feed.xml");
+        fs::write(&feed_path, "<rss></rss>").expect("write feed");
+        let url = format!("file://{}", feed_path.to_string_lossy());
+        let sync = test_sync_config();
+        let agent = build_agent(&sync);
+
+        let bytes = fetch_feed_bytes(&url, &sync, &agent).expect("fetch file");
+
+        assert_eq!(bytes, b"<rss></rss>");
+    }
+
+    #[test]
+    fn fetch_feed_bytes_404_is_not_retryable() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
+        let addr = listener.local_addr().expect("local addr");
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut buf = [0_u8; 1024];
+            let _ = stream.read(&mut buf);
+            stream
+                .write_all(
+                    b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .expect("write response");
+        });
+
+        let url = format!("http://{addr}/missing");
+        let sync = test_sync_config();
+        let agent = build_agent(&sync);
+
+        let error = fetch_feed_bytes(&url, &sync, &agent).expect_err("expect 404 error");
+        server.join().expect("server join");
+
+        assert!(!error.retryable);
+    }
 }

@@ -6,17 +6,38 @@
 use crate::db::sqlite::query::entries as q;
 use crate::db::{EntryContentInput, EntryInput, EntryInsertResult};
 use crate::error::AppError;
-use rusqlite::{Connection, params, params_from_iter};
+use rusqlite::{Connection, Statement, params, params_from_iter};
 use std::collections::{HashMap, HashSet};
 
-/// Inserts an entry and returns its ID using a provided connection.
-pub(crate) fn insert_entry_with_conn(
-    conn: &Connection,
-    entry: &EntryInput,
-) -> Result<EntryInsertResult, AppError> {
-    let inserted = conn.execute(
-        q::INSERT_ENTRY,
-        params![
+/// Prepared ingest statements reused across many entry writes.
+pub(crate) struct IngestContext<'conn> {
+    conn: &'conn Connection,
+    insert_entry_stmt: Statement<'conn>,
+    select_entry_pk_stmt: Statement<'conn>,
+    upsert_entry_content_stmt: Statement<'conn>,
+    insert_tag_stmt: Statement<'conn>,
+    insert_entry_tag_stmt: Statement<'conn>,
+}
+
+impl<'conn> IngestContext<'conn> {
+    /// Creates a prepared statement context for ingest operations.
+    pub(crate) fn new(conn: &'conn Connection) -> Result<Self, AppError> {
+        Ok(Self {
+            conn,
+            insert_entry_stmt: conn.prepare(q::INSERT_ENTRY)?,
+            select_entry_pk_stmt: conn.prepare(q::SELECT_ENTRY_PK_BY_ID)?,
+            upsert_entry_content_stmt: conn.prepare(q::UPSERT_ENTRY_CONTENT)?,
+            insert_tag_stmt: conn.prepare(q::INSERT_TAG_IGNORE)?,
+            insert_entry_tag_stmt: conn.prepare(q::INSERT_ENTRY_TAG_IGNORE)?,
+        })
+    }
+
+    /// Inserts an entry and returns its id.
+    pub(crate) fn insert_entry(
+        &mut self,
+        entry: &EntryInput,
+    ) -> Result<EntryInsertResult, AppError> {
+        let inserted = self.insert_entry_stmt.execute(params![
             entry.entry_id,
             entry.feed_pk,
             entry.link,
@@ -26,46 +47,69 @@ pub(crate) fn insert_entry_with_conn(
             entry.updated_at,
             entry.first_seen_at,
             entry.meta_json
-        ],
-    )? > 0;
-    let entry_pk: i64 = if inserted {
-        conn.last_insert_rowid()
-    } else {
-        conn.query_row(q::SELECT_ENTRY_PK_BY_ID, params![entry.entry_id], |row| {
-            row.get(0)
-        })?
-    };
-    Ok(EntryInsertResult { entry_pk, inserted })
-}
+        ])? > 0;
+        let entry_pk: i64 = if inserted {
+            self.conn.last_insert_rowid()
+        } else {
+            self.select_entry_pk_stmt
+                .query_row(params![entry.entry_id], |row| row.get(0))?
+        };
+        Ok(EntryInsertResult { entry_pk, inserted })
+    }
 
-/// Inserts entry content using a provided connection.
-pub(crate) fn insert_entry_content_with_conn(
-    conn: &Connection,
-    entry_pk: i64,
-    content: &EntryContentInput,
-) -> Result<(), AppError> {
-    conn.execute(
-        q::UPSERT_ENTRY_CONTENT,
-        params![
+    /// Inserts or updates entry content for an entry.
+    pub(crate) fn insert_entry_content(
+        &mut self,
+        entry_pk: i64,
+        content: &EntryContentInput,
+    ) -> Result<(), AppError> {
+        self.upsert_entry_content_stmt.execute(params![
             entry_pk,
             content.storage.as_str(),
             content.reference,
             content.content_type,
             content.content
-        ],
-    )?;
-    Ok(())
+        ])?;
+        Ok(())
+    }
+
+    /// Inserts deduplicated tags and entry-tag relations for an entry.
+    pub(crate) fn insert_entry_tags(
+        &mut self,
+        entry_pk: i64,
+        tags: &[String],
+    ) -> Result<(), AppError> {
+        if tags.is_empty() {
+            return Ok(());
+        }
+        let unique = unique_tags(tags);
+        for tag in &unique {
+            self.insert_tag_stmt.execute(params![tag])?;
+        }
+        let placeholders = std::iter::repeat_n("?", unique.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let query = q::select_tag_ids_by_names(&placeholders);
+        let mut stmt = self.conn.prepare_cached(&query)?;
+        let mut rows = stmt.query(params_from_iter(unique.iter()))?;
+        let mut tag_ids = HashMap::new();
+        while let Some(row) = rows.next()? {
+            let id: i64 = row.get(0)?;
+            let name: String = row.get(1)?;
+            tag_ids.insert(name, id);
+        }
+        for tag in &unique {
+            let tag_id = tag_ids
+                .get(tag)
+                .ok_or_else(|| AppError::db(format!("Missing tag id for {tag}")))?;
+            self.insert_entry_tag_stmt
+                .execute(params![entry_pk, tag_id])?;
+        }
+        Ok(())
+    }
 }
 
-/// Inserts tags for an entry using a provided connection.
-pub(crate) fn insert_entry_tags_with_conn(
-    conn: &Connection,
-    entry_pk: i64,
-    tags: &[String],
-) -> Result<(), AppError> {
-    if tags.is_empty() {
-        return Ok(());
-    }
+fn unique_tags(tags: &[String]) -> Vec<String> {
     let mut unique = Vec::new();
     let mut seen = HashSet::new();
     for tag in tags {
@@ -73,35 +117,12 @@ pub(crate) fn insert_entry_tags_with_conn(
             unique.push(tag.clone());
         }
     }
-    let mut insert_tag_stmt = conn.prepare(q::INSERT_TAG_IGNORE)?;
-    for tag in &unique {
-        insert_tag_stmt.execute(params![tag])?;
-    }
-    let placeholders = std::iter::repeat_n("?", unique.len())
-        .collect::<Vec<_>>()
-        .join(",");
-    let query = q::select_tag_ids_by_names(&placeholders);
-    let mut stmt = conn.prepare(&query)?;
-    let mut rows = stmt.query(params_from_iter(unique.iter()))?;
-    let mut tag_ids = HashMap::new();
-    while let Some(row) = rows.next()? {
-        let id: i64 = row.get(0)?;
-        let name: String = row.get(1)?;
-        tag_ids.insert(name, id);
-    }
-    let mut insert_entry_tag_stmt = conn.prepare(q::INSERT_ENTRY_TAG_IGNORE)?;
-    for tag in &unique {
-        let tag_id = tag_ids
-            .get(tag)
-            .ok_or_else(|| AppError::db(format!("Missing tag id for {tag}")))?;
-        insert_entry_tag_stmt.execute(params![entry_pk, tag_id])?;
-    }
-    Ok(())
+    unique
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{insert_entry_tags_with_conn, insert_entry_with_conn};
+    use super::IngestContext;
     use crate::db::sqlite::feeds::upsert_feed_with_conn;
     use crate::db::sqlite::query::{entries as q_entries, feeds as q_feeds};
     use crate::db::{EntryInput, FeedInput};
@@ -140,6 +161,7 @@ mod tests {
     fn insert_entry_returns_existing_id_on_conflict() {
         let conn = test_conn();
         let feed_pk = insert_feed(&conn, "feed-a");
+        let mut ingest = IngestContext::new(&conn).expect("create ingest context");
         let input = EntryInput {
             entry_id: "entry-a".to_string(),
             feed_pk,
@@ -151,11 +173,11 @@ mod tests {
             first_seen_at: 10,
             meta_json: None,
         };
-        let first = insert_entry_with_conn(&conn, &input).expect("first insert");
+        let first = ingest.insert_entry(&input).expect("first insert");
         assert!(first.inserted);
         assert!(first.entry_pk > 0);
 
-        let second = insert_entry_with_conn(&conn, &input).expect("second insert");
+        let second = ingest.insert_entry(&input).expect("second insert");
         assert!(!second.inserted);
         assert_eq!(second.entry_pk, first.entry_pk);
     }
@@ -165,6 +187,7 @@ mod tests {
     fn insert_entry_tags_deduplicates_tag_inputs() {
         let conn = test_conn();
         let feed_pk = insert_feed(&conn, "feed-a");
+        let mut ingest = IngestContext::new(&conn).expect("create ingest context");
         let input = EntryInput {
             entry_id: "entry-a".to_string(),
             feed_pk,
@@ -176,14 +199,16 @@ mod tests {
             first_seen_at: 10,
             meta_json: None,
         };
-        let inserted = insert_entry_with_conn(&conn, &input).expect("insert entry");
+        let inserted = ingest.insert_entry(&input).expect("insert entry");
         let tags = vec![
             "tech".to_string(),
             "tech".to_string(),
             "hot".to_string(),
             "hot".to_string(),
         ];
-        insert_entry_tags_with_conn(&conn, inserted.entry_pk, &tags).expect("insert tags");
+        ingest
+            .insert_entry_tags(inserted.entry_pk, &tags)
+            .expect("insert tags");
 
         let tag_count: i64 = conn
             .query_row(q_entries::COUNT_TAGS, [], |row| row.get(0))
@@ -197,5 +222,75 @@ mod tests {
             )
             .expect("entry_tag count");
         assert_eq!(entry_tag_count, 2);
+    }
+
+    /// Keeps tag cardinality stable across multiple sequential entry inserts.
+    #[test]
+    fn insert_entry_tags_multiple_entries_keep_distinct_tags() {
+        let conn = test_conn();
+        let feed_pk = insert_feed(&conn, "feed-a");
+        let mut ingest = IngestContext::new(&conn).expect("create ingest context");
+        let first = ingest
+            .insert_entry(&EntryInput {
+                entry_id: "entry-a".to_string(),
+                feed_pk,
+                link: Some("https://example.com/a".to_string()),
+                title: Some("A".to_string()),
+                author: None,
+                published_at: None,
+                updated_at: None,
+                first_seen_at: 10,
+                meta_json: None,
+            })
+            .expect("insert first entry");
+        ingest
+            .insert_entry_tags(
+                first.entry_pk,
+                &["tech".to_string(), "tech".to_string(), "rust".to_string()],
+            )
+            .expect("insert first tags");
+
+        let second = ingest
+            .insert_entry(&EntryInput {
+                entry_id: "entry-b".to_string(),
+                feed_pk,
+                link: Some("https://example.com/b".to_string()),
+                title: Some("B".to_string()),
+                author: None,
+                published_at: None,
+                updated_at: None,
+                first_seen_at: 11,
+                meta_json: None,
+            })
+            .expect("insert second entry");
+        ingest
+            .insert_entry_tags(
+                second.entry_pk,
+                &["rust".to_string(), "ops".to_string(), "ops".to_string()],
+            )
+            .expect("insert second tags");
+
+        let tag_count: i64 = conn
+            .query_row(q_entries::COUNT_TAGS, [], |row| row.get(0))
+            .expect("tag count");
+        assert_eq!(tag_count, 3);
+
+        let first_entry_tag_count: i64 = conn
+            .query_row(
+                q_entries::COUNT_ENTRY_TAGS_BY_ENTRY_ID,
+                params![first.entry_pk],
+                |row| row.get(0),
+            )
+            .expect("first entry_tag count");
+        assert_eq!(first_entry_tag_count, 2);
+
+        let second_entry_tag_count: i64 = conn
+            .query_row(
+                q_entries::COUNT_ENTRY_TAGS_BY_ENTRY_ID,
+                params![second.entry_pk],
+                |row| row.get(0),
+            )
+            .expect("second entry_tag count");
+        assert_eq!(second_entry_tag_count, 2);
     }
 }
