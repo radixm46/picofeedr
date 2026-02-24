@@ -11,6 +11,7 @@ use crate::config::feeds::FeedsConfig;
 use crate::db::sqlite::SqliteStore;
 use crate::error::AppError;
 use crate::feed::feed_id_from_url;
+use std::collections::HashMap;
 use std::time::Instant;
 
 pub use model::{SyncProgressEvent, SyncStatus, SyncSummary};
@@ -42,8 +43,9 @@ pub fn run_sync_with_progress(
             total_feeds: targets.len(),
         });
     }
-    let (results, errors) = fetch_parallel(&targets, config, on_progress)?;
-    let new_entry_count = persist_sync_results(store, config, feeds_config, results)?;
+    let (results, mut errors) = fetch_parallel(&targets, config, on_progress)?;
+    let ingest = persist_sync_results(store, config, feeds_config, &targets, results)?;
+    errors.extend(ingest.errors);
 
     let duration_ms = start.elapsed().as_millis() as u64;
     let failed_feed_count = errors.len();
@@ -52,10 +54,15 @@ pub fn run_sync_with_progress(
         status,
         fetched_feed_count: targets.len(),
         failed_feed_count,
-        new_entry_count,
+        new_entry_count: ingest.new_entry_count,
         duration_ms,
         errors,
     })
+}
+
+struct PersistOutcome {
+    new_entry_count: usize,
+    errors: Vec<model::SyncError>,
 }
 
 /// Persists feed metadata and ingests fetched results with per-feed transactions.
@@ -63,20 +70,53 @@ fn persist_sync_results(
     store: &mut SqliteStore,
     config: &AppConfig,
     feeds_config: &FeedsConfig,
+    targets: &[SyncTarget],
     results: Vec<model::SyncResult>,
-) -> Result<usize, AppError> {
+) -> Result<PersistOutcome, AppError> {
     let tx = store.tx()?;
     tx.feed_write_repo()
         .reconcile_feeds(feeds_config, &config.unread_tag)?;
     tx.commit()?;
 
+    let feed_url_by_feed_id = targets
+        .iter()
+        .map(|target| (target.feed_id.clone(), target.url.clone()))
+        .collect::<HashMap<_, _>>();
     let mut new_entry_count = 0;
+    let mut errors = Vec::new();
     for result in results {
+        let feed_url = feed_url_for_result(&result, &feed_url_by_feed_id);
         let tx = store.tx()?;
-        new_entry_count += tx.sync_write_repo().ingest_results(config, vec![result])?;
-        tx.commit()?;
+        match tx.sync_write_repo().ingest_results(config, vec![result]) {
+            Ok(count) => {
+                if let Err(error) = tx.commit() {
+                    errors.push(model::SyncError::ingest(&feed_url, error.to_string()));
+                    continue;
+                }
+                new_entry_count += count;
+            }
+            Err(error) => {
+                errors.push(model::SyncError::ingest(&feed_url, error.to_string()));
+            }
+        }
     }
-    Ok(new_entry_count)
+    Ok(PersistOutcome {
+        new_entry_count,
+        errors,
+    })
+}
+
+fn feed_url_for_result(
+    result: &model::SyncResult,
+    feed_url_by_feed_id: &HashMap<String, String>,
+) -> String {
+    let Some(entry) = result.entries.first() else {
+        return "(unknown feed)".to_string();
+    };
+    feed_url_by_feed_id
+        .get(&entry.feed_id)
+        .cloned()
+        .unwrap_or_else(|| "(unknown feed)".to_string())
 }
 
 /// Computes sync status from failed feed count.
@@ -200,9 +240,10 @@ retry_delay = 0
 
         let mut store = SqliteStore::open(&config.database.path).expect("open store");
         store.migrate().expect("migrate");
-        let count =
-            persist_sync_results(&mut store, &config, &feeds_config, results).expect("persist");
-        assert_eq!(count, 2);
+        let count = persist_sync_results(&mut store, &config, &feeds_config, &targets, results)
+            .expect("persist");
+        assert_eq!(count.new_entry_count, 2);
+        assert!(count.errors.is_empty());
 
         let ids = vec!["entry-a".to_string(), "entry-b".to_string()];
         let found = store
@@ -226,9 +267,12 @@ retry_delay = 0
 
         let mut store = SqliteStore::open(&config.database.path).expect("open store");
         store.migrate().expect("migrate");
-        let error = persist_sync_results(&mut store, &config, &feeds_config, results)
-            .expect_err("missing feed should fail");
-        assert!(error.to_string().contains("Missing feed"));
+        let outcome = persist_sync_results(&mut store, &config, &feeds_config, &targets, results)
+            .expect("persist with ingest errors");
+        assert_eq!(outcome.new_entry_count, 1);
+        assert_eq!(outcome.errors.len(), 1);
+        assert_eq!(outcome.errors[0].code.as_str(), "INGEST_FAILED");
+        assert!(outcome.errors[0].message.contains("Missing feed"));
 
         let ids = vec!["entry-a".to_string()];
         let found = store

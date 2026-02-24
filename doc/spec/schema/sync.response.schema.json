@@ -174,7 +174,8 @@
       "description": "Sync error code values.",
       "enum": [
         "FETCH_FAILED",
-        "PARSE_FAILED"
+        "PARSE_FAILED",
+        "INGEST_FAILED"
       ],
       "type": "string"
     },

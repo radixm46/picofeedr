@@ -61,17 +61,20 @@ impl SyncStatus {
 #[derive(Debug, Serialize, JsonSchema, Clone, Copy, PartialEq, Eq)]
 pub enum SyncErrorCode {
     #[serde(rename = "FETCH_FAILED")]
-    FetchFailed,
+    Fetch,
     #[serde(rename = "PARSE_FAILED")]
-    ParseFailed,
+    Parse,
+    #[serde(rename = "INGEST_FAILED")]
+    Ingest,
 }
 
 impl SyncErrorCode {
     /// Returns the display label for plain output.
     pub fn as_str(self) -> &'static str {
         match self {
-            SyncErrorCode::FetchFailed => "FETCH_FAILED",
-            SyncErrorCode::ParseFailed => "PARSE_FAILED",
+            SyncErrorCode::Fetch => "FETCH_FAILED",
+            SyncErrorCode::Parse => "PARSE_FAILED",
+            SyncErrorCode::Ingest => "INGEST_FAILED",
         }
     }
 }
@@ -109,7 +112,7 @@ impl SyncError {
     pub(crate) fn fetch(feed_url: &str, message: String, retryable: bool) -> Self {
         Self {
             feed_url: feed_url.to_string(),
-            code: SyncErrorCode::FetchFailed,
+            code: SyncErrorCode::Fetch,
             message,
             retryable,
         }
@@ -119,7 +122,17 @@ impl SyncError {
     pub(crate) fn parse(feed_url: &str, message: String) -> Self {
         Self {
             feed_url: feed_url.to_string(),
-            code: SyncErrorCode::ParseFailed,
+            code: SyncErrorCode::Parse,
+            message,
+            retryable: false,
+        }
+    }
+
+    /// Builds an ingest error entry.
+    pub(crate) fn ingest(feed_url: &str, message: String) -> Self {
+        Self {
+            feed_url: feed_url.to_string(),
+            code: SyncErrorCode::Ingest,
             message,
             retryable: false,
         }
