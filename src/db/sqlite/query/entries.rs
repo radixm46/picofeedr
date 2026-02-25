@@ -72,7 +72,7 @@ pub(crate) const EXISTS_TEMP_MATCHED_ENTRY_FOR_ENTRY: &str =
     "EXISTS (SELECT 1 FROM temp.matched_entry_pks mp WHERE mp.entry_pk = e.id)";
 
 /// Creates a temporary matched-entry table used by complex tag evaluation.
-pub(crate) const CREATE_TEMP_MATCHED_ENTRY_PKS: &str = "CREATE TEMP TABLE IF NOT EXISTS temp.matched_entry_pks (entry_pk INTEGER PRIMARY KEY) WITHOUT ROWID";
+pub(crate) const CREATE_TEMP_MATCHED_ENTRY_PKS: &str = "CREATE TEMP TABLE IF NOT EXISTS matched_entry_pks (entry_pk INTEGER PRIMARY KEY) WITHOUT ROWID";
 
 /// Clears temporary matched-entry rows.
 pub(crate) const DELETE_TEMP_MATCHED_ENTRY_PKS: &str = "DELETE FROM temp.matched_entry_pks";
