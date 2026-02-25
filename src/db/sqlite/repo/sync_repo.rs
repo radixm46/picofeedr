@@ -2,13 +2,11 @@
 
 use crate::config::AppConfig;
 use crate::db::EntryContentStorage;
-use crate::db::sqlite::repo::feed_repo::FeedReadRepo;
 use crate::db::sqlite::{entries, meta};
 use crate::error::AppError;
 use crate::sync::content::{remove_content_fs, write_content_fs};
 use crate::sync::model::SyncResult;
 use rusqlite::Connection;
-use std::collections::HashSet;
 
 /// Read-only repository for sync metadata queries.
 pub struct SyncReadRepo<'a> {
@@ -48,66 +46,43 @@ impl<'a> SyncWriteRepo<'a> {
         meta::update_sync_with_conn(self.conn, now, status)
     }
 
-    /// Persists fetched sync results and returns number of newly inserted entries.
-    pub(crate) fn ingest_results(
+    /// Persists one feed result and returns number of newly inserted entries.
+    pub(crate) fn ingest_feed_result(
         &self,
         config: &AppConfig,
-        results: Vec<SyncResult>,
+        feed_pk: i64,
+        result: SyncResult,
     ) -> Result<usize, AppError> {
         let mut ingest = entries::IngestContext::new(self.conn)?;
-        let feed_ids = collect_unique_feed_ids(&results);
-        let feed_pks_by_feed_id = FeedReadRepo::new(self.conn).find_feed_pks_by_ids(&feed_ids)?;
         let mut new_entries = 0;
-        for result in results {
-            for entry in result.entries {
-                let feed_pk = feed_pks_by_feed_id
-                    .get(&entry.feed_id)
-                    .copied()
-                    .ok_or_else(|| AppError::db(format!("Missing feed for {}", entry.feed_id)))?;
-                let input = entry.entry.with_feed_pk(feed_pk);
-                let insert = ingest.insert_entry(&input)?;
-                if insert.inserted {
-                    if let Some(content) = entry.content.as_ref() {
-                        if content.storage == EntryContentStorage::Fs {
-                            let payload = entry.content_payload.as_deref().ok_or_else(|| {
-                                AppError::internal("Missing content payload for fs storage")
-                            })?;
-                            let reference = content.reference.as_deref().ok_or_else(|| {
-                                AppError::internal("Missing content reference for fs storage")
-                            })?;
-                            let created =
-                                write_content_fs(&config.storage.data_dir, reference, payload)?;
-                            if let Err(error) =
-                                ingest.insert_entry_content(insert.entry_pk, content)
-                            {
-                                if created {
-                                    let _ = remove_content_fs(&config.storage.data_dir, reference);
-                                }
-                                return Err(error);
+        for entry in result.entries {
+            let input = entry.entry.with_feed_pk(feed_pk);
+            let insert = ingest.insert_entry(&input)?;
+            if insert.inserted {
+                if let Some(content) = entry.content.as_ref() {
+                    if content.storage == EntryContentStorage::Fs {
+                        let payload = entry.content_payload.as_deref().ok_or_else(|| {
+                            AppError::internal("Missing content payload for fs storage")
+                        })?;
+                        let reference = content.reference.as_deref().ok_or_else(|| {
+                            AppError::internal("Missing content reference for fs storage")
+                        })?;
+                        let created =
+                            write_content_fs(&config.storage.data_dir, reference, payload)?;
+                        if let Err(error) = ingest.insert_entry_content(insert.entry_pk, content) {
+                            if created {
+                                let _ = remove_content_fs(&config.storage.data_dir, reference);
                             }
-                        } else {
-                            ingest.insert_entry_content(insert.entry_pk, content)?;
+                            return Err(error);
                         }
+                    } else {
+                        ingest.insert_entry_content(insert.entry_pk, content)?;
                     }
-                    ingest.insert_entry_tags(insert.entry_pk, &entry.tags)?;
-                    new_entries += 1;
                 }
+                ingest.insert_entry_tags(insert.entry_pk, &entry.tags)?;
+                new_entries += 1;
             }
         }
         Ok(new_entries)
     }
-}
-
-/// Collects unique feed ids from sync results while preserving first-seen order.
-fn collect_unique_feed_ids(results: &[SyncResult]) -> Vec<String> {
-    let mut unique = Vec::new();
-    let mut seen = HashSet::new();
-    for result in results {
-        for entry in &result.entries {
-            if seen.insert(entry.feed_id.clone()) {
-                unique.push(entry.feed_id.clone());
-            }
-        }
-    }
-    unique
 }

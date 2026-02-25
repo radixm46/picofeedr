@@ -133,9 +133,11 @@ pub(crate) fn render_plain(result: &CommandOutput) -> io::Result<()> {
             if !summary.errors.is_empty() {
                 writeln!(writer, "errors: {}", summary.errors.len())?;
                 for error in &summary.errors {
+                    let feed_name = error.feed_name.as_deref().unwrap_or("(untitled)");
                     writeln!(
                         writer,
-                        "  {} {} retryable={}",
+                        "  {} {} {} retryable={}",
+                        feed_name,
                         error.feed_url,
                         error.code.as_str(),
                         error.retryable

@@ -149,6 +149,17 @@
           ],
           "description": "Error code."
         },
+        "feed_id": {
+          "description": "Stable feed id.",
+          "type": "string"
+        },
+        "feed_name": {
+          "description": "Feed name from config when available.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "feed_url": {
           "description": "Feed URL that failed.",
           "type": "string"
@@ -164,6 +175,7 @@
       },
       "required": [
         "code",
+        "feed_id",
         "feed_url",
         "message",
         "retryable"

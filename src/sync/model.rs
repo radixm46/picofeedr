@@ -27,6 +27,10 @@ pub struct SyncSummary {
 /// Sync error entry for failed feeds.
 #[derive(Debug, Serialize, JsonSchema, Clone)]
 pub struct SyncError {
+    /// Stable feed id.
+    pub feed_id: String,
+    /// Feed name from config when available.
+    pub feed_name: Option<String>,
     /// Feed URL that failed.
     pub feed_url: String,
     /// Error code.
@@ -59,22 +63,23 @@ impl SyncStatus {
 
 /// Sync error code values.
 #[derive(Debug, Serialize, JsonSchema, Clone, Copy, PartialEq, Eq)]
+#[allow(clippy::enum_variant_names)]
 pub enum SyncErrorCode {
     #[serde(rename = "FETCH_FAILED")]
-    Fetch,
+    FetchFailed,
     #[serde(rename = "PARSE_FAILED")]
-    Parse,
+    ParseFailed,
     #[serde(rename = "INGEST_FAILED")]
-    Ingest,
+    IngestFailed,
 }
 
 impl SyncErrorCode {
     /// Returns the display label for plain output.
     pub fn as_str(self) -> &'static str {
         match self {
-            SyncErrorCode::Fetch => "FETCH_FAILED",
-            SyncErrorCode::Parse => "PARSE_FAILED",
-            SyncErrorCode::Ingest => "INGEST_FAILED",
+            SyncErrorCode::FetchFailed => "FETCH_FAILED",
+            SyncErrorCode::ParseFailed => "PARSE_FAILED",
+            SyncErrorCode::IngestFailed => "INGEST_FAILED",
         }
     }
 }
@@ -109,30 +114,52 @@ pub enum SyncProgressEvent {
 
 impl SyncError {
     /// Builds a fetch error entry.
-    pub(crate) fn fetch(feed_url: &str, message: String, retryable: bool) -> Self {
+    pub(crate) fn fetch(
+        feed_id: &str,
+        feed_name: Option<&str>,
+        feed_url: &str,
+        message: String,
+        retryable: bool,
+    ) -> Self {
         Self {
+            feed_id: feed_id.to_string(),
+            feed_name: feed_name.map(ToOwned::to_owned),
             feed_url: feed_url.to_string(),
-            code: SyncErrorCode::Fetch,
+            code: SyncErrorCode::FetchFailed,
             message,
             retryable,
         }
     }
 
     /// Builds a parse error entry.
-    pub(crate) fn parse(feed_url: &str, message: String) -> Self {
+    pub(crate) fn parse(
+        feed_id: &str,
+        feed_name: Option<&str>,
+        feed_url: &str,
+        message: String,
+    ) -> Self {
         Self {
+            feed_id: feed_id.to_string(),
+            feed_name: feed_name.map(ToOwned::to_owned),
             feed_url: feed_url.to_string(),
-            code: SyncErrorCode::Parse,
+            code: SyncErrorCode::ParseFailed,
             message,
             retryable: false,
         }
     }
 
     /// Builds an ingest error entry.
-    pub(crate) fn ingest(feed_url: &str, message: String) -> Self {
+    pub(crate) fn ingest(
+        feed_id: &str,
+        feed_name: Option<&str>,
+        feed_url: &str,
+        message: String,
+    ) -> Self {
         Self {
+            feed_id: feed_id.to_string(),
+            feed_name: feed_name.map(ToOwned::to_owned),
             feed_url: feed_url.to_string(),
-            code: SyncErrorCode::Ingest,
+            code: SyncErrorCode::IngestFailed,
             message,
             retryable: false,
         }
@@ -143,6 +170,7 @@ impl SyncError {
 #[derive(Debug, Clone)]
 pub(crate) struct SyncTarget {
     pub(crate) feed_id: String,
+    pub(crate) feed_name: Option<String>,
     pub(crate) url: String,
     pub(crate) tags: Vec<String>,
     pub(crate) auto_tag_rules: Vec<CompiledRule>,
@@ -153,13 +181,15 @@ pub(crate) struct SyncTarget {
 /// Parsed feed result from fetch workers.
 #[derive(Debug)]
 pub(crate) struct SyncResult {
+    pub(crate) feed_id: String,
+    pub(crate) feed_name: Option<String>,
+    pub(crate) feed_url: String,
     pub(crate) entries: Vec<SyncEntry>,
 }
 
 /// Normalized entry with tags and content payload.
 #[derive(Debug)]
 pub(crate) struct SyncEntry {
-    pub(crate) feed_id: String,
     pub(crate) entry: PendingEntry,
     pub(crate) content: Option<EntryContentInput>,
     /// Content payload for filesystem storage.

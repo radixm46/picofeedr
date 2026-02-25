@@ -158,7 +158,13 @@ fn fetch_and_parse(target: &SyncTarget, config: &AppConfig, agent: &ureq::Agent)
                 index: target.index,
                 total_feeds: target.total_feeds,
                 url: target.url.clone(),
-                error: SyncError::fetch(&target.url, error.message, error.retryable),
+                error: SyncError::fetch(
+                    &target.feed_id,
+                    target.feed_name.as_deref(),
+                    &target.url,
+                    error.message,
+                    error.retryable,
+                ),
             };
         }
     };
@@ -169,7 +175,12 @@ fn fetch_and_parse(target: &SyncTarget, config: &AppConfig, agent: &ureq::Agent)
                 index: target.index,
                 total_feeds: target.total_feeds,
                 url: target.url.clone(),
-                error: SyncError::parse(&target.url, error.to_string()),
+                error: SyncError::parse(
+                    &target.feed_id,
+                    target.feed_name.as_deref(),
+                    &target.url,
+                    error.to_string(),
+                ),
             };
         }
     };
@@ -186,7 +197,12 @@ fn fetch_and_parse(target: &SyncTarget, config: &AppConfig, agent: &ureq::Agent)
         index: target.index,
         total_feeds: target.total_feeds,
         url: target.url.clone(),
-        result: SyncResult { entries },
+        result: SyncResult {
+            feed_id: target.feed_id.clone(),
+            feed_name: target.feed_name.clone(),
+            feed_url: target.url.clone(),
+            entries,
+        },
     }
 }
 
@@ -205,7 +221,7 @@ fn fetch_feed_bytes(
 ) -> Result<Vec<u8>, FetchError> {
     if let Some(path) = url.strip_prefix("file://") {
         return fs::read(path).map_err(|error| FetchError {
-            message: format!("Failed to read feed file {url}: {error}"),
+            message: format!("Failed to read feed file: {error}"),
             retryable: false,
         });
     }
@@ -226,13 +242,13 @@ fn fetch_feed_bytes(
                     && (400..500).contains(code)
                 {
                     return Err(FetchError {
-                        message: format!("Failed to fetch {url}: {error}"),
+                        message: trim_url_prefix(url, error.to_string()),
                         retryable: false,
                     });
                 }
                 if attempt >= sync.retry_count {
                     return Err(FetchError {
-                        message: format!("Failed to fetch {url}: {error}"),
+                        message: trim_url_prefix(url, error.to_string()),
                         retryable: true,
                     });
                 }
@@ -243,9 +259,17 @@ fn fetch_feed_bytes(
         }
     }
     Err(FetchError {
-        message: format!("Failed to fetch {url}"),
+        message: "Fetch failed".to_string(),
         retryable: true,
     })
+}
+
+fn trim_url_prefix(url: &str, message: String) -> String {
+    let prefix = format!("{url}: ");
+    message
+        .strip_prefix(&prefix)
+        .map(ToOwned::to_owned)
+        .unwrap_or(message)
 }
 
 #[cfg(test)]

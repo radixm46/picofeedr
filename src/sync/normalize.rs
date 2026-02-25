@@ -35,7 +35,6 @@ pub(crate) fn normalize_entry(
     let tags = dedupe_tags(tags);
 
     Ok(SyncEntry {
-        feed_id: target.feed_id.clone(),
         entry: PendingEntry {
             entry_id,
             link,

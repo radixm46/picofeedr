@@ -9,6 +9,8 @@ use crate::error::AppError;
 use rusqlite::{Connection, Statement, params, params_from_iter};
 use std::collections::{HashMap, HashSet};
 
+const TAG_ID_LOOKUP_CHUNK_SIZE: usize = 64;
+
 /// Prepared ingest statements reused across many entry writes.
 pub(crate) struct IngestContext<'conn> {
     conn: &'conn Connection,
@@ -86,18 +88,7 @@ impl<'conn> IngestContext<'conn> {
         for tag in &unique {
             self.insert_tag_stmt.execute(params![tag])?;
         }
-        let placeholders = std::iter::repeat_n("?", unique.len())
-            .collect::<Vec<_>>()
-            .join(",");
-        let query = q::select_tag_ids_by_names(&placeholders);
-        let mut stmt = self.conn.prepare_cached(&query)?;
-        let mut rows = stmt.query(params_from_iter(unique.iter()))?;
-        let mut tag_ids = HashMap::new();
-        while let Some(row) = rows.next()? {
-            let id: i64 = row.get(0)?;
-            let name: String = row.get(1)?;
-            tag_ids.insert(name, id);
-        }
+        let tag_ids = resolve_tag_ids(self.conn, &unique)?;
         for tag in &unique {
             let tag_id = tag_ids
                 .get(tag)
@@ -118,6 +109,24 @@ fn unique_tags(tags: &[String]) -> Vec<String> {
         }
     }
     unique
+}
+
+fn resolve_tag_ids(conn: &Connection, unique: &[String]) -> Result<HashMap<String, i64>, AppError> {
+    let mut tag_ids = HashMap::new();
+    for chunk in unique.chunks(TAG_ID_LOOKUP_CHUNK_SIZE) {
+        let placeholders = std::iter::repeat_n("?", chunk.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let query = q::select_tag_ids_by_names(&placeholders);
+        let mut stmt = conn.prepare_cached(&query)?;
+        let mut rows = stmt.query(params_from_iter(chunk.iter()))?;
+        while let Some(row) = rows.next()? {
+            let id: i64 = row.get(0)?;
+            let name: String = row.get(1)?;
+            tag_ids.insert(name, id);
+        }
+    }
+    Ok(tag_ids)
 }
 
 #[cfg(test)]
@@ -292,5 +301,46 @@ mod tests {
             )
             .expect("second entry_tag count");
         assert_eq!(second_entry_tag_count, 2);
+    }
+
+    /// Resolves tag ids correctly when tag count crosses lookup chunk boundaries.
+    #[test]
+    fn insert_entry_tags_resolves_ids_across_chunks() {
+        let conn = test_conn();
+        let feed_pk = insert_feed(&conn, "feed-a");
+        let mut ingest = IngestContext::new(&conn).expect("create ingest context");
+        let inserted = ingest
+            .insert_entry(&EntryInput {
+                entry_id: "entry-chunk".to_string(),
+                feed_pk,
+                link: Some("https://example.com/chunk".to_string()),
+                title: Some("Chunk".to_string()),
+                author: None,
+                published_at: None,
+                updated_at: None,
+                first_seen_at: 12,
+                meta_json: None,
+            })
+            .expect("insert entry");
+        let tags = (0..80)
+            .map(|index| format!("tag-{index}"))
+            .collect::<Vec<_>>();
+
+        ingest
+            .insert_entry_tags(inserted.entry_pk, &tags)
+            .expect("insert many tags");
+
+        let tag_count: i64 = conn
+            .query_row(q_entries::COUNT_TAGS, [], |row| row.get(0))
+            .expect("tag count");
+        assert_eq!(tag_count, 80);
+        let entry_tag_count: i64 = conn
+            .query_row(
+                q_entries::COUNT_ENTRY_TAGS_BY_ENTRY_ID,
+                params![inserted.entry_pk],
+                |row| row.get(0),
+            )
+            .expect("entry tag count");
+        assert_eq!(entry_tag_count, 80);
     }
 }

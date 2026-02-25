@@ -1097,6 +1097,8 @@ fn sync_reports_partial_failed() {
     assert_eq!(data["failed_feed_count"], 1);
     let errors = data["errors"].as_array().expect("errors array");
     assert_eq!(errors.len(), 1);
+    assert!(errors[0]["feed_id"].as_str().is_some());
+    assert_eq!(errors[0]["feed_name"], "Bad Feed");
     assert_eq!(errors[0]["code"], "PARSE_FAILED");
 }
 
@@ -1126,6 +1128,7 @@ fn sync_plain_reports_partial_failed_with_feed_error_lines() {
     assert!(output_str.contains("sync:feed error index=2/2 url=file://"));
     assert!(output_str.contains("code=PARSE_FAILED retryable=false"));
     assert!(output_str.contains("status: partial_failed"));
+    assert!(output_str.contains("Bad Feed file://"));
 }
 
 /// Ensures sync reports failed when all feeds fail.
@@ -1153,6 +1156,8 @@ fn sync_reports_failed_when_all_feeds_fail() {
     assert_eq!(data["failed_feed_count"], 1);
     let errors = data["errors"].as_array().expect("errors array");
     assert_eq!(errors.len(), 1);
+    assert!(errors[0]["feed_id"].as_str().is_some());
+    assert_eq!(errors[0]["feed_name"], "Bad Feed");
 }
 
 /// Ensures sync plain output reports feed-level error details when all feeds fail.
@@ -1180,6 +1185,7 @@ fn sync_plain_reports_failed_with_feed_error_lines() {
     assert!(output_str.contains("code=PARSE_FAILED retryable=false"));
     assert!(output_str.contains("status: failed"));
     assert!(output_str.contains("errors: 1"));
+    assert!(output_str.contains("Bad Feed file://"));
 }
 
 /// Ensures HTTP 404 fetch failures are marked as non-retryable.
@@ -1241,8 +1247,70 @@ retry_delay = 0
     assert_eq!(data["failed_feed_count"], 1);
     let errors = data["errors"].as_array().expect("errors array");
     assert_eq!(errors.len(), 1);
+    assert!(errors[0]["feed_id"].as_str().is_some());
+    assert_eq!(errors[0]["feed_name"], "Missing Feed");
     assert_eq!(errors[0]["code"], "FETCH_FAILED");
     assert_eq!(errors[0]["retryable"], false);
+}
+
+/// Ensures sync plain output does not duplicate feed URL in error summary lines.
+#[test]
+fn sync_plain_http_404_error_output_is_not_redundant() {
+    let temp = TempDir::new().expect("tempdir");
+    let feeds_path = temp.path().join("feeds.yaml");
+    let config_path = temp.path().join("config.toml");
+    let db_path = temp.path().join("db.sqlite");
+
+    let (feed_url, server_thread) = spawn_http_404_feed_server();
+    let feeds = format!(
+        r#"picofeedr:
+  tech:
+    tags: [tech]
+    feeds:
+      - url: {feed_url}
+        title: Missing Feed
+"#
+    );
+    fs::write(&feeds_path, feeds).expect("write feeds");
+
+    let config = format!(
+        r#"unread_tag = "unread"
+
+[feeds]
+source = "{}"
+
+[storage]
+root_dir = "{}"
+
+[sync]
+timeout = 1
+retry_count = 0
+retry_delay = 0
+"#,
+        feeds_path.display(),
+        temp.path().display()
+    );
+    fs::write(&config_path, config).expect("write config");
+
+    let output = picofeedr_cmd_plain()
+        .arg("--config")
+        .arg(config_path.display().to_string())
+        .arg("--storage-root")
+        .arg(db_root(db_path.to_str().expect("db path")))
+        .arg("sync")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    server_thread.join().expect("join 404 server thread");
+
+    let output_str = String::from_utf8_lossy(&output);
+    assert!(output_str.contains(&format!(
+        "Missing Feed {feed_url} FETCH_FAILED retryable=false"
+    )));
+    assert!(!output_str.contains(&format!("Failed to fetch {feed_url}: {feed_url}:")));
 }
 
 /// Ensures list returns paginated results with tag filters.
