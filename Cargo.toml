@@ -31,6 +31,11 @@ time = "0.3"
 assert_cmd = "2"
 predicates = "3"
 tempfile = "3"
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+
+[[bench]]
+name = "tag_query_complex"
+harness = false
 
 [profile.release]
 lto = "thin"

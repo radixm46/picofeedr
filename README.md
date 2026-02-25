@@ -48,6 +48,12 @@ Run tests:
 cargo test
 ```
 
+Run complex tag-query benchmarks (10k/50k/100k datasets):
+
+```bash
+cargo bench --bench tag_query_complex
+```
+
 Run formatter:
 
 ```bash

@@ -41,6 +41,9 @@ pub enum TagExpr {
     Or(Vec<TagExpr>),
 }
 
+const MAX_TAG_TOKENS: usize = 64;
+const MAX_TAG_AST_DEPTH: usize = 16;
+
 impl TagExpr {
     /// Returns a stable canonical representation used for hash validation.
     pub(crate) fn canonical(&self) -> String {
@@ -56,6 +59,63 @@ impl TagExpr {
                 let mut parts = items.iter().map(TagExpr::canonical).collect::<Vec<_>>();
                 parts.sort();
                 format!("or({})", parts.join(","))
+            }
+        }
+    }
+
+    /// Returns true when expression tree contains NOT.
+    pub(crate) fn contains_not(&self) -> bool {
+        match self {
+            TagExpr::Tag(_) => false,
+            TagExpr::Not(_) => true,
+            TagExpr::And(items) | TagExpr::Or(items) => items.iter().any(TagExpr::contains_not),
+        }
+    }
+
+    /// Counts total AST nodes.
+    pub(crate) fn node_count(&self) -> usize {
+        match self {
+            TagExpr::Tag(_) => 1,
+            TagExpr::Not(inner) => 1 + inner.node_count(),
+            TagExpr::And(items) | TagExpr::Or(items) => {
+                1 + items.iter().map(TagExpr::node_count).sum::<usize>()
+            }
+        }
+    }
+
+    /// Returns maximum AST depth.
+    pub(crate) fn max_depth(&self) -> usize {
+        match self {
+            TagExpr::Tag(_) => 1,
+            TagExpr::Not(inner) => 1 + inner.max_depth(),
+            TagExpr::And(items) | TagExpr::Or(items) => {
+                1 + items.iter().map(TagExpr::max_depth).max().unwrap_or(0)
+            }
+        }
+    }
+
+    /// Returns maximum OR fan-out among all OR nodes.
+    pub(crate) fn max_or_fanout(&self) -> usize {
+        match self {
+            TagExpr::Tag(_) => 0,
+            TagExpr::Not(inner) => inner.max_or_fanout(),
+            TagExpr::And(items) => items.iter().map(TagExpr::max_or_fanout).max().unwrap_or(0),
+            TagExpr::Or(items) => items
+                .iter()
+                .map(TagExpr::max_or_fanout)
+                .max()
+                .unwrap_or(0)
+                .max(items.len()),
+        }
+    }
+
+    /// Counts tag literal nodes.
+    pub(crate) fn tag_token_count(&self) -> usize {
+        match self {
+            TagExpr::Tag(_) => 1,
+            TagExpr::Not(inner) => inner.tag_token_count(),
+            TagExpr::And(items) | TagExpr::Or(items) => {
+                items.iter().map(TagExpr::tag_token_count).sum()
             }
         }
     }
@@ -326,18 +386,33 @@ fn parse_tag_expr(raw: &str) -> Result<TagExpr, AppError> {
     if parser.peek().is_some() {
         return Err(AppError::invalid_query("Invalid tag expression"));
     }
-    Ok(normalize_tag_expr(expr))
+    let normalized = normalize_tag_expr(expr);
+    validate_tag_expr_limits(&normalized)?;
+    Ok(normalized)
 }
 
 /// Parses `-tag:` value and rejects nested NOT expressions.
 fn parse_minus_tag_expr(raw: &str) -> Result<TagExpr, AppError> {
     let expr = parse_tag_expr(raw)?;
-    if contains_not(&expr) {
+    if expr.contains_not() {
         return Err(AppError::invalid_query(
             "-tag: expression must not include NOT/!",
         ));
     }
     Ok(expr)
+}
+
+/// Validates expression-level guardrails for parser safety.
+fn validate_tag_expr_limits(expr: &TagExpr) -> Result<(), AppError> {
+    if expr.tag_token_count() > MAX_TAG_TOKENS {
+        return Err(AppError::invalid_query(
+            "Tag expression exceeds max tag tokens",
+        ));
+    }
+    if expr.max_depth() > MAX_TAG_AST_DEPTH {
+        return Err(AppError::invalid_query("Tag expression exceeds max depth"));
+    }
+    Ok(())
 }
 
 /// Escapes a tag literal for canonical serialization.
@@ -414,15 +489,6 @@ fn has_direct_tag_conflict(expr: &TagExpr) -> bool {
         }
     }
     include.iter().any(|tag| exclude.contains(tag))
-}
-
-/// Returns true when expression tree contains NOT.
-fn contains_not(expr: &TagExpr) -> bool {
-    match expr {
-        TagExpr::Tag(_) => false,
-        TagExpr::Not(_) => true,
-        TagExpr::And(items) | TagExpr::Or(items) => items.iter().any(contains_not),
-    }
 }
 
 /// Token used by tag expression parser.
@@ -831,6 +897,21 @@ mod tests {
     #[test]
     fn rejects_unknown_tokens() {
         let error = EntryQuery::parse(Some("oops"), "unread").unwrap_err();
+        assert_eq!(error.code().as_str(), "INVALID_QUERY");
+    }
+
+    #[test]
+    fn rejects_tag_expression_over_max_tokens() {
+        let values = (0..65).map(|i| format!("t{i}")).collect::<Vec<_>>();
+        let raw = format!("tag:{}", values.join("|"));
+        let error = EntryQuery::parse(Some(&raw), "unread").unwrap_err();
+        assert_eq!(error.code().as_str(), "INVALID_QUERY");
+    }
+
+    #[test]
+    fn rejects_tag_expression_over_max_depth() {
+        let raw = format!("tag:{}A", "!".repeat(16));
+        let error = EntryQuery::parse(Some(&raw), "unread").unwrap_err();
         assert_eq!(error.code().as_str(), "INVALID_QUERY");
     }
 }

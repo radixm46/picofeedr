@@ -116,6 +116,17 @@ enum FeedIdPredicate {
     Resolved(i64),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TagEvalPath {
+    Simple,
+    Complex,
+}
+
+const SIMPLE_PATH_MAX_NODE_COUNT: usize = 12;
+const SIMPLE_PATH_MAX_DEPTH: usize = 4;
+const SIMPLE_PATH_MAX_OR_FANOUT: usize = 6;
+const ENTRY_PK_CHUNK_SIZE: usize = 500;
+
 /// Lists entries using tag filters and cursor pagination.
 pub fn list_entries(
     store: &SqliteStore,
@@ -129,13 +140,47 @@ pub fn list_entries(
     let query_hash = compute_query_hash(query);
     let feed_id_predicate = resolve_feed_id_predicate(store, query)?;
     let resolved_tag_ids = resolve_tag_id_map(store, query)?;
+    let (tag_clause, tag_params) = match &query.tag_expr {
+        Some(tag_expr) => match route_tag_eval_path(tag_expr) {
+            TagEvalPath::Simple => {
+                let mut params = Vec::new();
+                let clause = build_tag_expr_clause(tag_expr, &mut params, &resolved_tag_ids);
+                (Some(clause), params)
+            }
+            TagEvalPath::Complex => {
+                let matched_pks = resolve_complex_tag_entry_pks(
+                    &entry_repo,
+                    query,
+                    sort,
+                    &query_hash,
+                    &feed_id_predicate,
+                    &resolved_tag_ids,
+                    tag_expr,
+                )?;
+                if matched_pks.is_empty() {
+                    return Ok(EntryListResponse {
+                        total_count: 0,
+                        items: Vec::new(),
+                        feeds: Vec::new(),
+                        next_page_token: None,
+                        revision: system_meta.revision,
+                        last_write_at: system_meta.updated_at,
+                    });
+                }
+                let (clause, params) = build_entry_pk_filter_clause(&matched_pks);
+                (Some(clause), params)
+            }
+        },
+        None => (None, Vec::new()),
+    };
     let (count_where_sql, count_params) = build_where_clause(
         query,
         sort,
         None,
         &query_hash,
         &feed_id_predicate,
-        &resolved_tag_ids,
+        tag_clause.as_deref(),
+        &tag_params,
     )?;
     let total_count = entry_repo.count_entries(&count_where_sql, &count_params)?;
     let (page_where_sql, page_params) = build_where_clause(
@@ -144,7 +189,8 @@ pub fn list_entries(
         cursor,
         &query_hash,
         &feed_id_predicate,
-        &resolved_tag_ids,
+        tag_clause.as_deref(),
+        &tag_params,
     )?;
     let (items, feeds, next_page_token) = fetch_entries(
         &entry_repo,
@@ -162,6 +208,92 @@ pub fn list_entries(
         revision: system_meta.revision,
         last_write_at: system_meta.updated_at,
     })
+}
+
+fn route_tag_eval_path(expr: &TagExpr) -> TagEvalPath {
+    if expr.contains_not()
+        || expr.node_count() > SIMPLE_PATH_MAX_NODE_COUNT
+        || expr.max_depth() > SIMPLE_PATH_MAX_DEPTH
+        || expr.max_or_fanout() > SIMPLE_PATH_MAX_OR_FANOUT
+    {
+        TagEvalPath::Complex
+    } else {
+        TagEvalPath::Simple
+    }
+}
+
+fn resolve_complex_tag_entry_pks(
+    entry_repo: &EntryReadRepo<'_>,
+    query: &EntryQuery,
+    sort: SortOrder,
+    query_hash: &str,
+    feed_id_predicate: &FeedIdPredicate,
+    resolved_tag_ids: &HashMap<String, i64>,
+    tag_expr: &TagExpr,
+) -> Result<Vec<i64>, AppError> {
+    let (universe_where_sql, universe_params) =
+        build_non_tag_where_clause(query, sort, None, query_hash, feed_id_predicate)?;
+    let universe_pks = entry_repo.list_filtered_entry_pks(&universe_where_sql, &universe_params)?;
+    if universe_pks.is_empty() {
+        return Ok(Vec::new());
+    }
+    let universe = universe_pks.iter().copied().collect::<HashSet<_>>();
+    let tag_ids = resolved_tag_ids.values().copied().collect::<Vec<_>>();
+    let tag_entry_pks = entry_repo.find_entry_pks_by_tag_ids(&tag_ids)?;
+    let matched = evaluate_tag_expr_set(tag_expr, &universe, resolved_tag_ids, &tag_entry_pks);
+    let mut pks = matched.into_iter().collect::<Vec<_>>();
+    pks.sort_unstable();
+    Ok(pks)
+}
+
+fn evaluate_tag_expr_set(
+    expr: &TagExpr,
+    universe: &HashSet<i64>,
+    resolved_tag_ids: &HashMap<String, i64>,
+    tag_entry_pks: &HashMap<i64, HashSet<i64>>,
+) -> HashSet<i64> {
+    match expr {
+        TagExpr::Tag(tag) => {
+            let Some(tag_id) = resolved_tag_ids.get(tag) else {
+                return HashSet::new();
+            };
+            let Some(entry_pks) = tag_entry_pks.get(tag_id) else {
+                return HashSet::new();
+            };
+            entry_pks
+                .iter()
+                .filter(|pk| universe.contains(pk))
+                .copied()
+                .collect()
+        }
+        TagExpr::Not(inner) => {
+            let inner_set = evaluate_tag_expr_set(inner, universe, resolved_tag_ids, tag_entry_pks);
+            universe.difference(&inner_set).copied().collect()
+        }
+        TagExpr::And(items) => {
+            let mut iter = items.iter();
+            let Some(first) = iter.next() else {
+                return HashSet::new();
+            };
+            let mut acc = evaluate_tag_expr_set(first, universe, resolved_tag_ids, tag_entry_pks);
+            for item in iter {
+                let next = evaluate_tag_expr_set(item, universe, resolved_tag_ids, tag_entry_pks);
+                acc.retain(|pk| next.contains(pk));
+                if acc.is_empty() {
+                    break;
+                }
+            }
+            acc
+        }
+        TagExpr::Or(items) => {
+            let mut acc = HashSet::new();
+            for item in items {
+                let next = evaluate_tag_expr_set(item, universe, resolved_tag_ids, tag_entry_pks);
+                acc.extend(next);
+            }
+            acc
+        }
+    }
 }
 
 fn resolve_feed_id_predicate(
@@ -318,16 +450,51 @@ fn build_where_clause(
     cursor: Option<&str>,
     query_hash: &str,
     feed_id_predicate: &FeedIdPredicate,
-    resolved_tag_ids: &HashMap<String, i64>,
+    extra_clause: Option<&str>,
+    extra_params: &[Value],
 ) -> Result<(String, Vec<Value>), AppError> {
+    let (mut clauses, mut params) =
+        build_non_tag_predicates(query, sort, cursor, query_hash, feed_id_predicate)?;
+    if let Some(extra_clause) = extra_clause {
+        clauses.insert(0, format!("({extra_clause})"));
+        let mut merged = extra_params.to_vec();
+        merged.extend(params);
+        params = merged;
+    }
+    let where_sql = if clauses.is_empty() {
+        String::new()
+    } else {
+        format!("{}{}", q::WHERE_PREFIX, clauses.join(" AND "))
+    };
+    Ok((where_sql, params))
+}
+
+fn build_non_tag_where_clause(
+    query: &EntryQuery,
+    sort: SortOrder,
+    cursor: Option<&str>,
+    query_hash: &str,
+    feed_id_predicate: &FeedIdPredicate,
+) -> Result<(String, Vec<Value>), AppError> {
+    let (clauses, params) =
+        build_non_tag_predicates(query, sort, cursor, query_hash, feed_id_predicate)?;
+    let where_sql = if clauses.is_empty() {
+        String::new()
+    } else {
+        format!("{}{}", q::WHERE_PREFIX, clauses.join(" AND "))
+    };
+    Ok((where_sql, params))
+}
+
+fn build_non_tag_predicates(
+    query: &EntryQuery,
+    sort: SortOrder,
+    cursor: Option<&str>,
+    query_hash: &str,
+    feed_id_predicate: &FeedIdPredicate,
+) -> Result<(Vec<String>, Vec<Value>), AppError> {
     let mut clauses = Vec::new();
     let mut params = Vec::new();
-    if let Some(tag_expr) = &query.tag_expr {
-        clauses.push(format!(
-            "({})",
-            build_tag_expr_clause(tag_expr, &mut params, resolved_tag_ids)
-        ));
-    }
     if let Some(feed) = &query.feed {
         match feed {
             FeedFilter::Id(_) => match feed_id_predicate {
@@ -372,12 +539,25 @@ fn build_where_clause(
         params.push(Value::from(cursor.k));
         params.push(Value::from(cursor.id));
     }
-    let where_sql = if clauses.is_empty() {
-        String::new()
-    } else {
-        format!("{}{}", q::WHERE_PREFIX, clauses.join(" AND "))
-    };
-    Ok((where_sql, params))
+    Ok((clauses, params))
+}
+
+fn build_entry_pk_filter_clause(entry_pks: &[i64]) -> (String, Vec<Value>) {
+    if entry_pks.is_empty() {
+        return ("0=1".to_string(), Vec::new());
+    }
+    let mut clauses = Vec::new();
+    let mut params = Vec::with_capacity(entry_pks.len());
+    for chunk in entry_pks.chunks(ENTRY_PK_CHUNK_SIZE) {
+        let placeholders = std::iter::repeat_n("?", chunk.len())
+            .collect::<Vec<_>>()
+            .join(", ");
+        clauses.push(format!("e.id IN ({placeholders})"));
+        for pk in chunk {
+            params.push(Value::from(*pk));
+        }
+    }
+    (clauses.join(" OR "), params)
 }
 
 fn fetch_entries(
@@ -594,5 +774,53 @@ fn build_tag_expr_clause(
                 .collect::<Vec<_>>();
             clauses.join(" OR ")
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{TagEvalPath, route_tag_eval_path};
+    use crate::query::TagExpr;
+
+    #[test]
+    fn route_complex_when_contains_not() {
+        let expr = TagExpr::Not(Box::new(TagExpr::Tag("a".to_string())));
+        assert_eq!(route_tag_eval_path(&expr), TagEvalPath::Complex);
+    }
+
+    #[test]
+    fn route_simple_on_threshold_boundaries() {
+        let expr = TagExpr::Or((0..6).map(|i| TagExpr::Tag(format!("t{i}"))).collect());
+        assert_eq!(route_tag_eval_path(&expr), TagEvalPath::Simple);
+    }
+
+    #[test]
+    fn route_complex_when_node_count_exceeds_threshold() {
+        let expr = TagExpr::And((0..12).map(|i| TagExpr::Tag(format!("t{i}"))).collect());
+        assert_eq!(route_tag_eval_path(&expr), TagEvalPath::Complex);
+    }
+
+    #[test]
+    fn route_complex_when_depth_exceeds_threshold() {
+        let expr = TagExpr::And(vec![
+            TagExpr::Tag("a".to_string()),
+            TagExpr::And(vec![
+                TagExpr::Tag("b".to_string()),
+                TagExpr::And(vec![
+                    TagExpr::Tag("c".to_string()),
+                    TagExpr::And(vec![
+                        TagExpr::Tag("d".to_string()),
+                        TagExpr::Tag("e".to_string()),
+                    ]),
+                ]),
+            ]),
+        ]);
+        assert_eq!(route_tag_eval_path(&expr), TagEvalPath::Complex);
+    }
+
+    #[test]
+    fn route_complex_when_or_fanout_exceeds_threshold() {
+        let expr = TagExpr::Or((0..7).map(|i| TagExpr::Tag(format!("t{i}"))).collect());
+        assert_eq!(route_tag_eval_path(&expr), TagEvalPath::Complex);
     }
 }

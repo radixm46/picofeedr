@@ -7,7 +7,7 @@ use crate::entry::{EntryEnclosure, EntrySummary};
 use crate::error::AppError;
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
@@ -40,6 +40,8 @@ pub struct EntryReadRepo<'a> {
 }
 
 impl<'a> EntryReadRepo<'a> {
+    const IN_CHUNK_SIZE: usize = 500;
+
     /// Creates a read repository bound to one SQLite connection.
     pub fn new(conn: &'a Connection) -> Self {
         Self { conn }
@@ -50,10 +52,8 @@ impl<'a> EntryReadRepo<'a> {
         &self,
         entry_ids: &[String],
     ) -> Result<HashMap<String, i64>, AppError> {
-        const ENTRY_ID_CHUNK_SIZE: usize = 500;
-
         let mut ids = HashMap::new();
-        for chunk in entry_ids.chunks(ENTRY_ID_CHUNK_SIZE) {
+        for chunk in entry_ids.chunks(Self::IN_CHUNK_SIZE) {
             let placeholders = std::iter::repeat_n("?", chunk.len())
                 .collect::<Vec<_>>()
                 .join(", ");
@@ -67,6 +67,44 @@ impl<'a> EntryReadRepo<'a> {
             }
         }
         Ok(ids)
+    }
+
+    /// Lists candidate entry primary keys using non-tag where filters.
+    pub fn list_filtered_entry_pks(
+        &self,
+        where_sql: &str,
+        params: &[Value],
+    ) -> Result<Vec<i64>, AppError> {
+        let sql = q::select_filtered_entry_pks(where_sql);
+        let mut stmt = self.conn.prepare(&sql)?;
+        let mut rows = stmt.query(params_from_iter(params.iter()))?;
+        let mut pks = Vec::new();
+        while let Some(row) = rows.next()? {
+            pks.push(row.get(0)?);
+        }
+        Ok(pks)
+    }
+
+    /// Loads entry primary keys by tag ids in fixed-size chunks.
+    pub fn find_entry_pks_by_tag_ids(
+        &self,
+        tag_ids: &[i64],
+    ) -> Result<HashMap<i64, HashSet<i64>>, AppError> {
+        let mut map: HashMap<i64, HashSet<i64>> = HashMap::new();
+        for chunk in tag_ids.chunks(Self::IN_CHUNK_SIZE) {
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let sql = q::select_entry_pks_by_tag_ids(&placeholders);
+            let mut stmt = self.conn.prepare(&sql)?;
+            let mut rows = stmt.query(params_from_iter(chunk.iter()))?;
+            while let Some(row) = rows.next()? {
+                let tag_id: i64 = row.get(0)?;
+                let entry_pk: i64 = row.get(1)?;
+                map.entry(tag_id).or_default().insert(entry_pk);
+            }
+        }
+        Ok(map)
     }
 
     /// Ensures all requested entry ids exist.

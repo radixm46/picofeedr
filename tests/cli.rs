@@ -2534,6 +2534,79 @@ fn list_tag_and_with_missing_tag_returns_zero() {
     assert_eq!(data["total_count"], 0);
 }
 
+/// Ensures complex NOT-path stays equivalent to simple query for same semantics.
+#[test]
+fn list_complex_not_path_matches_simple_equivalent() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let simple = list_query_json(&paths.config_path, &paths.db_path, "tag:tech");
+    let complex = list_query_json(
+        &paths.config_path,
+        &paths.db_path,
+        "tag:tech -tag:news|later|junk|youtube|github",
+    );
+    assert_eq!(complex["total_count"], simple["total_count"]);
+    assert_eq!(complex["items"], simple["items"]);
+}
+
+/// Ensures heavy OR fan-out path stays equivalent to simple OR semantics.
+#[test]
+fn list_complex_heavy_or_matches_simple_equivalent() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let simple = list_query_json(&paths.config_path, &paths.db_path, "tag:tech|doesnotexist");
+    let complex = list_query_json(
+        &paths.config_path,
+        &paths.db_path,
+        "tag:tech|doesnotexist|m1|m2|m3|m4|m5",
+    );
+    assert_eq!(complex["total_count"], simple["total_count"]);
+    assert_eq!(complex["items"], simple["items"]);
+}
+
+/// Ensures complex path keeps non-tag filters (after/before) semantics.
+#[test]
+fn list_complex_path_respects_date_window_filters() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let data = list_query_json(
+        &paths.config_path,
+        &paths.db_path,
+        "tag:tech -tag:news|later|junk|youtube|github after:2024-01-02 before:2024-01-03",
+    );
+    assert_eq!(data["total_count"], 1);
+    let items = data["items"].as_array().expect("items array");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["title"], "Second Entry");
+}
+
 /// Runs `list` in JSON mode and returns its `data` object.
 fn list_query_json(config_path: &str, db_path: &str, query: &str) -> serde_json::Value {
     let output = picofeedr_cmd_json()
