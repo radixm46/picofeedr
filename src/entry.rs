@@ -125,7 +125,6 @@ enum TagEvalPath {
 const SIMPLE_PATH_MAX_NODE_COUNT: usize = 12;
 const SIMPLE_PATH_MAX_DEPTH: usize = 4;
 const SIMPLE_PATH_MAX_OR_FANOUT: usize = 6;
-const ENTRY_PK_CHUNK_SIZE: usize = 500;
 
 /// Lists entries using tag filters and cursor pagination.
 pub fn list_entries(
@@ -140,6 +139,7 @@ pub fn list_entries(
     let query_hash = compute_query_hash(query);
     let feed_id_predicate = resolve_feed_id_predicate(store, query)?;
     let resolved_tag_ids = resolve_tag_id_map(store, query)?;
+    let mut precomputed_total_count = None;
     let (tag_clause, tag_params) = match &query.tag_expr {
         Some(tag_expr) => match route_tag_eval_path(tag_expr) {
             TagEvalPath::Simple => {
@@ -167,22 +167,30 @@ pub fn list_entries(
                         last_write_at: system_meta.updated_at,
                     });
                 }
-                let (clause, params) = build_entry_pk_filter_clause(&matched_pks);
-                (Some(clause), params)
+                entry_repo.replace_temp_matched_entry_pks(&matched_pks)?;
+                precomputed_total_count = Some(matched_pks.len() as i64);
+                (
+                    Some(q::EXISTS_TEMP_MATCHED_ENTRY_FOR_ENTRY.to_string()),
+                    Vec::new(),
+                )
             }
         },
         None => (None, Vec::new()),
     };
-    let (count_where_sql, count_params) = build_where_clause(
-        query,
-        sort,
-        None,
-        &query_hash,
-        &feed_id_predicate,
-        tag_clause.as_deref(),
-        &tag_params,
-    )?;
-    let total_count = entry_repo.count_entries(&count_where_sql, &count_params)?;
+    let total_count = if let Some(total_count) = precomputed_total_count {
+        total_count
+    } else {
+        let (count_where_sql, count_params) = build_where_clause(
+            query,
+            sort,
+            None,
+            &query_hash,
+            &feed_id_predicate,
+            tag_clause.as_deref(),
+            &tag_params,
+        )?;
+        entry_repo.count_entries(&count_where_sql, &count_params)?
+    };
     let (page_where_sql, page_params) = build_where_clause(
         query,
         sort,
@@ -542,29 +550,6 @@ fn build_non_tag_predicates(
         params.push(Value::from(cursor.id));
     }
     Ok((clauses, params))
-}
-
-fn build_entry_pk_filter_clause(entry_pks: &[i64]) -> (String, Vec<Value>) {
-    if entry_pks.is_empty() {
-        return ("0=1".to_string(), Vec::new());
-    }
-    let mut clauses = Vec::new();
-    let mut params = Vec::with_capacity(entry_pks.len());
-    for chunk in entry_pks.chunks(ENTRY_PK_CHUNK_SIZE) {
-        let placeholders = std::iter::repeat_n("?", chunk.len())
-            .collect::<Vec<_>>()
-            .join(", ");
-        clauses.push(format!("e.id IN ({placeholders})"));
-        for pk in chunk {
-            params.push(Value::from(*pk));
-        }
-    }
-    let combined = clauses.join(" OR ");
-    if clauses.len() > 1 {
-        (format!("({combined})"), params)
-    } else {
-        (combined, params)
-    }
 }
 
 fn fetch_entries(

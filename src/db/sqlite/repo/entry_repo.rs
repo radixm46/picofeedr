@@ -122,6 +122,20 @@ impl<'a> EntryReadRepo<'a> {
         Ok(map)
     }
 
+    /// Replaces temporary matched-entry rows used by complex tag filtering.
+    pub fn replace_temp_matched_entry_pks(&self, entry_pks: &[i64]) -> Result<(), AppError> {
+        self.conn.execute(q::CREATE_TEMP_MATCHED_ENTRY_PKS, [])?;
+        self.conn.execute(q::DELETE_TEMP_MATCHED_ENTRY_PKS, [])?;
+        if entry_pks.is_empty() {
+            return Ok(());
+        }
+        let mut stmt = self.conn.prepare(q::INSERT_TEMP_MATCHED_ENTRY_PK)?;
+        for entry_pk in entry_pks {
+            stmt.execute(params![entry_pk])?;
+        }
+        Ok(())
+    }
+
     /// Ensures all requested entry ids exist.
     pub fn ensure_all_entry_ids_exist(&self, entry_ids: &[String]) -> Result<(), AppError> {
         let existing = self.find_entry_pks_by_ids(entry_ids)?;

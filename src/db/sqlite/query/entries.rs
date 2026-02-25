@@ -67,6 +67,20 @@ pub(crate) const ENTRY_FEED_PK_EQ: &str = "e.feed_pk = ?";
 pub(crate) const EXISTS_TAG_ID_FOR_ENTRY: &str =
     "EXISTS (SELECT 1 FROM entry_tags et WHERE et.entry_pk = e.id AND et.tag_id = ?)";
 
+/// Existence predicate for temporary matched-entry table.
+pub(crate) const EXISTS_TEMP_MATCHED_ENTRY_FOR_ENTRY: &str =
+    "EXISTS (SELECT 1 FROM temp.matched_entry_pks mp WHERE mp.entry_pk = e.id)";
+
+/// Creates a temporary matched-entry table used by complex tag evaluation.
+pub(crate) const CREATE_TEMP_MATCHED_ENTRY_PKS: &str = "CREATE TEMP TABLE IF NOT EXISTS temp.matched_entry_pks (entry_pk INTEGER PRIMARY KEY) WITHOUT ROWID";
+
+/// Clears temporary matched-entry rows.
+pub(crate) const DELETE_TEMP_MATCHED_ENTRY_PKS: &str = "DELETE FROM temp.matched_entry_pks";
+
+/// Inserts one entry primary key into temporary matched-entry table.
+pub(crate) const INSERT_TEMP_MATCHED_ENTRY_PK: &str =
+    "INSERT OR IGNORE INTO temp.matched_entry_pks (entry_pk) VALUES (?1)";
+
 /// Builds existence predicate for OR-list of resolved tag ids.
 pub(crate) fn exists_tag_ids_for_entry(placeholders: &str) -> String {
     format!(
