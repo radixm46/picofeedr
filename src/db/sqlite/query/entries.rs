@@ -123,9 +123,14 @@ pub(crate) fn select_filtered_entry_pks(where_sql: &str) -> String {
     format!("SELECT e.id FROM entries e {where_sql}")
 }
 
-/// Builds SQL that loads entry primary keys grouped by tag id.
-pub(crate) fn select_entry_pks_by_tag_ids(placeholders: &str) -> String {
-    format!("SELECT tag_id, entry_pk FROM entry_tags WHERE tag_id IN ({placeholders})")
+/// Builds SQL that loads entry primary keys by tag ids constrained to candidate entries.
+pub(crate) fn select_entry_pks_by_tag_ids_in_entry_pks(
+    tag_placeholders: &str,
+    entry_placeholders: &str,
+) -> String {
+    format!(
+        "SELECT tag_id, entry_pk FROM entry_tags WHERE tag_id IN ({tag_placeholders}) AND entry_pk IN ({entry_placeholders})"
+    )
 }
 
 /// Builds SQL that loads tags for a set of entry ids.

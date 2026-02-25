@@ -2534,9 +2534,9 @@ fn list_tag_and_with_missing_tag_returns_zero() {
     assert_eq!(data["total_count"], 0);
 }
 
-/// Ensures complex NOT-path stays equivalent to simple query for same semantics.
+/// Ensures complex NOT-path actually excludes entries that carry excluded tags.
 #[test]
-fn list_complex_not_path_matches_simple_equivalent() {
+fn list_complex_not_path_excludes_tagged_entries() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
     picofeedr_cmd_json()
@@ -2548,14 +2548,38 @@ fn list_complex_not_path_matches_simple_equivalent() {
         .assert()
         .success();
 
+    let conn = Connection::open(&paths.db_path).expect("open db");
+    conn.execute("INSERT OR IGNORE INTO tags (name) VALUES ('news')", [])
+        .expect("insert news tag");
+    let news_tag_id: i64 = conn
+        .query_row("SELECT id FROM tags WHERE name = 'news'", [], |row| {
+            row.get(0)
+        })
+        .expect("news tag id");
+    let first_entry_pk: i64 = conn
+        .query_row(
+            "SELECT id FROM entries WHERE title = 'First Entry'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("first entry pk");
+    conn.execute(
+        "INSERT OR IGNORE INTO entry_tags (entry_pk, tag_id) VALUES (?1, ?2)",
+        [first_entry_pk, news_tag_id],
+    )
+    .expect("link first entry to news");
+
     let simple = list_query_json(&paths.config_path, &paths.db_path, "tag:tech");
     let complex = list_query_json(
         &paths.config_path,
         &paths.db_path,
         "tag:tech -tag:news|later|junk|youtube|github",
     );
-    assert_eq!(complex["total_count"], simple["total_count"]);
-    assert_eq!(complex["items"], simple["items"]);
+    assert_eq!(simple["total_count"], 2);
+    assert_eq!(complex["total_count"], 1);
+    let items = complex["items"].as_array().expect("items array");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["title"], "Second Entry");
 }
 
 /// Ensures heavy OR fan-out path stays equivalent to simple OR semantics.

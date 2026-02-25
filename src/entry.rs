@@ -231,6 +231,8 @@ fn resolve_complex_tag_entry_pks(
     resolved_tag_ids: &HashMap<String, i64>,
     tag_expr: &TagExpr,
 ) -> Result<Vec<i64>, AppError> {
+    // NOTE: This set evaluation is recomputed for every list request (including cursor pages).
+    // Keeping it stateless preserves correctness, and caching can be considered in a follow-up.
     let (universe_where_sql, universe_params) =
         build_non_tag_where_clause(query, sort, None, query_hash, feed_id_predicate)?;
     let universe_pks = entry_repo.list_filtered_entry_pks(&universe_where_sql, &universe_params)?;
@@ -239,7 +241,7 @@ fn resolve_complex_tag_entry_pks(
     }
     let universe = universe_pks.iter().copied().collect::<HashSet<_>>();
     let tag_ids = resolved_tag_ids.values().copied().collect::<Vec<_>>();
-    let tag_entry_pks = entry_repo.find_entry_pks_by_tag_ids(&tag_ids)?;
+    let tag_entry_pks = entry_repo.find_entry_pks_by_tag_ids(&tag_ids, &universe_pks)?;
     let matched = evaluate_tag_expr_set(tag_expr, &universe, resolved_tag_ids, &tag_entry_pks);
     let mut pks = matched.into_iter().collect::<Vec<_>>();
     pks.sort_unstable();
@@ -557,7 +559,12 @@ fn build_entry_pk_filter_clause(entry_pks: &[i64]) -> (String, Vec<Value>) {
             params.push(Value::from(*pk));
         }
     }
-    (clauses.join(" OR "), params)
+    let combined = clauses.join(" OR ");
+    if clauses.len() > 1 {
+        (format!("({combined})"), params)
+    } else {
+        (combined, params)
+    }
 }
 
 fn fetch_entries(

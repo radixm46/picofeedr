@@ -89,19 +89,34 @@ impl<'a> EntryReadRepo<'a> {
     pub fn find_entry_pks_by_tag_ids(
         &self,
         tag_ids: &[i64],
+        universe_pks: &[i64],
     ) -> Result<HashMap<i64, HashSet<i64>>, AppError> {
+        if tag_ids.is_empty() || universe_pks.is_empty() {
+            return Ok(HashMap::new());
+        }
         let mut map: HashMap<i64, HashSet<i64>> = HashMap::new();
-        for chunk in tag_ids.chunks(Self::IN_CHUNK_SIZE) {
-            let placeholders = std::iter::repeat_n("?", chunk.len())
+        for tag_chunk in tag_ids.chunks(Self::IN_CHUNK_SIZE) {
+            let tag_placeholders = std::iter::repeat_n("?", tag_chunk.len())
                 .collect::<Vec<_>>()
                 .join(", ");
-            let sql = q::select_entry_pks_by_tag_ids(&placeholders);
-            let mut stmt = self.conn.prepare(&sql)?;
-            let mut rows = stmt.query(params_from_iter(chunk.iter()))?;
-            while let Some(row) = rows.next()? {
-                let tag_id: i64 = row.get(0)?;
-                let entry_pk: i64 = row.get(1)?;
-                map.entry(tag_id).or_default().insert(entry_pk);
+            for entry_chunk in universe_pks.chunks(Self::IN_CHUNK_SIZE) {
+                let entry_placeholders = std::iter::repeat_n("?", entry_chunk.len())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let sql = q::select_entry_pks_by_tag_ids_in_entry_pks(
+                    &tag_placeholders,
+                    &entry_placeholders,
+                );
+                let mut stmt = self.conn.prepare(&sql)?;
+                let mut params = Vec::with_capacity(tag_chunk.len() + entry_chunk.len());
+                params.extend(tag_chunk.iter().copied().map(Value::from));
+                params.extend(entry_chunk.iter().copied().map(Value::from));
+                let mut rows = stmt.query(params_from_iter(params.iter()))?;
+                while let Some(row) = rows.next()? {
+                    let tag_id: i64 = row.get(0)?;
+                    let entry_pk: i64 = row.get(1)?;
+                    map.entry(tag_id).or_default().insert(entry_pk);
+                }
             }
         }
         Ok(map)
