@@ -67,20 +67,6 @@ pub(crate) const ENTRY_FEED_PK_EQ: &str = "e.feed_pk = ?";
 pub(crate) const EXISTS_TAG_ID_FOR_ENTRY: &str =
     "EXISTS (SELECT 1 FROM entry_tags et WHERE et.entry_pk = e.id AND et.tag_id = ?)";
 
-/// Existence predicate for temporary matched-entry table.
-pub(crate) const EXISTS_TEMP_MATCHED_ENTRY_FOR_ENTRY: &str =
-    "EXISTS (SELECT 1 FROM temp.matched_entry_pks mp WHERE mp.entry_pk = e.id)";
-
-/// Creates a temporary matched-entry table used by complex tag evaluation.
-pub(crate) const CREATE_TEMP_MATCHED_ENTRY_PKS: &str = "CREATE TEMP TABLE IF NOT EXISTS matched_entry_pks (entry_pk INTEGER PRIMARY KEY) WITHOUT ROWID";
-
-/// Clears temporary matched-entry rows.
-pub(crate) const DELETE_TEMP_MATCHED_ENTRY_PKS: &str = "DELETE FROM temp.matched_entry_pks";
-
-/// Inserts one entry primary key into temporary matched-entry table.
-pub(crate) const INSERT_TEMP_MATCHED_ENTRY_PK: &str =
-    "INSERT OR IGNORE INTO temp.matched_entry_pks (entry_pk) VALUES (?1)";
-
 /// Builds existence predicate for OR-list of resolved tag ids.
 pub(crate) fn exists_tag_ids_for_entry(placeholders: &str) -> String {
     format!(
@@ -132,19 +118,27 @@ pub(crate) fn select_entry_pks_by_ids(placeholders: &str) -> String {
     format!("SELECT id, entry_id FROM entries WHERE entry_id IN ({placeholders})")
 }
 
+/// Builds SQL that fetches effective sort keys under where filters.
+pub(crate) fn select_filtered_entry_sort_keys(where_sql: &str, key_expr: &str) -> String {
+    format!("SELECT e.id, {key_expr} AS sort_key FROM entries e {where_sql}")
+}
+
+/// Builds SQL that fetches entry list rows by entry primary keys.
+pub(crate) fn select_entry_rows_by_entry_pks(placeholders: &str) -> String {
+    format!(
+        "SELECT e.id, e.entry_id, f.feed_id, f.title, e.title, e.link, e.published_at, e.first_seen_at \
+         FROM entries e JOIN feeds f ON f.id = e.feed_pk WHERE e.id IN ({placeholders})"
+    )
+}
+
 /// Builds SQL that fetches candidate entry primary keys under where filters.
 pub(crate) fn select_filtered_entry_pks(where_sql: &str) -> String {
     format!("SELECT e.id FROM entries e {where_sql}")
 }
 
-/// Builds SQL that loads entry primary keys by tag ids constrained to candidate entries.
-pub(crate) fn select_entry_pks_by_tag_ids_in_entry_pks(
-    tag_placeholders: &str,
-    entry_placeholders: &str,
-) -> String {
-    format!(
-        "SELECT tag_id, entry_pk FROM entry_tags WHERE tag_id IN ({tag_placeholders}) AND entry_pk IN ({entry_placeholders})"
-    )
+/// Builds SQL that loads entry primary keys by tag ids.
+pub(crate) fn select_entry_pks_by_tag_ids(tag_placeholders: &str) -> String {
+    format!("SELECT tag_id, entry_pk FROM entry_tags WHERE tag_id IN ({tag_placeholders})")
 }
 
 /// Builds SQL that loads tags for a set of entry ids.

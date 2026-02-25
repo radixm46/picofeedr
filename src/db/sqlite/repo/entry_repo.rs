@@ -85,13 +85,74 @@ impl<'a> EntryReadRepo<'a> {
         Ok(pks)
     }
 
+    /// Lists `(entry_pk, sort_key)` tuples using non-tag where filters.
+    pub fn list_filtered_entry_sort_keys(
+        &self,
+        where_sql: &str,
+        params: &[Value],
+        key_expr: &str,
+    ) -> Result<Vec<(i64, i64)>, AppError> {
+        let sql = q::select_filtered_entry_sort_keys(where_sql, key_expr);
+        let mut stmt = self.conn.prepare(&sql)?;
+        let mut rows = stmt.query(params_from_iter(params.iter()))?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next()? {
+            let entry_pk: i64 = row.get(0)?;
+            let sort_key: i64 = row.get(1)?;
+            out.push((entry_pk, sort_key));
+        }
+        Ok(out)
+    }
+
+    /// Loads list rows for explicitly specified entry primary keys.
+    pub(crate) fn load_entry_rows_by_entry_pks(
+        &self,
+        entry_pks: &[i64],
+    ) -> Result<Vec<EntryListRow>, AppError> {
+        if entry_pks.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut rows_out = Vec::with_capacity(entry_pks.len());
+        for chunk in entry_pks.chunks(Self::IN_CHUNK_SIZE) {
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let sql = q::select_entry_rows_by_entry_pks(&placeholders);
+            let mut stmt = self.conn.prepare(&sql)?;
+            let mut rows = stmt.query(params_from_iter(chunk.iter()))?;
+            while let Some(row) = rows.next()? {
+                let entry_pk: i64 = row.get(0)?;
+                let entry_id: String = row.get(1)?;
+                let feed_id: String = row.get(2)?;
+                let feed_title: Option<String> = row.get(3)?;
+                let title: Option<String> = row.get(4)?;
+                let link: Option<String> = row.get(5)?;
+                let published_at: Option<i64> = row.get(6)?;
+                let first_seen_at: i64 = row.get(7)?;
+                rows_out.push(EntryListRow {
+                    entry_pk,
+                    summary: EntrySummary {
+                        entry_id,
+                        feed_id,
+                        title,
+                        link,
+                        published_at,
+                        first_seen_at,
+                        tags: Vec::new(),
+                    },
+                    feed_title,
+                });
+            }
+        }
+        Ok(rows_out)
+    }
+
     /// Loads entry primary keys by tag ids in fixed-size chunks.
     pub fn find_entry_pks_by_tag_ids(
         &self,
         tag_ids: &[i64],
-        universe_pks: &[i64],
     ) -> Result<HashMap<i64, HashSet<i64>>, AppError> {
-        if tag_ids.is_empty() || universe_pks.is_empty() {
+        if tag_ids.is_empty() {
             return Ok(HashMap::new());
         }
         let mut map: HashMap<i64, HashSet<i64>> = HashMap::new();
@@ -99,41 +160,16 @@ impl<'a> EntryReadRepo<'a> {
             let tag_placeholders = std::iter::repeat_n("?", tag_chunk.len())
                 .collect::<Vec<_>>()
                 .join(", ");
-            for entry_chunk in universe_pks.chunks(Self::IN_CHUNK_SIZE) {
-                let entry_placeholders = std::iter::repeat_n("?", entry_chunk.len())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                let sql = q::select_entry_pks_by_tag_ids_in_entry_pks(
-                    &tag_placeholders,
-                    &entry_placeholders,
-                );
-                let mut stmt = self.conn.prepare(&sql)?;
-                let mut params = Vec::with_capacity(tag_chunk.len() + entry_chunk.len());
-                params.extend(tag_chunk.iter().copied().map(Value::from));
-                params.extend(entry_chunk.iter().copied().map(Value::from));
-                let mut rows = stmt.query(params_from_iter(params.iter()))?;
-                while let Some(row) = rows.next()? {
-                    let tag_id: i64 = row.get(0)?;
-                    let entry_pk: i64 = row.get(1)?;
-                    map.entry(tag_id).or_default().insert(entry_pk);
-                }
+            let sql = q::select_entry_pks_by_tag_ids(&tag_placeholders);
+            let mut stmt = self.conn.prepare(&sql)?;
+            let mut rows = stmt.query(params_from_iter(tag_chunk.iter()))?;
+            while let Some(row) = rows.next()? {
+                let tag_id: i64 = row.get(0)?;
+                let entry_pk: i64 = row.get(1)?;
+                map.entry(tag_id).or_default().insert(entry_pk);
             }
         }
         Ok(map)
-    }
-
-    /// Replaces temporary matched-entry rows used by complex tag filtering.
-    pub fn replace_temp_matched_entry_pks(&self, entry_pks: &[i64]) -> Result<(), AppError> {
-        self.conn.execute(q::CREATE_TEMP_MATCHED_ENTRY_PKS, [])?;
-        self.conn.execute(q::DELETE_TEMP_MATCHED_ENTRY_PKS, [])?;
-        if entry_pks.is_empty() {
-            return Ok(());
-        }
-        let mut stmt = self.conn.prepare(q::INSERT_TEMP_MATCHED_ENTRY_PK)?;
-        for entry_pk in entry_pks {
-            stmt.execute(params![entry_pk])?;
-        }
-        Ok(())
     }
 
     /// Ensures all requested entry ids exist.

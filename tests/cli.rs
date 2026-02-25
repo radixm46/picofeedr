@@ -2631,6 +2631,130 @@ fn list_complex_path_respects_date_window_filters() {
     assert_eq!(items[0]["title"], "Second Entry");
 }
 
+/// Ensures complex-path pagination keeps cursor contract without gaps/duplicates.
+#[test]
+fn list_complex_path_cursor_pagination_is_stable() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let first_output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("list")
+        .arg("--query")
+        .arg("tag:tech|doesnotexist|m1|m2|m3|m4|m5")
+        .arg("--sort")
+        .arg("first_seen_desc")
+        .arg("--limit")
+        .arg("1")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let first_data = extract_ok_data(&first_output);
+    let first_items = first_data["items"].as_array().expect("items array");
+    assert_eq!(first_data["total_count"], 2);
+    assert_eq!(first_items.len(), 1);
+    let first_title = first_items[0]["title"].as_str().expect("title");
+    let cursor = first_data["next_page_token"].as_str().expect("cursor");
+
+    let second_output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("list")
+        .arg("--query")
+        .arg("tag:tech|doesnotexist|m1|m2|m3|m4|m5")
+        .arg("--sort")
+        .arg("first_seen_desc")
+        .arg("--limit")
+        .arg("1")
+        .arg("--cursor")
+        .arg(cursor)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let second_data = extract_ok_data(&second_output);
+    let second_items = second_data["items"].as_array().expect("items array");
+    assert_eq!(second_data["total_count"], 2);
+    assert_eq!(second_items.len(), 1);
+    assert!(second_data["next_page_token"].is_null());
+    let second_title = second_items[0]["title"].as_str().expect("title");
+    assert_ne!(first_title, second_title);
+}
+
+/// Ensures large matched sets in complex path do not fail with SQL variable limits.
+#[test]
+fn list_complex_large_match_set_does_not_hit_sql_variable_limit() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let conn = Connection::open(&paths.db_path).expect("open db");
+    let feed_pk: i64 = conn
+        .query_row("SELECT id FROM feeds LIMIT 1", [], |row| row.get(0))
+        .expect("feed pk");
+    let unread_tag_id: i64 = conn
+        .query_row("SELECT id FROM tags WHERE name = 'unread'", [], |row| {
+            row.get(0)
+        })
+        .expect("unread tag id");
+    conn.execute_batch(&format!(
+        "
+BEGIN;
+WITH RECURSIVE seq(n) AS (
+  SELECT 1
+  UNION ALL
+  SELECT n + 1 FROM seq WHERE n < 40000
+)
+INSERT INTO entries (entry_id, feed_pk, link, title, author, published_at, updated_at, first_seen_at, meta_json)
+SELECT
+  'bulk-' || n,
+  {feed_pk},
+  'https://example.com/bulk/' || n,
+  'Bulk ' || n,
+  NULL,
+  1704067200 + n,
+  1704067200 + n,
+  1704067200 + n,
+  NULL
+FROM seq;
+INSERT INTO entry_tags (entry_pk, tag_id)
+SELECT id, {unread_tag_id} FROM entries WHERE entry_id LIKE 'bulk-%';
+COMMIT;
+"
+    ))
+    .expect("bulk insert");
+
+    let data = list_query_json(
+        &paths.config_path,
+        &paths.db_path,
+        "tag:unread -tag:news|later|junk|YouTube",
+    );
+    assert!(data["total_count"].as_i64().expect("total_count i64") > 32766);
+}
+
 /// Runs `list` in JSON mode and returns its `data` object.
 fn list_query_json(config_path: &str, db_path: &str, query: &str) -> serde_json::Value {
     let output = picofeedr_cmd_json()

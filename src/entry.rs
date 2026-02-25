@@ -111,6 +111,11 @@ struct Cursor {
 
 type EntryListPage = (Vec<EntrySummary>, Vec<FeedSummary>, Option<String>);
 
+struct WhereClause<'a> {
+    sql: &'a str,
+    params: &'a [Value],
+}
+
 enum FeedIdPredicate {
     NotRequested,
     Resolved(i64),
@@ -139,58 +144,61 @@ pub fn list_entries(
     let query_hash = compute_query_hash(query);
     let feed_id_predicate = resolve_feed_id_predicate(store, query)?;
     let resolved_tag_ids = resolve_tag_id_map(store, query)?;
-    let mut precomputed_total_count = None;
-    let (tag_clause, tag_params) = match &query.tag_expr {
-        Some(tag_expr) => match route_tag_eval_path(tag_expr) {
-            TagEvalPath::Simple => {
-                let mut params = Vec::new();
-                let clause = build_tag_expr_clause(tag_expr, &mut params, &resolved_tag_ids);
-                (Some(clause), params)
-            }
-            TagEvalPath::Complex => {
-                let matched_pks = resolve_complex_tag_entry_pks(
-                    &entry_repo,
-                    query,
-                    sort,
-                    &query_hash,
-                    &feed_id_predicate,
-                    &resolved_tag_ids,
-                    tag_expr,
-                )?;
-                if matched_pks.is_empty() {
-                    return Ok(EntryListResponse {
-                        total_count: 0,
-                        items: Vec::new(),
-                        feeds: Vec::new(),
-                        next_page_token: None,
-                        revision: system_meta.revision,
-                        last_write_at: system_meta.updated_at,
-                    });
-                }
-                entry_repo.replace_temp_matched_entry_pks(&matched_pks)?;
-                precomputed_total_count = Some(matched_pks.len() as i64);
-                (
-                    Some(q::EXISTS_TEMP_MATCHED_ENTRY_FOR_ENTRY.to_string()),
-                    Vec::new(),
-                )
-            }
-        },
-        None => (None, Vec::new()),
-    };
-    let total_count = if let Some(total_count) = precomputed_total_count {
-        total_count
-    } else {
-        let (count_where_sql, count_params) = build_where_clause(
+    if let Some(tag_expr) = &query.tag_expr
+        && matches!(route_tag_eval_path(tag_expr), TagEvalPath::Complex)
+    {
+        let matched_entry_pks = resolve_complex_tag_entry_pks(
+            &entry_repo,
             query,
             sort,
-            None,
             &query_hash,
             &feed_id_predicate,
-            tag_clause.as_deref(),
-            &tag_params,
+            &resolved_tag_ids,
+            tag_expr,
         )?;
-        entry_repo.count_entries(&count_where_sql, &count_params)?
+        let total_count = matched_entry_pks.len() as i64;
+        let (universe_where_sql, universe_params) =
+            build_non_tag_where_clause(query, sort, None, &query_hash, &feed_id_predicate)?;
+        let (items, feeds, next_page_token) = fetch_entries_complex(
+            &entry_repo,
+            &matched_entry_pks,
+            WhereClause {
+                sql: &universe_where_sql,
+                params: &universe_params,
+            },
+            sort,
+            limit,
+            cursor,
+            &query_hash,
+        )?;
+        return Ok(EntryListResponse {
+            total_count,
+            items,
+            feeds,
+            next_page_token,
+            revision: system_meta.revision,
+            last_write_at: system_meta.updated_at,
+        });
+    }
+
+    let (tag_clause, tag_params) = match &query.tag_expr {
+        Some(tag_expr) => {
+            let mut params = Vec::new();
+            let clause = build_tag_expr_clause(tag_expr, &mut params, &resolved_tag_ids);
+            (Some(clause), params)
+        }
+        None => (None, Vec::new()),
     };
+    let (count_where_sql, count_params) = build_where_clause(
+        query,
+        sort,
+        None,
+        &query_hash,
+        &feed_id_predicate,
+        tag_clause.as_deref(),
+        &tag_params,
+    )?;
+    let total_count = entry_repo.count_entries(&count_where_sql, &count_params)?;
     let (page_where_sql, page_params) = build_where_clause(
         query,
         sort,
@@ -249,7 +257,7 @@ fn resolve_complex_tag_entry_pks(
     }
     let universe = universe_pks.iter().copied().collect::<HashSet<_>>();
     let tag_ids = resolved_tag_ids.values().copied().collect::<Vec<_>>();
-    let tag_entry_pks = entry_repo.find_entry_pks_by_tag_ids(&tag_ids, &universe_pks)?;
+    let tag_entry_pks = entry_repo.find_entry_pks_by_tag_ids(&tag_ids)?;
     let matched = evaluate_tag_expr_set(tag_expr, &universe, resolved_tag_ids, &tag_entry_pks);
     let mut pks = matched.into_iter().collect::<Vec<_>>();
     pks.sort_unstable();
@@ -594,6 +602,99 @@ fn fetch_entries(
         None
     };
     Ok((entries, feeds, next_page_token))
+}
+
+fn fetch_entries_complex(
+    entry_repo: &EntryReadRepo<'_>,
+    matched_pks: &[i64],
+    universe_filter: WhereClause<'_>,
+    sort: SortOrder,
+    limit: usize,
+    cursor: Option<&str>,
+    query_hash: &str,
+) -> Result<EntryListPage, AppError> {
+    let matched_set = matched_pks.iter().copied().collect::<HashSet<_>>();
+    let mut sort_pairs = entry_repo.list_filtered_entry_sort_keys(
+        universe_filter.sql,
+        universe_filter.params,
+        sort_key_expr(sort),
+    )?;
+    sort_pairs.retain(|(entry_id, _)| matched_set.contains(entry_id));
+    sort_pairs.sort_unstable_by(|(id_a, key_a), (id_b, key_b)| match sort {
+        SortOrder::DateDesc | SortOrder::FirstSeenDesc => {
+            key_b.cmp(key_a).then_with(|| id_b.cmp(id_a))
+        }
+        SortOrder::DateAsc | SortOrder::FirstSeenAsc => {
+            key_a.cmp(key_b).then_with(|| id_a.cmp(id_b))
+        }
+    });
+
+    if let Some(raw_cursor) = cursor {
+        let decoded = decode_cursor(raw_cursor, sort, query_hash)?;
+        sort_pairs.retain(|(entry_id, sort_key)| match sort {
+            SortOrder::DateDesc | SortOrder::FirstSeenDesc => {
+                (*sort_key, *entry_id) < (decoded.k, decoded.id)
+            }
+            SortOrder::DateAsc | SortOrder::FirstSeenAsc => {
+                (*sort_key, *entry_id) > (decoded.k, decoded.id)
+            }
+        });
+    }
+
+    let has_next = sort_pairs.len() > limit;
+    let page_pairs = if has_next {
+        sort_pairs.into_iter().take(limit + 1).collect::<Vec<_>>()
+    } else {
+        sort_pairs
+    };
+    let mut page_pairs = page_pairs;
+    if has_next {
+        page_pairs.truncate(limit);
+    }
+
+    let page_ids = page_pairs
+        .iter()
+        .map(|(entry_id, _)| *entry_id)
+        .collect::<Vec<_>>();
+    let rows = entry_repo.load_entry_rows_by_entry_pks(&page_ids)?;
+    let mut rows_by_id = rows
+        .into_iter()
+        .map(|row| (row.entry_pk, row))
+        .collect::<HashMap<_, _>>();
+    let mut ordered_rows = Vec::with_capacity(page_ids.len());
+    for entry_id in &page_ids {
+        if let Some(row) = rows_by_id.remove(entry_id) {
+            ordered_rows.push(row);
+        }
+    }
+
+    let tags = entry_repo.load_tags(&page_ids)?;
+    for row in &mut ordered_rows {
+        row.summary.tags = tags.get(&row.entry_pk).cloned().unwrap_or_default();
+    }
+    let feeds = ordered_rows
+        .iter()
+        .fold(BTreeMap::<String, Option<String>>::new(), |mut map, row| {
+            map.entry(row.summary.feed_id.clone())
+                .or_insert_with(|| row.feed_title.clone());
+            map
+        })
+        .into_iter()
+        .map(|(feed_id, title)| FeedSummary { feed_id, title })
+        .collect::<Vec<_>>();
+    let items = ordered_rows
+        .into_iter()
+        .map(|row| row.summary)
+        .collect::<Vec<_>>();
+    let next_page_token = if has_next {
+        page_pairs
+            .last()
+            .map(|(id, key)| encode_cursor_with_query(*key, *id, sort, query_hash))
+            .transpose()?
+    } else {
+        None
+    };
+    Ok((items, feeds, next_page_token))
 }
 
 fn sort_key_expr(sort: SortOrder) -> &'static str {
