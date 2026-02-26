@@ -72,12 +72,16 @@ pub(crate) fn execute_command(cli: &Cli) -> Result<CommandOutput, AppError> {
                     sort,
                     limit,
                     cursor,
+                    id,
                 } => {
                     let query = EntryQuery::parse(query.as_deref(), &config.unread_tag)?;
                     let sort = sort.unwrap_or(SortOrder::FirstSeenDesc);
                     let limit = resolve_list_limit(*limit, config.query)?;
                     let list = entry::list_entries(&store, &query, sort, limit, cursor.as_deref())?;
-                    Ok(CommandOutput::List { list })
+                    Ok(CommandOutput::List {
+                        list,
+                        include_id: *id,
+                    })
                 }
                 Command::View { id } => {
                     let detail = entry::view_entry(&store, &config, id)?;

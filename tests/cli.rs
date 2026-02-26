@@ -638,9 +638,9 @@ fn unread_token_respects_config_unread_tag() {
     }
 }
 
-/// Ensures list command renders human-readable plain output.
+/// Ensures list plain output is tab-separated with stable columns.
 #[test]
-fn list_plain_is_human_readable() {
+fn list_plain_outputs_tsv_columns() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
 
@@ -666,10 +666,111 @@ fn list_plain_is_human_readable() {
         .assert()
         .success()
         .get_output()
-        .stdout
         .clone();
 
-    assert_plain_contract(&output, &["First Entry", "Second Entry"]);
+    let stdout = String::from_utf8(output.stdout).expect("plain list utf-8");
+    let stderr = String::from_utf8(output.stderr).expect("plain list stderr utf-8");
+    let lines = stdout.lines().collect::<Vec<_>>();
+    assert_eq!(lines.len(), 2, "expected 2 item rows");
+    for line in lines {
+        let columns = line.split('\t').collect::<Vec<_>>();
+        assert_eq!(columns.len(), 5, "expected 5 columns in plain list row");
+        assert!(
+            looks_like_human_datetime(columns[0]),
+            "expected ISO 8601 datetime"
+        );
+        assert!(!columns[1].is_empty(), "title column should not be empty");
+        assert_eq!(columns[2], "Example Feed");
+        assert!(columns[4].starts_with("https://example.com/"));
+    }
+    assert!(
+        stderr.contains("total_count: 2"),
+        "expected total_count on stderr"
+    );
+    assert!(
+        !stdout.contains("total_count:"),
+        "total_count should not be printed to stdout"
+    );
+}
+
+/// Ensures list plain output can append entry id with --id.
+#[test]
+fn list_plain_with_id_appends_entry_id_column() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let output = picofeedr_cmd_plain()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("list")
+        .arg("--sort")
+        .arg("first_seen_desc")
+        .arg("--limit")
+        .arg("2")
+        .arg("--id")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8(output).expect("plain list utf-8");
+    let lines = stdout.lines().collect::<Vec<_>>();
+    assert_eq!(lines.len(), 2, "expected 2 item rows");
+    for line in lines {
+        let columns = line.split('\t').collect::<Vec<_>>();
+        assert_eq!(columns.len(), 6, "expected 6 columns when --id is used");
+        assert!(
+            !columns[5].is_empty(),
+            "entry_id column should not be empty"
+        );
+    }
+}
+
+/// Ensures list plain output writes next_page_token to stderr when available.
+#[test]
+fn list_plain_writes_next_page_token_to_stderr() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let output = picofeedr_cmd_plain()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("list")
+        .arg("--sort")
+        .arg("first_seen_desc")
+        .arg("--limit")
+        .arg("1")
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let stderr = String::from_utf8(output.stderr).expect("plain list stderr utf-8");
+    assert!(
+        stderr.contains("next_page_token: "),
+        "expected next_page_token on stderr"
+    );
 }
 
 /// Ensures view command renders human-readable plain output.

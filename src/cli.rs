@@ -109,6 +109,9 @@ pub enum Command {
         /// Pagination cursor.
         #[arg(long)]
         cursor: Option<String>,
+        /// Append entry id as the last column in plain output.
+        #[arg(long, action = clap::ArgAction::SetTrue)]
+        id: bool,
     },
 
     /// View entry detail by id.

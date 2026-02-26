@@ -41,6 +41,7 @@ enum CommandOutput {
     },
     List {
         list: EntryListResponse,
+        include_id: bool,
     },
     View {
         detail: EntryDetail,

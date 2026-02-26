@@ -47,7 +47,7 @@ pub(crate) fn render_json(result: &CommandOutput) -> Result<(), RunFailure> {
             };
             print_success(summary, envelope_status)
         }
-        CommandOutput::List { list } => print_success(list, ResponseStatus::Ok),
+        CommandOutput::List { list, .. } => print_success(list, ResponseStatus::Ok),
         CommandOutput::View { detail } => print_success(detail, ResponseStatus::Ok),
         CommandOutput::Mark { updated } => print_success(
             MarkResult {
@@ -141,38 +141,44 @@ pub(crate) fn render_plain(result: &CommandOutput) -> io::Result<()> {
                 }
             }
         }
-        CommandOutput::List { list } => {
-            writeln!(writer, "total_count: {}", list.total_count)?;
-            if let Some(cursor) = &list.next_page_token {
-                writeln!(writer, "next_page_token: {cursor}")?;
-            }
+        CommandOutput::List { list, include_id } => {
             let feed_titles = list
                 .feeds
                 .iter()
                 .map(|feed| {
                     (
                         feed.feed_id.clone(),
-                        feed.title.as_deref().unwrap_or("(untitled)").to_string(),
+                        feed.title.as_deref().unwrap_or("").to_string(),
                     )
                 })
                 .collect::<HashMap<_, _>>();
             for entry in &list.items {
-                let title = entry.title.as_deref().unwrap_or("(untitled)");
+                let date = format_plain_epoch(entry.published_at.unwrap_or(entry.first_seen_at));
+                let title = entry.title.as_deref().unwrap_or("");
                 let feed_title = feed_titles
                     .get(&entry.feed_id)
                     .map(String::as_str)
-                    .unwrap_or("(unknown)");
+                    .unwrap_or("");
                 let tags = format_tags(&entry.tags);
-                if tags.is_empty() {
-                    writeln!(writer, "[{}] {title} ({feed_title})", entry.entry_id)?;
-                } else {
+                let link = entry.link.as_deref().unwrap_or("");
+                if *include_id {
                     writeln!(
                         writer,
-                        "[{}] {title} ({feed_title}) [{tags}]",
+                        "{date}\t{title}\t{feed_title}\t{tags}\t{link}\t{}",
                         entry.entry_id
                     )?;
+                } else {
+                    writeln!(writer, "{date}\t{title}\t{feed_title}\t{tags}\t{link}")?;
                 }
             }
+            writer.flush()?;
+            let stderr = io::stderr();
+            let mut err_writer = io::BufWriter::new(stderr.lock());
+            writeln!(err_writer, "total_count: {}", list.total_count)?;
+            if let Some(cursor) = &list.next_page_token {
+                writeln!(err_writer, "next_page_token: {cursor}")?;
+            }
+            err_writer.flush()?;
         }
         CommandOutput::View { detail } => {
             let title = detail.title.as_deref().unwrap_or("(untitled)");
@@ -215,9 +221,8 @@ fn format_plain_timestamp(value: Option<i64>) -> String {
 
 /// Formats one epoch timestamp using local offset (fallback: UTC).
 fn format_plain_epoch(epoch: i64) -> String {
-    let utc = OffsetDateTime::from_unix_timestamp(epoch).unwrap_or(OffsetDateTime::UNIX_EPOCH);
-    let offset = UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC);
-    let local = utc.to_offset(offset);
+    let local = epoch_to_local(epoch);
+    let offset = local.offset();
     let month = u8::from(local.month());
     let offset_hours = offset.whole_hours();
     let offset_minutes = offset.minutes_past_hour().abs();
@@ -233,6 +238,13 @@ fn format_plain_epoch(epoch: i64) -> String {
         offset_hours,
         offset_minutes
     )
+}
+
+/// Converts epoch seconds to local datetime (fallback: UTC).
+fn epoch_to_local(epoch: i64) -> OffsetDateTime {
+    let utc = OffsetDateTime::from_unix_timestamp(epoch).unwrap_or(OffsetDateTime::UNIX_EPOCH);
+    let offset = UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC);
+    utc.to_offset(offset)
 }
 
 /// Renders one sync progress event as a plain output line.
