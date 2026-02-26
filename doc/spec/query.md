@@ -101,3 +101,10 @@ picofeedr list --query 'tag:("rust news"|tech) -tag:misc'
 ### A7.7 日付検索拡張（Draft）
 
 - 相対日付を含む拡張仕様は `doc/spec/query-date.md` を参照する
+- Draft 方針:
+  - `after:` / `before:` は `YYYY-MM-DD` または `N[d|w|m|y]` を受理
+  - 絶対/相対の混在を許可
+  - 相対値は同一クエリ内で固定した `now` を基準に解決
+  - 絶対日付 (`YYYY-MM-DD`) もローカル日付 0:00 として解決
+  - 相対値の境界はローカル日付の 0:00 基準（そのため `0d` / `0w` / `0m` / `0y` は同義）
+  - 解決後 `after >= before` は `INVALID_QUERY`

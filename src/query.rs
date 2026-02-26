@@ -1,7 +1,8 @@
 //! Query parser for entry filters.
 
 use crate::error::AppError;
-use ::time::{Date, Month, PrimitiveDateTime, Time};
+use crate::time::current_epoch;
+use ::time::{Date, Month, OffsetDateTime, PrimitiveDateTime, Time, UtcOffset};
 use std::collections::HashSet;
 
 /// Parsed entry query filters.
@@ -124,6 +125,16 @@ impl TagExpr {
 impl EntryQuery {
     /// Parses a query string into entry filters.
     pub fn parse(raw: Option<&str>, unread_tag: &str) -> Result<Self, AppError> {
+        let local_offset = UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC);
+        Self::parse_with_now(raw, unread_tag, current_epoch(), local_offset)
+    }
+
+    fn parse_with_now(
+        raw: Option<&str>,
+        unread_tag: &str,
+        now_epoch_utc: i64,
+        local_offset: UtcOffset,
+    ) -> Result<Self, AppError> {
         let mut query = EntryQuery::default();
         let raw = match raw {
             Some(raw) => raw.trim(),
@@ -211,7 +222,11 @@ impl EntryQuery {
                         "after: cannot be specified multiple times",
                     ));
                 }
-                query.after = Some(parse_date_to_epoch(&parse_scalar_value(value)?)?);
+                query.after = Some(parse_date_or_relative_to_epoch(
+                    &parse_scalar_value(value)?,
+                    now_epoch_utc,
+                    local_offset,
+                )?);
                 index += 1;
                 continue;
             }
@@ -224,7 +239,11 @@ impl EntryQuery {
                         "before: cannot be specified multiple times",
                     ));
                 }
-                query.before = Some(parse_date_to_epoch(&parse_scalar_value(value)?)?);
+                query.before = Some(parse_date_or_relative_to_epoch(
+                    &parse_scalar_value(value)?,
+                    now_epoch_utc,
+                    local_offset,
+                )?);
                 index += 1;
                 continue;
             }
@@ -347,8 +366,8 @@ fn parse_feed_filter(value: &str) -> Result<FeedFilter, AppError> {
     Ok(FeedFilter::Id(parse_scalar_value(value)?))
 }
 
-/// Parses an ISO date (YYYY-MM-DD) to epoch seconds at UTC midnight.
-fn parse_date_to_epoch(value: &str) -> Result<i64, AppError> {
+/// Parses an ISO date (YYYY-MM-DD) to epoch seconds at local midnight.
+fn parse_date_to_epoch(value: &str, local_offset: UtcOffset) -> Result<i64, AppError> {
     let mut parts = value.split('-');
     let year = parts
         .next()
@@ -372,7 +391,127 @@ fn parse_date_to_epoch(value: &str) -> Result<i64, AppError> {
     let date = Date::from_calendar_date(year, month, day)
         .map_err(|_| AppError::invalid_query("Invalid date"))?;
     let datetime = PrimitiveDateTime::new(date, Time::MIDNIGHT);
-    Ok(datetime.assume_utc().unix_timestamp())
+    Ok(datetime.assume_offset(local_offset).unix_timestamp())
+}
+
+/// Parses either absolute date (`YYYY-MM-DD`) or relative duration (`N[d|w|m|y]`) to epoch seconds.
+fn parse_date_or_relative_to_epoch(
+    value: &str,
+    now_epoch_utc: i64,
+    local_offset: UtcOffset,
+) -> Result<i64, AppError> {
+    if let Ok(epoch) = parse_date_to_epoch(value, local_offset) {
+        return Ok(epoch);
+    }
+    parse_relative_date_to_epoch(value, now_epoch_utc, local_offset)
+}
+
+/// Parses relative date duration (`N[d|w|m|y]`) anchored at local-date midnight.
+fn parse_relative_date_to_epoch(
+    value: &str,
+    now_epoch_utc: i64,
+    local_offset: UtcOffset,
+) -> Result<i64, AppError> {
+    let (amount, unit) = parse_relative_duration(value)?;
+    let now_utc = OffsetDateTime::from_unix_timestamp(now_epoch_utc)
+        .map_err(|_| AppError::invalid_query("Invalid relative date"))?;
+    let base_date = now_utc.to_offset(local_offset).date();
+    let target_date = match unit {
+        'd' => base_date
+            .checked_sub(time::Duration::days(amount as i64))
+            .ok_or_else(|| AppError::invalid_query("Invalid relative date"))?,
+        'w' => base_date
+            .checked_sub(time::Duration::days((amount as i64) * 7))
+            .ok_or_else(|| AppError::invalid_query("Invalid relative date"))?,
+        'm' => subtract_months_clamped(base_date, amount)?,
+        'y' => subtract_years_clamped(base_date, amount)?,
+        _ => return Err(AppError::invalid_query("Invalid relative date")),
+    };
+    Ok(PrimitiveDateTime::new(target_date, Time::MIDNIGHT)
+        .assume_offset(local_offset)
+        .unix_timestamp())
+}
+
+/// Parses `N[d|w|m|y]` into (amount, unit).
+fn parse_relative_duration(value: &str) -> Result<(u32, char), AppError> {
+    if value.len() < 2 {
+        return Err(AppError::invalid_query("Invalid relative date"));
+    }
+    let (number, unit) = value.split_at(value.len() - 1);
+    if number.is_empty() || number.starts_with('-') || !number.chars().all(|ch| ch.is_ascii_digit())
+    {
+        return Err(AppError::invalid_query("Invalid relative date"));
+    }
+    let amount = number
+        .parse::<u32>()
+        .map_err(|_| AppError::invalid_query("Invalid relative date"))?;
+    let unit = unit
+        .chars()
+        .next()
+        .ok_or_else(|| AppError::invalid_query("Invalid relative date"))?;
+    if !matches!(unit, 'd' | 'w' | 'm' | 'y') {
+        return Err(AppError::invalid_query("Invalid relative date"));
+    }
+    Ok((amount, unit))
+}
+
+/// Subtracts months while clamping day at month-end.
+fn subtract_months_clamped(date: Date, months: u32) -> Result<Date, AppError> {
+    let months_i32 =
+        i32::try_from(months).map_err(|_| AppError::invalid_query("Invalid relative date"))?;
+    let month_index = i32::from(u8::from(date.month())) - 1;
+    let total = date
+        .year()
+        .checked_mul(12)
+        .and_then(|value| value.checked_add(month_index))
+        .and_then(|value| value.checked_sub(months_i32))
+        .ok_or_else(|| AppError::invalid_query("Invalid relative date"))?;
+    let year = total.div_euclid(12);
+    let month = Month::try_from((total.rem_euclid(12) + 1) as u8)
+        .map_err(|_| AppError::invalid_query("Invalid relative date"))?;
+    let day = date.day().min(days_in_month(year, month));
+    Date::from_calendar_date(year, month, day)
+        .map_err(|_| AppError::invalid_query("Invalid relative date"))
+}
+
+/// Subtracts years while clamping day at month-end.
+fn subtract_years_clamped(date: Date, years: u32) -> Result<Date, AppError> {
+    let years_i32 =
+        i32::try_from(years).map_err(|_| AppError::invalid_query("Invalid relative date"))?;
+    let year = date
+        .year()
+        .checked_sub(years_i32)
+        .ok_or_else(|| AppError::invalid_query("Invalid relative date"))?;
+    let month = date.month();
+    let day = date.day().min(days_in_month(year, month));
+    Date::from_calendar_date(year, month, day)
+        .map_err(|_| AppError::invalid_query("Invalid relative date"))
+}
+
+/// Returns the number of days in the given year/month.
+fn days_in_month(year: i32, month: Month) -> u8 {
+    match month {
+        Month::January
+        | Month::March
+        | Month::May
+        | Month::July
+        | Month::August
+        | Month::October
+        | Month::December => 31,
+        Month::April | Month::June | Month::September | Month::November => 30,
+        Month::February => {
+            if is_leap_year(year) {
+                29
+            } else {
+                28
+            }
+        }
+    }
+}
+
+/// Gregorian leap year.
+fn is_leap_year(year: i32) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
 }
 
 /// Parses a tag expression.
@@ -698,6 +837,28 @@ impl TagExprParser {
 #[cfg(test)]
 mod tests {
     use super::{EntryQuery, FeedFilter, TagExpr, normalize_tag_expr};
+    use time::{Date, Month, OffsetDateTime, PrimitiveDateTime, Time, UtcOffset};
+
+    fn fixed_now_utc() -> i64 {
+        OffsetDateTime::new_utc(
+            Date::from_calendar_date(2026, Month::February, 26).expect("date"),
+            Time::from_hms(3, 0, 0).expect("time"),
+        )
+        .unix_timestamp()
+    }
+
+    fn fixed_jst() -> UtcOffset {
+        UtcOffset::from_hms(9, 0, 0).expect("offset")
+    }
+
+    fn local_midnight_epoch(year: i32, month: Month, day: u8, offset: UtcOffset) -> i64 {
+        PrimitiveDateTime::new(
+            Date::from_calendar_date(year, month, day).expect("date"),
+            Time::MIDNIGHT,
+        )
+        .assume_offset(offset)
+        .unix_timestamp()
+    }
 
     #[test]
     fn parse_tag_filters() {
@@ -753,6 +914,115 @@ mod tests {
     }
 
     #[test]
+    fn parse_relative_date_bounds() {
+        let query = EntryQuery::parse_with_now(
+            Some("after:1m before:3d"),
+            "unread",
+            fixed_now_utc(),
+            fixed_jst(),
+        )
+        .expect("query");
+        assert_eq!(
+            query.after,
+            Some(local_midnight_epoch(2026, Month::January, 26, fixed_jst()))
+        );
+        assert_eq!(
+            query.before,
+            Some(local_midnight_epoch(2026, Month::February, 23, fixed_jst()))
+        );
+    }
+
+    #[test]
+    fn parse_relative_week_date_bounds() {
+        let query = EntryQuery::parse_with_now(
+            Some("after:1w before:3d"),
+            "unread",
+            fixed_now_utc(),
+            fixed_jst(),
+        )
+        .expect("query");
+        assert_eq!(
+            query.after,
+            Some(local_midnight_epoch(2026, Month::February, 19, fixed_jst()))
+        );
+        assert_eq!(
+            query.before,
+            Some(local_midnight_epoch(2026, Month::February, 23, fixed_jst()))
+        );
+    }
+
+    #[test]
+    fn parse_mixed_absolute_and_relative_date_bounds() {
+        let query = EntryQuery::parse_with_now(
+            Some("after:3m before:2026-01-01"),
+            "unread",
+            fixed_now_utc(),
+            fixed_jst(),
+        )
+        .expect("query");
+        assert_eq!(
+            query.after,
+            Some(local_midnight_epoch(2025, Month::November, 26, fixed_jst()))
+        );
+        assert_eq!(
+            query.before,
+            Some(local_midnight_epoch(2026, Month::January, 1, fixed_jst()))
+        );
+    }
+
+    #[test]
+    fn parse_absolute_date_bounds_use_local_midnight() {
+        let query = EntryQuery::parse_with_now(
+            Some("after:2026-01-01 before:2026-01-02"),
+            "unread",
+            fixed_now_utc(),
+            fixed_jst(),
+        )
+        .expect("query");
+        assert_eq!(
+            query.after,
+            Some(local_midnight_epoch(2026, Month::January, 1, fixed_jst()))
+        );
+        assert_eq!(
+            query.before,
+            Some(local_midnight_epoch(2026, Month::January, 2, fixed_jst()))
+        );
+    }
+
+    #[test]
+    fn parse_zero_relative_date_units_as_same_anchor() {
+        let after =
+            EntryQuery::parse_with_now(Some("after:0d"), "unread", fixed_now_utc(), fixed_jst())
+                .expect("query");
+        let before =
+            EntryQuery::parse_with_now(Some("before:0w"), "unread", fixed_now_utc(), fixed_jst())
+                .expect("query");
+        let anchor = local_midnight_epoch(2026, Month::February, 26, fixed_jst());
+        assert_eq!(after.after, Some(anchor));
+        assert_eq!(before.before, Some(anchor));
+    }
+
+    #[test]
+    fn rejects_invalid_relative_date_unit() {
+        let error =
+            EntryQuery::parse_with_now(Some("after:3x"), "unread", fixed_now_utc(), fixed_jst())
+                .unwrap_err();
+        assert_eq!(error.code().as_str(), "INVALID_QUERY");
+    }
+
+    #[test]
+    fn rejects_overflow_relative_duration() {
+        let error = EntryQuery::parse_with_now(
+            Some("after:2147483648y"),
+            "unread",
+            fixed_now_utc(),
+            fixed_jst(),
+        )
+        .unwrap_err();
+        assert_eq!(error.code().as_str(), "INVALID_QUERY");
+    }
+
+    #[test]
     fn rejects_duplicate_after_tokens() {
         let error =
             EntryQuery::parse(Some("after:2026-01-01 after:2026-01-02"), "unread").unwrap_err();
@@ -788,6 +1058,34 @@ mod tests {
         let error =
             EntryQuery::parse(Some("after:2026-01-02 before:2026-01-02"), "unread").unwrap_err();
         assert_eq!(error.code().as_str(), "INVALID_QUERY");
+    }
+
+    #[test]
+    fn rejects_invalid_relative_date_range() {
+        let error = EntryQuery::parse_with_now(
+            Some("after:0d before:1y"),
+            "unread",
+            fixed_now_utc(),
+            fixed_jst(),
+        )
+        .unwrap_err();
+        assert_eq!(error.code().as_str(), "INVALID_QUERY");
+    }
+
+    #[test]
+    fn parse_relative_year_from_leap_day_clamps_to_feb_28() {
+        let leap_day_now = OffsetDateTime::new_utc(
+            Date::from_calendar_date(2024, Month::February, 29).expect("date"),
+            Time::from_hms(3, 0, 0).expect("time"),
+        )
+        .unix_timestamp();
+        let query =
+            EntryQuery::parse_with_now(Some("after:1y"), "unread", leap_day_now, fixed_jst())
+                .expect("query");
+        assert_eq!(
+            query.after,
+            Some(local_midnight_epoch(2023, Month::February, 28, fixed_jst()))
+        );
     }
 
     #[test]

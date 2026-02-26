@@ -1839,6 +1839,139 @@ fn list_filters_by_date_range() {
     assert_eq!(data["total_count"], 1);
 }
 
+/// Ensures relative date filters are accepted.
+#[test]
+fn list_filters_by_relative_date_range() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("list")
+        .arg("--query")
+        .arg("after:100y")
+        .arg("--sort")
+        .arg("date_desc")
+        .arg("--limit")
+        .arg("10")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let data = extract_ok_data(&output);
+    assert_eq!(data["total_count"], 2);
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("list")
+        .arg("--query")
+        .arg("before:100y")
+        .arg("--sort")
+        .arg("date_desc")
+        .arg("--limit")
+        .arg("10")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let data = extract_ok_data(&output);
+    assert_eq!(data["total_count"], 0);
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("list")
+        .arg("--query")
+        .arg("after:5200w")
+        .arg("--sort")
+        .arg("date_desc")
+        .arg("--limit")
+        .arg("10")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let data = extract_ok_data(&output);
+    assert_eq!(data["total_count"], 2);
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("list")
+        .arg("--query")
+        .arg("before:5200w")
+        .arg("--sort")
+        .arg("date_desc")
+        .arg("--limit")
+        .arg("10")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let data = extract_ok_data(&output);
+    assert_eq!(data["total_count"], 0);
+}
+
+/// Ensures invalid relative date filters are rejected.
+#[test]
+fn list_rejects_invalid_relative_date_filter() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("list")
+        .arg("--query")
+        .arg("after:3x")
+        .arg("--sort")
+        .arg("date_desc")
+        .arg("--limit")
+        .arg("10")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    let error = extract_error_payload(&output);
+    assert_eq!(error["code"], "INVALID_QUERY");
+}
+
 /// Ensures cursor mismatches are rejected.
 #[test]
 fn list_rejects_mismatched_cursor() {
