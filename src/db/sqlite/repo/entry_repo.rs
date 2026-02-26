@@ -69,22 +69,6 @@ impl<'a> EntryReadRepo<'a> {
         Ok(ids)
     }
 
-    /// Lists candidate entry primary keys using non-tag where filters.
-    pub fn list_filtered_entry_pks(
-        &self,
-        where_sql: &str,
-        params: &[Value],
-    ) -> Result<Vec<i64>, AppError> {
-        let sql = q::select_filtered_entry_pks(where_sql);
-        let mut stmt = self.conn.prepare(&sql)?;
-        let mut rows = stmt.query(params_from_iter(params.iter()))?;
-        let mut pks = Vec::new();
-        while let Some(row) = rows.next()? {
-            pks.push(row.get(0)?);
-        }
-        Ok(pks)
-    }
-
     /// Lists `(entry_pk, sort_key)` tuples using non-tag where filters.
     pub fn list_filtered_entry_sort_keys(
         &self,

@@ -111,11 +111,6 @@ struct Cursor {
 
 type EntryListPage = (Vec<EntrySummary>, Vec<FeedSummary>, Option<String>);
 
-struct WhereClause<'a> {
-    sql: &'a str,
-    params: &'a [Value],
-}
-
 enum FeedIdPredicate {
     NotRequested,
     Resolved(i64),
@@ -147,25 +142,28 @@ pub fn list_entries(
     if let Some(tag_expr) = &query.tag_expr
         && matches!(route_tag_eval_path(tag_expr), TagEvalPath::Complex)
     {
+        let (universe_where_sql, universe_params) =
+            build_non_tag_where_clause(query, sort, None, &query_hash, &feed_id_predicate)?;
+        let universe_sort_pairs = entry_repo.list_filtered_entry_sort_keys(
+            &universe_where_sql,
+            &universe_params,
+            sort_key_expr(sort),
+        )?;
+        let universe_entry_pks = universe_sort_pairs
+            .iter()
+            .map(|(entry_pk, _)| *entry_pk)
+            .collect::<Vec<_>>();
         let matched_entry_pks = resolve_complex_tag_entry_pks(
             &entry_repo,
-            query,
-            sort,
-            &query_hash,
-            &feed_id_predicate,
+            &universe_entry_pks,
             &resolved_tag_ids,
             tag_expr,
         )?;
         let total_count = matched_entry_pks.len() as i64;
-        let (universe_where_sql, universe_params) =
-            build_non_tag_where_clause(query, sort, None, &query_hash, &feed_id_predicate)?;
         let (items, feeds, next_page_token) = fetch_entries_complex(
             &entry_repo,
+            &universe_sort_pairs,
             &matched_entry_pks,
-            WhereClause {
-                sql: &universe_where_sql,
-                params: &universe_params,
-            },
             sort,
             limit,
             cursor,
@@ -240,18 +238,12 @@ fn route_tag_eval_path(expr: &TagExpr) -> TagEvalPath {
 
 fn resolve_complex_tag_entry_pks(
     entry_repo: &EntryReadRepo<'_>,
-    query: &EntryQuery,
-    sort: SortOrder,
-    query_hash: &str,
-    feed_id_predicate: &FeedIdPredicate,
+    universe_pks: &[i64],
     resolved_tag_ids: &HashMap<String, i64>,
     tag_expr: &TagExpr,
 ) -> Result<Vec<i64>, AppError> {
     // NOTE: This set evaluation is recomputed for every list request (including cursor pages).
     // Keeping it stateless preserves correctness, and caching can be considered in a follow-up.
-    let (universe_where_sql, universe_params) =
-        build_non_tag_where_clause(query, sort, None, query_hash, feed_id_predicate)?;
-    let universe_pks = entry_repo.list_filtered_entry_pks(&universe_where_sql, &universe_params)?;
     if universe_pks.is_empty() {
         return Ok(Vec::new());
     }
@@ -606,20 +598,19 @@ fn fetch_entries(
 
 fn fetch_entries_complex(
     entry_repo: &EntryReadRepo<'_>,
+    universe_sort_pairs: &[(i64, i64)],
     matched_pks: &[i64],
-    universe_filter: WhereClause<'_>,
     sort: SortOrder,
     limit: usize,
     cursor: Option<&str>,
     query_hash: &str,
 ) -> Result<EntryListPage, AppError> {
     let matched_set = matched_pks.iter().copied().collect::<HashSet<_>>();
-    let mut sort_pairs = entry_repo.list_filtered_entry_sort_keys(
-        universe_filter.sql,
-        universe_filter.params,
-        sort_key_expr(sort),
-    )?;
-    sort_pairs.retain(|(entry_id, _)| matched_set.contains(entry_id));
+    let mut sort_pairs = universe_sort_pairs
+        .iter()
+        .copied()
+        .filter(|(entry_id, _)| matched_set.contains(entry_id))
+        .collect::<Vec<_>>();
     sort_pairs.sort_unstable_by(|(id_a, key_a), (id_b, key_b)| match sort {
         SortOrder::DateDesc | SortOrder::FirstSeenDesc => {
             key_b.cmp(key_a).then_with(|| id_b.cmp(id_a))
@@ -642,15 +633,10 @@ fn fetch_entries_complex(
     }
 
     let has_next = sort_pairs.len() > limit;
-    let page_pairs = if has_next {
-        sort_pairs.into_iter().take(limit + 1).collect::<Vec<_>>()
-    } else {
-        sort_pairs
-    };
-    let mut page_pairs = page_pairs;
     if has_next {
-        page_pairs.truncate(limit);
+        sort_pairs.truncate(limit);
     }
+    let page_pairs = sort_pairs;
 
     let page_ids = page_pairs
         .iter()
