@@ -360,6 +360,46 @@ fn status_tracks_revision_and_sync_metadata() {
     assert_eq!(after_mark["last_sync_status"], "completed");
 }
 
+/// Ensures status plain output renders timestamps as human-readable local datetime strings.
+#[test]
+fn status_plain_renders_human_readable_local_timestamps() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let output = picofeedr_cmd_plain()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("status")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let output_str = String::from_utf8(output).expect("plain status utf-8");
+    let last_write_at = status_plain_field(&output_str, "last_write_at");
+    let last_sync_at = status_plain_field(&output_str, "last_sync_at");
+
+    assert!(
+        looks_like_human_datetime(last_write_at),
+        "expected human-readable datetime for last_write_at, got `{last_write_at}`"
+    );
+    assert!(
+        looks_like_human_datetime(last_sync_at),
+        "expected human-readable datetime for last_sync_at, got `{last_sync_at}`"
+    );
+}
+
 /// Case definition for fatal configuration envelope validation.
 struct FatalEnvelopeCase {
     /// Human-readable case name for diagnostics.
@@ -2791,6 +2831,38 @@ fn status_json(config_path: &str, db_path: &str) -> serde_json::Value {
         .stdout
         .clone();
     extract_ok_data(&output)
+}
+
+/// Extracts field value from plain status output.
+fn status_plain_field<'a>(output: &'a str, key: &str) -> &'a str {
+    let prefix = format!("{key}: ");
+    output
+        .lines()
+        .find_map(|line| line.strip_prefix(&prefix))
+        .expect("status plain field")
+}
+
+/// Returns true when a string looks like `YYYY-MM-DDTHH:MM:SS+09:00`.
+fn looks_like_human_datetime(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    if bytes.len() < 25 {
+        return false;
+    }
+    bytes[0..4].iter().all(u8::is_ascii_digit)
+        && bytes[4] == b'-'
+        && bytes[5..7].iter().all(u8::is_ascii_digit)
+        && bytes[7] == b'-'
+        && bytes[8..10].iter().all(u8::is_ascii_digit)
+        && bytes[10] == b'T'
+        && bytes[11..13].iter().all(u8::is_ascii_digit)
+        && bytes[13] == b':'
+        && bytes[14..16].iter().all(u8::is_ascii_digit)
+        && bytes[16] == b':'
+        && bytes[17..19].iter().all(u8::is_ascii_digit)
+        && (bytes[19] == b'+' || bytes[19] == b'-')
+        && bytes[20..22].iter().all(u8::is_ascii_digit)
+        && bytes[22] == b':'
+        && bytes[23..25].iter().all(u8::is_ascii_digit)
 }
 
 /// Resolves an entry id from a title query.

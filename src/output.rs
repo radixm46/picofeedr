@@ -8,6 +8,7 @@ use picofeedr::response::{
 use picofeedr::sync;
 use std::collections::HashMap;
 use std::io::{self, Write};
+use time::{OffsetDateTime, UtcOffset};
 
 /// Renders JSON output for a command result.
 pub(crate) fn render_json(result: &CommandOutput) -> Result<(), RunFailure> {
@@ -81,20 +82,14 @@ pub(crate) fn render_plain(result: &CommandOutput) -> io::Result<()> {
             writeln!(
                 writer,
                 "last_write_at: {}",
-                status
-                    .last_write_at
-                    .map(|value| value.to_string())
-                    .unwrap_or_else(|| "null".to_string())
+                format_plain_timestamp(status.last_write_at)
             )?;
             writeln!(writer, "db_schema_version: {}", status.db_schema_version)?;
             writeln!(writer, "api_version: {}", status.api_version)?;
             writeln!(
                 writer,
                 "last_sync_at: {}",
-                status
-                    .last_sync_at
-                    .map(|value| value.to_string())
-                    .unwrap_or_else(|| "null".to_string())
+                format_plain_timestamp(status.last_sync_at)
             )?;
             writeln!(
                 writer,
@@ -209,6 +204,35 @@ pub(crate) fn render_plain(result: &CommandOutput) -> io::Result<()> {
     }
     writer.flush()?;
     Ok(())
+}
+
+/// Formats epoch seconds for plain output as local datetime.
+fn format_plain_timestamp(value: Option<i64>) -> String {
+    value
+        .map(format_plain_epoch)
+        .unwrap_or_else(|| "null".to_string())
+}
+
+/// Formats one epoch timestamp using local offset (fallback: UTC).
+fn format_plain_epoch(epoch: i64) -> String {
+    let utc = OffsetDateTime::from_unix_timestamp(epoch).unwrap_or(OffsetDateTime::UNIX_EPOCH);
+    let offset = UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC);
+    let local = utc.to_offset(offset);
+    let month = u8::from(local.month());
+    let offset_hours = offset.whole_hours();
+    let offset_minutes = offset.minutes_past_hour().abs();
+
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}{:+03}:{:02}",
+        local.year(),
+        month,
+        local.day(),
+        local.hour(),
+        local.minute(),
+        local.second(),
+        offset_hours,
+        offset_minutes
+    )
 }
 
 /// Renders one sync progress event as a plain output line.
