@@ -357,6 +357,8 @@ pub struct EntryWriteRepo<'a> {
 }
 
 impl<'a> EntryWriteRepo<'a> {
+    const STAGE_CHUNK_SIZE: usize = 128;
+
     /// Creates a write repository bound to one SQLite transaction connection.
     pub fn new(conn: &'a Connection) -> Self {
         Self { conn }
@@ -385,6 +387,46 @@ impl<'a> EntryWriteRepo<'a> {
         tags::lookup_tag_ids_with_conn(self.conn, tags_in)
     }
 
+    /// Clears temp tables used by bulk mark operations.
+    pub fn clear_mark_temp_tables(&self) -> Result<(), AppError> {
+        self.conn.execute_batch(q::CREATE_MARK_TEMP_TABLES)?;
+        self.conn.execute_batch(q::CLEAR_MARK_TEMP_TABLES)?;
+        Ok(())
+    }
+
+    /// Stages entry primary keys for a bulk mark operation.
+    pub fn stage_mark_entry_pks(&self, entry_pks: &[i64]) -> Result<(), AppError> {
+        self.stage_mark_ids(entry_pks, q::insert_temp_mark_entry_pks)
+    }
+
+    /// Stages tag ids for bulk mark add operation.
+    pub fn stage_mark_add_tag_ids(&self, tag_ids: &[i64]) -> Result<(), AppError> {
+        self.stage_mark_ids(tag_ids, q::insert_temp_mark_add_tag_ids)
+    }
+
+    /// Stages tag ids for bulk mark remove operation.
+    pub fn stage_mark_remove_tag_ids(&self, tag_ids: &[i64]) -> Result<(), AppError> {
+        self.stage_mark_ids(tag_ids, q::insert_temp_mark_remove_tag_ids)
+    }
+
+    /// Counts distinct entries whose tag relations would change.
+    pub fn count_mark_changed_entries(&self) -> Result<usize, AppError> {
+        let changed: i64 = self
+            .conn
+            .query_row(q::COUNT_MARK_CHANGED_ENTRIES, [], |row| row.get(0))?;
+        Ok(changed as usize)
+    }
+
+    /// Applies staged mark add relations in bulk.
+    pub fn apply_mark_adds(&self) -> Result<usize, AppError> {
+        Ok(self.conn.execute(q::APPLY_MARK_ADDS, [])?)
+    }
+
+    /// Applies staged mark remove relations in bulk.
+    pub fn apply_mark_removes(&self) -> Result<usize, AppError> {
+        Ok(self.conn.execute(q::APPLY_MARK_REMOVES, [])?)
+    }
+
     /// Inserts one entry-tag relation if missing.
     pub fn insert_entry_tag(&self, entry_pk: i64, tag_id: i64) -> Result<usize, AppError> {
         let rows = self
@@ -400,12 +442,32 @@ impl<'a> EntryWriteRepo<'a> {
             .execute(q::DELETE_ENTRY_TAG, params![entry_pk, tag_id])?;
         Ok(rows)
     }
+
+    fn stage_mark_ids<F>(&self, ids: &[i64], sql_builder: F) -> Result<(), AppError>
+    where
+        F: Fn(&str) -> String,
+    {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        for chunk in ids.chunks(Self::STAGE_CHUNK_SIZE) {
+            let placeholders = std::iter::repeat_n("(?)", chunk.len())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let sql = sql_builder(&placeholders);
+            self.conn.execute(&sql, params_from_iter(chunk.iter()))?;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::EntryReadRepo;
-    use rusqlite::Connection;
+    use super::{EntryReadRepo, EntryWriteRepo};
+    use crate::db::FeedInput;
+    use crate::db::migrate;
+    use crate::db::sqlite::feeds::upsert_feed_with_conn;
+    use rusqlite::{Connection, params};
     use std::fs;
     use tempfile::TempDir;
 
@@ -421,6 +483,51 @@ mod tests {
             [],
         )
         .expect("create entry_contents table");
+    }
+
+    fn create_store_schema(conn: &Connection) {
+        migrate::migrate(conn).expect("migrate schema");
+    }
+
+    fn insert_feed(conn: &Connection) {
+        upsert_feed_with_conn(
+            conn,
+            &FeedInput {
+                feed_id: "feed-1".to_string(),
+                url: "https://example.com/feed".to_string(),
+                title: Some("Feed Title".to_string()),
+                author: None,
+                site_url: None,
+                meta_json: None,
+            },
+            1,
+        )
+        .expect("insert feed");
+    }
+
+    fn insert_entry(conn: &Connection, id: i64, entry_id: &str) {
+        conn.execute(
+            "INSERT INTO entries (id, entry_id, feed_pk, title, first_seen_at) VALUES (?1, ?2, 1, ?3, 1704067200)",
+            params![id, entry_id, format!("Title {id}")],
+        )
+        .expect("insert entry");
+    }
+
+    fn insert_tag(conn: &Connection, id: i64, name: &str) {
+        conn.execute(
+            "INSERT INTO tags (id, name) VALUES (?1, ?2)",
+            params![id, name],
+        )
+        .expect("insert tag");
+    }
+
+    fn count_entry_tag(conn: &Connection, entry_pk: i64, tag_id: i64) -> i64 {
+        conn.query_row(
+            "SELECT COUNT(1) FROM entry_tags WHERE entry_pk = ?1 AND tag_id = ?2",
+            params![entry_pk, tag_id],
+            |row| row.get(0),
+        )
+        .expect("count entry tag")
     }
 
     #[test]
@@ -511,5 +618,119 @@ mod tests {
 
         assert_eq!(error.code().as_str(), "IO_ERROR");
         assert!(error.to_string().contains("Failed to read entry content"));
+    }
+
+    #[test]
+    fn staged_mark_adds_insert_only_missing_relations() {
+        let conn = Connection::open_in_memory().expect("open in-memory sqlite");
+        create_store_schema(&conn);
+        insert_feed(&conn);
+        insert_entry(&conn, 1, "entry-1");
+        insert_entry(&conn, 2, "entry-2");
+        insert_tag(&conn, 10, "foo");
+        conn.execute(
+            "INSERT INTO entry_tags (entry_pk, tag_id) VALUES (1, 10)",
+            [],
+        )
+        .expect("seed entry_tag");
+
+        let repo = EntryWriteRepo::new(&conn);
+        repo.clear_mark_temp_tables().expect("clear temp tables");
+        repo.stage_mark_entry_pks(&[1, 2]).expect("stage entry pks");
+        repo.stage_mark_add_tag_ids(&[10])
+            .expect("stage add tag ids");
+
+        let changed = repo
+            .count_mark_changed_entries()
+            .expect("count changed entries");
+        assert_eq!(changed, 1);
+
+        let inserted = repo.apply_mark_adds().expect("apply mark adds");
+        assert_eq!(inserted, 1);
+        assert_eq!(count_entry_tag(&conn, 1, 10), 1);
+        assert_eq!(count_entry_tag(&conn, 2, 10), 1);
+    }
+
+    #[test]
+    fn staged_mark_removes_delete_only_existing_relations() {
+        let conn = Connection::open_in_memory().expect("open in-memory sqlite");
+        create_store_schema(&conn);
+        insert_feed(&conn);
+        insert_entry(&conn, 1, "entry-1");
+        insert_entry(&conn, 2, "entry-2");
+        insert_tag(&conn, 10, "foo");
+        conn.execute(
+            "INSERT INTO entry_tags (entry_pk, tag_id) VALUES (1, 10), (2, 10)",
+            [],
+        )
+        .expect("seed entry tags");
+
+        let repo = EntryWriteRepo::new(&conn);
+        repo.clear_mark_temp_tables().expect("clear temp tables");
+        repo.stage_mark_entry_pks(&[1, 3]).expect("stage entry pks");
+        repo.stage_mark_remove_tag_ids(&[10])
+            .expect("stage remove tag ids");
+
+        let changed = repo
+            .count_mark_changed_entries()
+            .expect("count changed entries");
+        assert_eq!(changed, 1);
+
+        let deleted = repo.apply_mark_removes().expect("apply mark removes");
+        assert_eq!(deleted, 1);
+        assert_eq!(count_entry_tag(&conn, 1, 10), 0);
+        assert_eq!(count_entry_tag(&conn, 2, 10), 1);
+    }
+
+    #[test]
+    fn count_mark_changed_entries_deduplicates_entries_across_adds_and_removes() {
+        let conn = Connection::open_in_memory().expect("open in-memory sqlite");
+        create_store_schema(&conn);
+        insert_feed(&conn);
+        insert_entry(&conn, 1, "entry-1");
+        insert_entry(&conn, 2, "entry-2");
+        insert_tag(&conn, 10, "foo");
+        insert_tag(&conn, 20, "bar");
+        conn.execute(
+            "INSERT INTO entry_tags (entry_pk, tag_id) VALUES (1, 20), (2, 20)",
+            [],
+        )
+        .expect("seed remove relations");
+
+        let repo = EntryWriteRepo::new(&conn);
+        repo.clear_mark_temp_tables().expect("clear temp tables");
+        repo.stage_mark_entry_pks(&[1, 2]).expect("stage entry pks");
+        repo.stage_mark_add_tag_ids(&[10]).expect("stage add ids");
+        repo.stage_mark_remove_tag_ids(&[20])
+            .expect("stage remove ids");
+
+        let changed = repo
+            .count_mark_changed_entries()
+            .expect("count changed entries");
+        assert_eq!(changed, 2);
+    }
+
+    #[test]
+    fn clear_mark_temp_tables_removes_previous_stage_rows() {
+        let conn = Connection::open_in_memory().expect("open in-memory sqlite");
+        create_store_schema(&conn);
+        insert_feed(&conn);
+        insert_entry(&conn, 1, "entry-1");
+        insert_tag(&conn, 10, "foo");
+
+        let repo = EntryWriteRepo::new(&conn);
+        repo.clear_mark_temp_tables().expect("clear temp tables");
+        repo.stage_mark_entry_pks(&[1]).expect("stage entry pks");
+        repo.stage_mark_add_tag_ids(&[10]).expect("stage add ids");
+        let changed = repo
+            .count_mark_changed_entries()
+            .expect("count changed entries");
+        assert_eq!(changed, 1);
+
+        repo.clear_mark_temp_tables().expect("clear temp tables");
+        let changed_after_clear = repo
+            .count_mark_changed_entries()
+            .expect("count changed after clear");
+        assert_eq!(changed_after_clear, 0);
     }
 }

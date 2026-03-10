@@ -31,6 +31,64 @@ pub(crate) const INSERT_ENTRY_TAG_IGNORE: &str =
 pub(crate) const DELETE_ENTRY_TAG: &str =
     "DELETE FROM entry_tags WHERE entry_pk = ?1 AND tag_id = ?2";
 
+/// Creates temp tables used by bulk mark operations.
+pub(crate) const CREATE_MARK_TEMP_TABLES: &str = r#"
+CREATE TEMP TABLE IF NOT EXISTS temp_mark_entry_pks (
+    entry_pk INTEGER PRIMARY KEY
+);
+CREATE TEMP TABLE IF NOT EXISTS temp_mark_add_tag_ids (
+    tag_id INTEGER PRIMARY KEY
+);
+CREATE TEMP TABLE IF NOT EXISTS temp_mark_remove_tag_ids (
+    tag_id INTEGER PRIMARY KEY
+);
+"#;
+
+/// Clears staged rows from mark temp tables.
+pub(crate) const CLEAR_MARK_TEMP_TABLES: &str = r#"
+DELETE FROM temp_mark_entry_pks;
+DELETE FROM temp_mark_add_tag_ids;
+DELETE FROM temp_mark_remove_tag_ids;
+"#;
+
+/// Counts entries that would change during a bulk mark operation.
+pub(crate) const COUNT_MARK_CHANGED_ENTRIES: &str = r#"
+SELECT COUNT(DISTINCT entry_pk) FROM (
+    SELECT tep.entry_pk AS entry_pk
+    FROM temp_mark_entry_pks tep
+    CROSS JOIN temp_mark_add_tag_ids tat
+    LEFT JOIN entry_tags et
+      ON et.entry_pk = tep.entry_pk AND et.tag_id = tat.tag_id
+    WHERE et.entry_pk IS NULL
+    UNION
+    SELECT tep.entry_pk AS entry_pk
+    FROM temp_mark_entry_pks tep
+    CROSS JOIN temp_mark_remove_tag_ids trt
+    JOIN entry_tags et
+      ON et.entry_pk = tep.entry_pk AND et.tag_id = trt.tag_id
+)
+"#;
+
+/// Inserts missing entry-tag relations for staged mark add operation.
+pub(crate) const APPLY_MARK_ADDS: &str = r#"
+INSERT OR IGNORE INTO entry_tags (entry_pk, tag_id)
+SELECT tep.entry_pk, tat.tag_id
+FROM temp_mark_entry_pks tep
+CROSS JOIN temp_mark_add_tag_ids tat
+"#;
+
+/// Deletes staged entry-tag relations for mark remove operation.
+pub(crate) const APPLY_MARK_REMOVES: &str = r#"
+DELETE FROM entry_tags
+WHERE EXISTS (
+    SELECT 1
+    FROM temp_mark_entry_pks tep
+    JOIN temp_mark_remove_tag_ids trt
+      ON tep.entry_pk = entry_tags.entry_pk
+     AND trt.tag_id = entry_tags.tag_id
+)
+"#;
+
 /// Counts all tags.
 #[cfg(test)]
 pub(crate) const COUNT_TAGS: &str = "SELECT COUNT(1) FROM tags";
@@ -116,6 +174,21 @@ pub(crate) fn fetch_entries(where_sql: &str, key_expr: &str, order_clause: &str)
 /// Builds SQL that fetches internal entry ids by stable entry keys.
 pub(crate) fn select_entry_pks_by_ids(placeholders: &str) -> String {
     format!("SELECT id, entry_id FROM entries WHERE entry_id IN ({placeholders})")
+}
+
+/// Builds SQL that inserts staged mark entry primary keys.
+pub(crate) fn insert_temp_mark_entry_pks(placeholders: &str) -> String {
+    format!("INSERT INTO temp_mark_entry_pks (entry_pk) VALUES {placeholders}")
+}
+
+/// Builds SQL that inserts staged mark add tag ids.
+pub(crate) fn insert_temp_mark_add_tag_ids(placeholders: &str) -> String {
+    format!("INSERT INTO temp_mark_add_tag_ids (tag_id) VALUES {placeholders}")
+}
+
+/// Builds SQL that inserts staged mark remove tag ids.
+pub(crate) fn insert_temp_mark_remove_tag_ids(placeholders: &str) -> String {
+    format!("INSERT INTO temp_mark_remove_tag_ids (tag_id) VALUES {placeholders}")
 }
 
 /// Builds SQL that fetches effective sort keys under where filters.

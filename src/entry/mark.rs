@@ -1,6 +1,6 @@
 use crate::db::sqlite::SqliteStore;
 use crate::error::AppError;
-use std::collections::HashSet;
+use crate::tag::dedupe_strings_preserve_order;
 
 /// Updates entry tags and returns the number of affected entries.
 ///
@@ -16,13 +16,7 @@ pub fn mark_entries(
             "mark tag requires --add or --remove",
         ));
     }
-    let mut unique_ids = Vec::new();
-    let mut seen = HashSet::new();
-    for id in entry_ids {
-        if seen.insert(id.clone()) {
-            unique_ids.push(id.clone());
-        }
-    }
+    let unique_ids = dedupe_strings_preserve_order(entry_ids.iter().cloned());
     if unique_ids.is_empty() {
         return Ok(0);
     }
@@ -32,28 +26,21 @@ pub fn mark_entries(
     let entry_pks = tx_entry_repo.find_entry_pks_by_ids(&unique_ids)?;
     let add_ids = tx_entry_repo.ensure_tag_ids(add_tags)?;
     let remove_ids = tx_entry_repo.lookup_tag_ids(remove_tags)?;
-    let mut updated = 0usize;
-    for entry_id in unique_ids {
-        let Some(entry_pk) = entry_pks.get(&entry_id).copied() else {
-            continue;
-        };
-        let mut changed = false;
-        for tag_id in add_ids.values() {
-            let rows = tx_entry_repo.insert_entry_tag(entry_pk, *tag_id)?;
-            if rows > 0 {
-                changed = true;
-            }
-        }
-        for tag_id in remove_ids.values() {
-            let rows = tx_entry_repo.delete_entry_tag(entry_pk, *tag_id)?;
-            if rows > 0 {
-                changed = true;
-            }
-        }
-        if changed {
-            updated += 1;
-        }
+    if add_ids.is_empty() && remove_ids.is_empty() {
+        return Ok(0);
     }
+    let staged_entry_pks = unique_ids
+        .iter()
+        .filter_map(|entry_id| entry_pks.get(entry_id).copied())
+        .collect::<Vec<_>>();
+    tx_entry_repo.clear_mark_temp_tables()?;
+    tx_entry_repo.stage_mark_entry_pks(&staged_entry_pks)?;
+    tx_entry_repo.stage_mark_add_tag_ids(&add_ids.values().copied().collect::<Vec<_>>())?;
+    tx_entry_repo.stage_mark_remove_tag_ids(&remove_ids.values().copied().collect::<Vec<_>>())?;
+    let updated = tx_entry_repo.count_mark_changed_entries()?;
+    tx_entry_repo.apply_mark_adds()?;
+    tx_entry_repo.apply_mark_removes()?;
+    tx_entry_repo.clear_mark_temp_tables()?;
     tx.commit()?;
     Ok(updated)
 }
