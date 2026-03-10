@@ -6,8 +6,9 @@
 use crate::db::sqlite::query::entries as q;
 use crate::db::{EntryContentInput, EntryInput, EntryInsertResult};
 use crate::error::AppError;
+use crate::tag::dedupe_strings_preserve_order;
 use rusqlite::{Connection, Statement, params, params_from_iter};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 const TAG_ID_LOOKUP_CHUNK_SIZE: usize = 64;
 
@@ -84,7 +85,7 @@ impl<'conn> IngestContext<'conn> {
         if tags.is_empty() {
             return Ok(());
         }
-        let unique = unique_tags(tags);
+        let unique = dedupe_strings_preserve_order(tags.iter().cloned());
         for tag in &unique {
             self.insert_tag_stmt.execute(params![tag])?;
         }
@@ -98,17 +99,6 @@ impl<'conn> IngestContext<'conn> {
         }
         Ok(())
     }
-}
-
-fn unique_tags(tags: &[String]) -> Vec<String> {
-    let mut unique = Vec::new();
-    let mut seen = HashSet::new();
-    for tag in tags {
-        if seen.insert(tag.clone()) {
-            unique.push(tag.clone());
-        }
-    }
-    unique
 }
 
 fn resolve_tag_ids(conn: &Connection, unique: &[String]) -> Result<HashMap<String, i64>, AppError> {

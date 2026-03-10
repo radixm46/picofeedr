@@ -1,6 +1,7 @@
 //! Feeds configuration parser for feeds.yaml.
 
 use crate::error::{AppError, error_details};
+use crate::tag::merge_unique_strings;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
@@ -81,14 +82,9 @@ impl FeedsConfig {
 
     /// Returns a unique list of all tags used by feeds.yaml.
     pub fn all_tags(&self) -> Vec<String> {
-        let mut seen = HashSet::new();
         let mut tags = Vec::new();
         for feed in &self.feeds {
-            for tag in &feed.tags {
-                if seen.insert(tag.clone()) {
-                    tags.push(tag.clone());
-                }
-            }
+            tags = merge_unique_strings(&tags, &feed.tags);
         }
         tags
     }
@@ -330,14 +326,7 @@ fn parse_tag_list(values: &Vec<Value>) -> Result<Vec<String>, AppError> {
 
 /// Merges two tag lists while preserving order and uniqueness.
 fn merge_tags(base: &[String], extra: &[String]) -> Vec<String> {
-    let mut seen = HashSet::new();
-    let mut merged = Vec::new();
-    for tag in base.iter().chain(extra.iter()) {
-        if seen.insert(tag.clone()) {
-            merged.push(tag.clone());
-        }
-    }
-    merged
+    merge_unique_strings(base, extra)
 }
 
 /// Merges inherited and local auto-tag rules while preserving order.

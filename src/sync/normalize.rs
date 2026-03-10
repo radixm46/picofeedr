@@ -3,8 +3,8 @@
 use crate::config::AppConfig;
 use crate::error::AppError;
 use crate::identity::EntryIdentity;
+use crate::tag::dedupe_strings_preserve_order;
 use crate::time::current_epoch;
-use std::collections::HashSet;
 
 use super::autotag::match_auto_tags;
 use super::content::{build_entry_content, select_content};
@@ -32,7 +32,7 @@ pub(crate) fn normalize_entry(
     let title_value = title.clone().unwrap_or_default();
     tags.extend(match_auto_tags(&title_value, &target.auto_tag_rules));
     tags.push(config.unread_tag.clone());
-    let tags = dedupe_tags(tags);
+    let tags = dedupe_strings_preserve_order(tags);
 
     Ok(SyncEntry {
         entry: PendingEntry {
@@ -49,16 +49,4 @@ pub(crate) fn normalize_entry(
         content_payload: content_plan.payload,
         tags,
     })
-}
-
-/// Deduplicates tags while preserving order.
-fn dedupe_tags(tags: Vec<String>) -> Vec<String> {
-    let mut seen = HashSet::new();
-    let mut out = Vec::new();
-    for tag in tags {
-        if seen.insert(tag.clone()) {
-            out.push(tag);
-        }
-    }
-    out
 }

@@ -90,15 +90,13 @@ fn main() -> ExitCode {
     let preloaded_config = match preload_runtime_config(&cli) {
         Ok(config) => config,
         Err(error) => {
-            let output = resolve_effective_output(&cli, None);
-            let log_level = resolve_effective_log_level(&cli, None);
+            let (output, log_level) = resolve_runtime_settings(&cli, None);
             init_logging(log_level);
             debug!(?output, ?cli.command, "resolved CLI output and command");
             return handle_app_failure(log_level, output, error);
         }
     };
-    let output = resolve_effective_output(&cli, preloaded_config.as_ref());
-    let log_level = resolve_effective_log_level(&cli, preloaded_config.as_ref());
+    let (output, log_level) = resolve_runtime_settings(&cli, preloaded_config.as_ref());
     init_logging(log_level);
     debug!(?output, ?cli.command, "resolved CLI output and command");
     if matches!(cli.command, Command::Feeds { config_check: true }) {
@@ -126,10 +124,20 @@ fn run(
     output: OutputFormat,
     config: Option<&config::AppConfig>,
 ) -> Result<(), RunFailure> {
-    let result = if matches!((&cli.command, output), (Command::Sync, OutputFormat::Plain)) {
-        command_exec::execute_sync_command_plain(config.expect("sync requires config"))?
-    } else {
-        command_exec::execute_command(cli, config.expect("config-backed commands require config"))?
+    let result = match &cli.command {
+        Command::Ping => CommandOutput::Ping,
+        Command::Version => CommandOutput::Version {
+            api_version: env!("CARGO_PKG_VERSION"),
+            db_schema_version: picofeedr::db::migrate::current_schema_version(),
+            build: "dev",
+        },
+        Command::Sync if matches!(output, OutputFormat::Plain) => {
+            command_exec::execute_sync_command_plain(config.expect("sync requires config"))?
+        }
+        _ => command_exec::execute_command(
+            cli,
+            config.expect("config-backed commands require config"),
+        )?,
     };
     match output {
         OutputFormat::Json => output::render_json(&result)?,
@@ -183,25 +191,27 @@ fn load_runtime_config(cli: &Cli) -> Result<config::AppConfig, AppError> {
 }
 
 /// Resolves effective output format (CLI > config > default).
-fn resolve_output(cli: &Cli, config: Option<&config::AppConfig>) -> OutputFormat {
-    if let Some(output) = cli.output {
-        return output;
-    }
-    if let Some(config) = config {
-        return config.cli.output;
-    }
-    OutputFormat::Plain
-}
-
-/// Resolves the effective output format using CLI or config when available.
-fn resolve_effective_output(cli: &Cli, config: Option<&config::AppConfig>) -> OutputFormat {
+fn resolve_output_format(cli: &Cli, config: Option<&config::AppConfig>) -> OutputFormat {
     if let Some(output) = cli.output {
         return output;
     }
     match cli.command {
         Command::Ping | Command::Version => OutputFormat::Plain,
-        _ => resolve_output(cli, config),
+        _ => config
+            .map(|config| config.cli.output)
+            .unwrap_or(OutputFormat::Plain),
     }
+}
+
+/// Resolves output format and log level for the current CLI invocation.
+fn resolve_runtime_settings(
+    cli: &Cli,
+    config: Option<&config::AppConfig>,
+) -> (OutputFormat, config::LogLevel) {
+    (
+        resolve_output_format(cli, config),
+        resolve_effective_log_level(cli, config),
+    )
 }
 
 /// Handles CLI parse errors and prints appropriate output.
