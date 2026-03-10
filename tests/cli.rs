@@ -1454,6 +1454,96 @@ retry_delay = 0
     assert!(!output_str.contains(&format!("Failed to fetch {feed_url}: {feed_url}:")));
 }
 
+/// Ensures oversized feeds fail with a non-retryable fetch error.
+#[test]
+fn sync_rejects_oversized_feed_body() {
+    let temp = TempDir::new().expect("tempdir");
+    let feeds_path = temp.path().join("feeds.yaml");
+    let config_path = temp.path().join("config.toml");
+    let db_path = temp.path().join("db.sqlite");
+    let feed_path = temp.path().join("feed.xml");
+    let feed_url = format!("file://{}", feed_path.display());
+
+    fs::write(
+        &feed_path,
+        r#"<?xml version="1.0"?>
+<rss version="2.0">
+  <channel>
+    <title>Big Feed</title>
+    <link>https://example.com</link>
+    <description>Big Feed</description>
+    <item>
+      <title>Entry</title>
+      <link>https://example.com/1</link>
+      <guid>entry-1</guid>
+      <description>1234567890</description>
+    </item>
+  </channel>
+</rss>
+"#,
+    )
+    .expect("write feed");
+
+    let feeds = format!(
+        r#"picofeedr:
+  tech:
+    tags: [tech]
+    feeds:
+      - url: {feed_url}
+        title: Big Feed
+"#
+    );
+    fs::write(&feeds_path, feeds).expect("write feeds");
+
+    let config = format!(
+        r#"unread_tag = "unread"
+
+[feeds]
+source = "{}"
+
+[storage]
+root_dir = "{}"
+
+[sync]
+timeout = 1
+retry_count = 0
+retry_delay = 0
+max_feed_bytes = 32
+"#,
+        feeds_path.display(),
+        temp.path().display()
+    );
+    fs::write(&config_path, config).expect("write config");
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(config_path.display().to_string())
+        .arg("--storage-root")
+        .arg(db_root(db_path.to_str().expect("db path")))
+        .arg("sync")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let data = extract_ok_data(&output);
+    assert_envelope_status(&output, "warning");
+    assert_eq!(data["status"], "failed");
+    assert_eq!(data["failed_feed_count"], 1);
+    let errors = data["errors"].as_array().expect("errors array");
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0]["feed_name"], "Big Feed");
+    assert_eq!(errors[0]["code"], "FETCH_FAILED");
+    assert_eq!(errors[0]["retryable"], false);
+    assert!(
+        errors[0]["message"]
+            .as_str()
+            .expect("message")
+            .contains("Feed body exceeds max_feed_bytes")
+    );
+}
+
 /// Ensures list returns paginated results with tag filters.
 #[test]
 fn list_returns_paginated_results() {

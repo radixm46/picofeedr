@@ -9,6 +9,7 @@ use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::io::ErrorKind;
 use std::path::Path;
 
 /// Tuple payload for the entry detail base row selected from SQLite.
@@ -321,8 +322,14 @@ impl<'a> EntryReadRepo<'a> {
                     Ok(path) => path,
                     Err(_) => return Ok((None, content_type)),
                 };
-                let content = fs::read_to_string(path).ok();
-                Ok((content, content_type))
+                match fs::read_to_string(path) {
+                    Ok(content) => Ok((Some(content), content_type)),
+                    Err(error) if error.kind() == ErrorKind::NotFound => Ok((None, content_type)),
+                    Err(error) => Err(AppError::io_with_source(
+                        "Failed to read entry content",
+                        error,
+                    )),
+                }
             }
             Storage::None => Ok((None, content_type)),
         }
@@ -399,6 +406,22 @@ impl<'a> EntryWriteRepo<'a> {
 mod tests {
     use super::EntryReadRepo;
     use rusqlite::Connection;
+    use std::fs;
+    use tempfile::TempDir;
+
+    fn create_entry_contents_table(conn: &Connection) {
+        conn.execute(
+            "CREATE TABLE entry_contents (
+                entry_pk INTEGER PRIMARY KEY,
+                storage TEXT NOT NULL,
+                ref TEXT,
+                content_type TEXT,
+                content TEXT
+            )",
+            [],
+        )
+        .expect("create entry_contents table");
+    }
 
     #[test]
     fn view_entry_row_returns_entry_pk_with_detail_fields() {
@@ -444,5 +467,49 @@ mod tests {
         assert_eq!(row.2, "feed-1");
         assert_eq!(row.3.as_deref(), Some("Feed Title"));
         assert_eq!(row.4.as_deref(), Some("Entry Title"));
+    }
+
+    #[test]
+    fn load_content_fs_not_found_returns_none_with_content_type() {
+        let conn = Connection::open_in_memory().expect("open in-memory sqlite");
+        create_entry_contents_table(&conn);
+        let reference = "a".repeat(64);
+        conn.execute(
+            "INSERT INTO entry_contents (entry_pk, storage, ref, content_type, content)
+             VALUES (1, 'fs', ?1, 'text/html', NULL)",
+            [&reference],
+        )
+        .expect("insert entry content");
+        let temp = TempDir::new().expect("tempdir");
+
+        let (content, content_type) = EntryReadRepo::new(&conn)
+            .load_content(temp.path(), 1)
+            .expect("load content");
+
+        assert_eq!(content, None);
+        assert_eq!(content_type.as_deref(), Some("text/html"));
+    }
+
+    #[test]
+    fn load_content_fs_read_error_returns_io_error() {
+        let conn = Connection::open_in_memory().expect("open in-memory sqlite");
+        create_entry_contents_table(&conn);
+        let reference = "a".repeat(64);
+        conn.execute(
+            "INSERT INTO entry_contents (entry_pk, storage, ref, content_type, content)
+             VALUES (1, 'fs', ?1, 'text/html', NULL)",
+            [&reference],
+        )
+        .expect("insert entry content");
+        let temp = TempDir::new().expect("tempdir");
+        let path = temp.path().join("aa").join(&reference);
+        fs::create_dir_all(&path).expect("create directory at content path");
+
+        let error = EntryReadRepo::new(&conn)
+            .load_content(temp.path(), 1)
+            .expect_err("directory read should fail");
+
+        assert_eq!(error.code().as_str(), "IO_ERROR");
+        assert!(error.to_string().contains("Failed to read entry content"));
     }
 }

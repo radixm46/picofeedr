@@ -50,6 +50,8 @@ pub struct SyncConfig {
     pub parallel: usize,
     /// HTTP timeout in seconds.
     pub timeout_secs: u64,
+    /// Maximum feed body size in bytes.
+    pub max_feed_bytes: usize,
     /// HTTP user agent.
     pub user_agent: String,
     /// Retry count for fetch failures.
@@ -136,6 +138,7 @@ struct FeedsSourceConfigRaw {
 struct SyncConfigRaw {
     parallel: Option<usize>,
     timeout: Option<u64>,
+    max_feed_bytes: Option<usize>,
     user_agent: Option<String>,
     retry_count: Option<u32>,
     retry_delay: Option<u64>,
@@ -252,13 +255,28 @@ impl SyncConfig {
         let raw = raw.unwrap_or(SyncConfigRaw {
             parallel: None,
             timeout: None,
+            max_feed_bytes: None,
             user_agent: None,
             retry_count: None,
             retry_delay: None,
         });
+        let max_feed_bytes = raw.max_feed_bytes.unwrap_or(2 * 1024 * 1024);
+        if max_feed_bytes == 0 {
+            return Err(AppError::config_with_details(
+                "sync.max_feed_bytes must be greater than 0",
+                error_details([
+                    ("path", Value::from("sync.max_feed_bytes")),
+                    (
+                        "hint",
+                        Value::from("set a positive integer number of bytes"),
+                    ),
+                ]),
+            ));
+        }
         Ok(Self {
             parallel: raw.parallel.unwrap_or(5).max(1),
             timeout_secs: raw.timeout.unwrap_or(30),
+            max_feed_bytes,
             user_agent: raw
                 .user_agent
                 .unwrap_or_else(|| format!("picofeedr/{}", env!("CARGO_PKG_VERSION"))),
@@ -400,7 +418,7 @@ fn parse_log_level(value: Option<&str>) -> Result<LogLevel, AppError> {
 
 #[cfg(test)]
 mod tests {
-    use super::SyncConfig;
+    use super::{SyncConfig, SyncConfigRaw};
 
     #[test]
     fn default_sync_user_agent_uses_package_version() {
@@ -409,5 +427,27 @@ mod tests {
             sync.user_agent,
             format!("picofeedr/{}", env!("CARGO_PKG_VERSION"))
         );
+    }
+
+    #[test]
+    fn default_sync_max_feed_bytes_is_two_mebibytes() {
+        let sync = SyncConfig::from_raw(None).expect("sync defaults");
+        assert_eq!(sync.max_feed_bytes, 2 * 1024 * 1024);
+    }
+
+    #[test]
+    fn sync_max_feed_bytes_zero_is_invalid() {
+        let error = SyncConfig::from_raw(Some(SyncConfigRaw {
+            parallel: None,
+            timeout: None,
+            user_agent: None,
+            retry_count: None,
+            retry_delay: None,
+            max_feed_bytes: Some(0),
+        }))
+        .expect_err("zero max_feed_bytes should fail");
+
+        assert_eq!(error.code().as_str(), "CONFIG_ERROR");
+        assert!(error.to_string().contains("sync.max_feed_bytes"));
     }
 }

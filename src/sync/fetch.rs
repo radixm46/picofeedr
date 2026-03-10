@@ -208,9 +208,60 @@ fn fetch_and_parse(target: &SyncTarget, config: &AppConfig, agent: &ureq::Agent)
 
 fn build_agent(sync: &SyncConfig) -> ureq::Agent {
     ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(sync.timeout_secs))
         .timeout_read(Duration::from_secs(sync.timeout_secs))
         .timeout_write(Duration::from_secs(sync.timeout_secs))
         .build()
+}
+
+fn read_limited_bytes<R: Read>(
+    reader: R,
+    max_feed_bytes: usize,
+    read_error_prefix: &str,
+    retryable: bool,
+) -> Result<Vec<u8>, FetchError> {
+    let mut bytes = Vec::new();
+    let limit = max_feed_bytes.saturating_add(1) as u64;
+    let mut limited = reader.take(limit);
+    limited
+        .read_to_end(&mut bytes)
+        .map_err(|error| FetchError {
+            message: format!("{read_error_prefix}: {error}"),
+            retryable,
+        })?;
+    if bytes.len() > max_feed_bytes {
+        return Err(FetchError {
+            message: "Feed body exceeds max_feed_bytes".to_string(),
+            retryable: false,
+        });
+    }
+    Ok(bytes)
+}
+
+fn read_feed_file(path: &str, sync: &SyncConfig) -> Result<Vec<u8>, FetchError> {
+    match fs::metadata(path) {
+        Ok(metadata) if metadata.len() > sync.max_feed_bytes as u64 => {
+            return Err(FetchError {
+                message: "Feed body exceeds max_feed_bytes".to_string(),
+                retryable: false,
+            });
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Err(FetchError {
+                message: format!("Failed to read feed file: {error}"),
+                retryable: false,
+            });
+        }
+        // Metadata size check is best-effort; let File::open surface the real read error.
+        Err(_) => {}
+    }
+
+    let file = fs::File::open(path).map_err(|error| FetchError {
+        message: format!("Failed to read feed file: {error}"),
+        retryable: false,
+    })?;
+    read_limited_bytes(file, sync.max_feed_bytes, "Failed to read feed file", false)
 }
 
 /// Fetches raw feed bytes with retry support.
@@ -220,22 +271,18 @@ fn fetch_feed_bytes(
     agent: &ureq::Agent,
 ) -> Result<Vec<u8>, FetchError> {
     if let Some(path) = url.strip_prefix("file://") {
-        return fs::read(path).map_err(|error| FetchError {
-            message: format!("Failed to read feed file: {error}"),
-            retryable: false,
-        });
+        return read_feed_file(path, sync);
     }
     for attempt in 0..=sync.retry_count {
         let response = agent.get(url).set("User-Agent", &sync.user_agent).call();
         match response {
             Ok(response) => {
-                let mut bytes = Vec::new();
-                let mut reader = response.into_reader();
-                reader.read_to_end(&mut bytes).map_err(|error| FetchError {
-                    message: format!("Failed to read feed body: {error}"),
-                    retryable: true,
-                })?;
-                return Ok(bytes);
+                return read_limited_bytes(
+                    response.into_reader(),
+                    sync.max_feed_bytes,
+                    "Failed to read feed body",
+                    true,
+                );
             }
             Err(error) => {
                 if let ureq::Error::Status(code, _) = &error
@@ -289,7 +336,25 @@ mod tests {
             user_agent: "picofeedr-test".to_string(),
             retry_count: 0,
             retry_delay_secs: 0,
+            max_feed_bytes: 2 * 1024 * 1024,
         }
+    }
+
+    fn spawn_http_body_server(body: &'static [u8]) -> (String, thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
+        let addr = listener.local_addr().expect("local addr");
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut buf = [0_u8; 1024];
+            let _ = stream.read(&mut buf);
+            let headers = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            stream.write_all(headers.as_bytes()).expect("write headers");
+            stream.write_all(body).expect("write body");
+        });
+        (format!("http://{addr}/feed.xml"), server)
     }
 
     #[test]
@@ -304,6 +369,50 @@ mod tests {
         let bytes = fetch_feed_bytes(&url, &sync, &agent).expect("fetch file");
 
         assert_eq!(bytes, b"<rss></rss>");
+    }
+
+    #[test]
+    fn fetch_feed_bytes_reads_http_body_within_limit() {
+        let body = b"<rss></rss>";
+        let (url, server) = spawn_http_body_server(body);
+        let sync = test_sync_config();
+        let agent = build_agent(&sync);
+
+        let bytes = fetch_feed_bytes(&url, &sync, &agent).expect("fetch http");
+        server.join().expect("server join");
+
+        assert_eq!(bytes, body);
+    }
+
+    #[test]
+    fn fetch_feed_bytes_rejects_oversized_http_body() {
+        let body = b"<rss>123456789</rss>";
+        let (url, server) = spawn_http_body_server(body);
+        let mut sync = test_sync_config();
+        sync.max_feed_bytes = 8;
+        let agent = build_agent(&sync);
+
+        let error = fetch_feed_bytes(&url, &sync, &agent).expect_err("expect oversize error");
+        server.join().expect("server join");
+
+        assert!(!error.retryable);
+        assert_eq!(error.message, "Feed body exceeds max_feed_bytes");
+    }
+
+    #[test]
+    fn fetch_feed_bytes_rejects_oversized_file_url() {
+        let temp = TempDir::new().expect("temp dir");
+        let feed_path = temp.path().join("feed.xml");
+        fs::write(&feed_path, "<rss>123456789</rss>").expect("write feed");
+        let url = format!("file://{}", feed_path.to_string_lossy());
+        let mut sync = test_sync_config();
+        sync.max_feed_bytes = 8;
+        let agent = build_agent(&sync);
+
+        let error = fetch_feed_bytes(&url, &sync, &agent).expect_err("expect oversize error");
+
+        assert!(!error.retryable);
+        assert_eq!(error.message, "Feed body exceeds max_feed_bytes");
     }
 
     #[test]
