@@ -94,37 +94,13 @@ fn main() -> ExitCode {
         match run_config_check(&cli, output) {
             Ok(exit_code) => return exit_code,
             Err(RunFailure::Io(error)) => return handle_output_error(&cli, error),
-            Err(RunFailure::App(error)) => {
-                maybe_print_diagnostics(&cli, &error);
-                match output {
-                    OutputFormat::Json => {
-                        match output::print_json_or_fallback(&Envelope::<()>::fatal(&error)) {
-                            Ok(()) => {}
-                            Err(write_error) => return handle_output_error(&cli, write_error),
-                        }
-                    }
-                    OutputFormat::Plain => eprintln!("{error}"),
-                }
-                return ExitCode::from(1);
-            }
+            Err(RunFailure::App(error)) => return handle_app_failure(&cli, output, error),
         }
     }
     if let Err(error) = run(&cli, output) {
         match error {
             RunFailure::Io(error) => return handle_output_error(&cli, error),
-            RunFailure::App(error) => {
-                maybe_print_diagnostics(&cli, &error);
-                match output {
-                    OutputFormat::Json => {
-                        match output::print_json_or_fallback(&Envelope::<()>::fatal(&error)) {
-                            Ok(()) => {}
-                            Err(write_error) => return handle_output_error(&cli, write_error),
-                        }
-                    }
-                    OutputFormat::Plain => eprintln!("{error}"),
-                }
-                return ExitCode::from(1);
-            }
+            RunFailure::App(error) => return handle_app_failure(&cli, output, error),
         }
     }
     ExitCode::SUCCESS
@@ -206,9 +182,7 @@ fn handle_cli_parse_error(args: &[OsString], error: clap::Error) -> ExitCode {
             match output {
                 OutputFormat::Json => {
                     let app_error = AppError::config(error.to_string());
-                    if let Err(write_error) =
-                        output::print_json_or_fallback(&Envelope::<()>::fatal(&app_error))
-                    {
+                    if let Err(write_error) = write_fatal_output(output, &app_error) {
                         if is_broken_pipe_error(&write_error) {
                             return ExitCode::SUCCESS;
                         }
@@ -219,6 +193,26 @@ fn handle_cli_parse_error(args: &[OsString], error: clap::Error) -> ExitCode {
             }
             ExitCode::from(1)
         }
+    }
+}
+
+/// Writes a fatal error payload for the selected output format.
+fn write_fatal_output(output: OutputFormat, error: &AppError) -> io::Result<()> {
+    match output {
+        OutputFormat::Json => output::print_json_or_fallback(&Envelope::<()>::fatal(error)),
+        OutputFormat::Plain => {
+            eprintln!("{error}");
+            Ok(())
+        }
+    }
+}
+
+/// Handles application failures and preserves existing diagnostics and exit behavior.
+fn handle_app_failure(cli: &Cli, output: OutputFormat, error: AppError) -> ExitCode {
+    maybe_print_diagnostics(cli, &error);
+    match write_fatal_output(output, &error) {
+        Ok(()) => ExitCode::from(1),
+        Err(write_error) => handle_output_error(cli, write_error),
     }
 }
 
