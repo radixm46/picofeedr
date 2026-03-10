@@ -17,7 +17,10 @@ use std::io::{self, Write};
 use tracing::{debug, trace};
 
 /// Executes the CLI command and returns the result.
-pub(crate) fn execute_command(cli: &Cli) -> Result<CommandOutput, AppError> {
+pub(crate) fn execute_command(
+    cli: &Cli,
+    config: &config::AppConfig,
+) -> Result<CommandOutput, AppError> {
     trace!("execute_command start");
     match &cli.command {
         Command::Ping => Ok(CommandOutput::Ping),
@@ -33,7 +36,6 @@ pub(crate) fn execute_command(cli: &Cli) -> Result<CommandOutput, AppError> {
         | Command::List { .. }
         | Command::View { .. }
         | Command::Mark { .. } => {
-            let config = load_config(cli)?;
             debug!(
                 db_path = ?config.database.path,
                 feeds_path = ?config.feeds.source,
@@ -66,7 +68,7 @@ pub(crate) fn execute_command(cli: &Cli) -> Result<CommandOutput, AppError> {
                     store.bump_revision(current_epoch())?;
                     Ok(CommandOutput::FeedsList { feeds })
                 }
-                Command::Sync => execute_sync_with_store(&config, &mut store),
+                Command::Sync => execute_sync_with_store(config, &mut store),
                 Command::List {
                     query,
                     sort,
@@ -84,11 +86,11 @@ pub(crate) fn execute_command(cli: &Cli) -> Result<CommandOutput, AppError> {
                     })
                 }
                 Command::View { id } => {
-                    let detail = entry::view_entry(&store, &config, id)?;
+                    let detail = entry::view_entry(&store, config, id)?;
                     Ok(CommandOutput::View { detail })
                 }
                 Command::Mark { command } => {
-                    let updated = execute_mark(&mut store, &config, command)?;
+                    let updated = execute_mark(&mut store, config, command)?;
                     store.bump_revision(current_epoch())?;
                     Ok(CommandOutput::Mark { updated })
                 }
@@ -99,8 +101,9 @@ pub(crate) fn execute_command(cli: &Cli) -> Result<CommandOutput, AppError> {
 }
 
 /// Executes sync command and streams plain progress lines to stdout.
-pub(crate) fn execute_sync_command_plain(cli: &Cli) -> Result<CommandOutput, RunFailure> {
-    let config = load_config(cli)?;
+pub(crate) fn execute_sync_command_plain(
+    config: &config::AppConfig,
+) -> Result<CommandOutput, RunFailure> {
     debug!(
         db_path = ?config.database.path,
         feeds_path = ?config.feeds.source,
@@ -127,7 +130,7 @@ pub(crate) fn execute_sync_command_plain(cli: &Cli) -> Result<CommandOutput, Run
     };
 
     let summary =
-        sync::run_sync_with_progress(&mut store, &config, &feeds_config, Some(&mut on_progress))?;
+        sync::run_sync_with_progress(&mut store, config, &feeds_config, Some(&mut on_progress))?;
     if let Some(error) = write_error {
         return Err(RunFailure::Io(error));
     }
@@ -136,15 +139,6 @@ pub(crate) fn execute_sync_command_plain(cli: &Cli) -> Result<CommandOutput, Run
     store.bump_revision(now)?;
     store.update_sync(now, summary.status.as_str())?;
     Ok(CommandOutput::Sync { summary })
-}
-
-/// Loads config and applies CLI overrides.
-pub(crate) fn load_config(cli: &Cli) -> Result<config::AppConfig, AppError> {
-    let mut config = config::AppConfig::load(cli.config.clone())?;
-    if let Some(root_dir) = cli.storage_root.clone() {
-        config.override_root_dir(root_dir)?;
-    }
-    Ok(config)
 }
 
 /// Executes sync command using the shared store path without progress rendering.

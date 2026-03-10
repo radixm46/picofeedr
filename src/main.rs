@@ -87,31 +87,49 @@ fn main() -> ExitCode {
         Ok(cli) => cli,
         Err(error) => return handle_cli_parse_error(&args, error),
     };
-    let output = resolve_effective_output(&cli);
-    init_logging(resolve_effective_log_level(&cli));
+    let preloaded_config = match preload_runtime_config(&cli) {
+        Ok(config) => config,
+        Err(error) => {
+            let output = resolve_effective_output(&cli, None);
+            let log_level = resolve_effective_log_level(&cli, None);
+            init_logging(log_level);
+            debug!(?output, ?cli.command, "resolved CLI output and command");
+            return handle_app_failure(log_level, output, error);
+        }
+    };
+    let output = resolve_effective_output(&cli, preloaded_config.as_ref());
+    let log_level = resolve_effective_log_level(&cli, preloaded_config.as_ref());
+    init_logging(log_level);
     debug!(?output, ?cli.command, "resolved CLI output and command");
     if matches!(cli.command, Command::Feeds { config_check: true }) {
-        match run_config_check(&cli, output) {
+        let config = preloaded_config
+            .as_ref()
+            .expect("config-backed commands should preload config");
+        match run_config_check(&cli, output, config) {
             Ok(exit_code) => return exit_code,
-            Err(RunFailure::Io(error)) => return handle_output_error(&cli, error),
-            Err(RunFailure::App(error)) => return handle_app_failure(&cli, output, error),
+            Err(RunFailure::Io(error)) => return handle_output_error(log_level, error),
+            Err(RunFailure::App(error)) => return handle_app_failure(log_level, output, error),
         }
     }
-    if let Err(error) = run(&cli, output) {
+    if let Err(error) = run(&cli, output, preloaded_config.as_ref()) {
         match error {
-            RunFailure::Io(error) => return handle_output_error(&cli, error),
-            RunFailure::App(error) => return handle_app_failure(&cli, output, error),
+            RunFailure::Io(error) => return handle_output_error(log_level, error),
+            RunFailure::App(error) => return handle_app_failure(log_level, output, error),
         }
     }
     ExitCode::SUCCESS
 }
 
 /// Executes the CLI command and prints a JSON response.
-fn run(cli: &Cli, output: OutputFormat) -> Result<(), RunFailure> {
+fn run(
+    cli: &Cli,
+    output: OutputFormat,
+    config: Option<&config::AppConfig>,
+) -> Result<(), RunFailure> {
     let result = if matches!((&cli.command, output), (Command::Sync, OutputFormat::Plain)) {
-        command_exec::execute_sync_command_plain(cli)?
+        command_exec::execute_sync_command_plain(config.expect("sync requires config"))?
     } else {
-        command_exec::execute_command(cli)?
+        command_exec::execute_command(cli, config.expect("config-backed commands require config"))?
     };
     match output {
         OutputFormat::Json => output::render_json(&result)?,
@@ -121,8 +139,11 @@ fn run(cli: &Cli, output: OutputFormat) -> Result<(), RunFailure> {
 }
 
 /// Runs static feeds config validation without touching the database.
-fn run_config_check(cli: &Cli, output: OutputFormat) -> Result<ExitCode, RunFailure> {
-    let config = command_exec::load_config(cli)?;
+fn run_config_check(
+    _cli: &Cli,
+    output: OutputFormat,
+    config: &config::AppConfig,
+) -> Result<ExitCode, RunFailure> {
     let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
     let report = feeds_config.validate();
     let is_valid = report.valid;
@@ -144,6 +165,23 @@ fn run_config_check(cli: &Cli, output: OutputFormat) -> Result<ExitCode, RunFail
     })
 }
 
+/// Loads config once for config-backed commands.
+fn preload_runtime_config(cli: &Cli) -> Result<Option<config::AppConfig>, AppError> {
+    if matches!(cli.command, Command::Ping | Command::Version) {
+        return Ok(None);
+    }
+    load_runtime_config(cli).map(Some)
+}
+
+/// Loads config and applies CLI overrides for the current command.
+fn load_runtime_config(cli: &Cli) -> Result<config::AppConfig, AppError> {
+    let mut config = config::AppConfig::load(cli.config.clone())?;
+    if let Some(root_dir) = cli.storage_root.clone() {
+        config.override_root_dir(root_dir)?;
+    }
+    Ok(config)
+}
+
 /// Resolves effective output format (CLI > config > default).
 fn resolve_output(cli: &Cli, config: Option<&config::AppConfig>) -> OutputFormat {
     if let Some(output) = cli.output {
@@ -156,16 +194,13 @@ fn resolve_output(cli: &Cli, config: Option<&config::AppConfig>) -> OutputFormat
 }
 
 /// Resolves the effective output format using CLI or config when available.
-fn resolve_effective_output(cli: &Cli) -> OutputFormat {
+fn resolve_effective_output(cli: &Cli, config: Option<&config::AppConfig>) -> OutputFormat {
     if let Some(output) = cli.output {
         return output;
     }
     match cli.command {
         Command::Ping | Command::Version => OutputFormat::Plain,
-        _ => match command_exec::load_config(cli) {
-            Ok(config) => resolve_output(cli, Some(&config)),
-            Err(_) => OutputFormat::Plain,
-        },
+        _ => resolve_output(cli, config),
     }
 }
 
@@ -208,24 +243,28 @@ fn write_fatal_output(output: OutputFormat, error: &AppError) -> io::Result<()> 
 }
 
 /// Handles application failures and preserves existing diagnostics and exit behavior.
-fn handle_app_failure(cli: &Cli, output: OutputFormat, error: AppError) -> ExitCode {
-    maybe_print_diagnostics(cli, &error);
+fn handle_app_failure(
+    log_level: config::LogLevel,
+    output: OutputFormat,
+    error: AppError,
+) -> ExitCode {
+    maybe_print_diagnostics(log_level, &error);
     match write_fatal_output(output, &error) {
         Ok(()) => ExitCode::from(1),
-        Err(write_error) => handle_output_error(cli, write_error),
+        Err(write_error) => handle_output_error(log_level, write_error),
     }
 }
 
 /// Handles stdout output errors and maps broken pipes to successful termination.
-fn handle_output_error(cli: &Cli, error: io::Error) -> ExitCode {
+fn handle_output_error(log_level: config::LogLevel, error: io::Error) -> ExitCode {
     if is_broken_pipe_error(&error) {
-        if should_emit_diagnostics(resolve_effective_log_level(cli)) {
+        if should_emit_diagnostics(log_level) {
             eprintln!("stdout closed by downstream consumer (broken pipe)");
         }
         return ExitCode::SUCCESS;
     }
     let app_error = AppError::io_with_source("failed to write CLI output", error);
-    maybe_print_diagnostics(cli, &app_error);
+    maybe_print_diagnostics(log_level, &app_error);
     eprintln!("{app_error}");
     ExitCode::from(1)
 }
@@ -262,8 +301,7 @@ fn detect_output_from_args(args: &[OsString]) -> OutputFormat {
 }
 
 /// Prints error diagnostics to stderr when debug/trace is enabled.
-fn maybe_print_diagnostics(cli: &Cli, error: &AppError) {
-    let level = resolve_effective_log_level(cli);
+fn maybe_print_diagnostics(level: config::LogLevel, error: &AppError) {
     if !should_emit_diagnostics(level) {
         return;
     }
@@ -278,17 +316,16 @@ fn maybe_print_diagnostics(cli: &Cli, error: &AppError) {
 }
 
 /// Resolves effective log level (CLI > config > default).
-fn resolve_effective_log_level(cli: &Cli) -> config::LogLevel {
+fn resolve_effective_log_level(cli: &Cli, config: Option<&config::AppConfig>) -> config::LogLevel {
     if cli.trace {
         return config::LogLevel::Trace;
     }
     if cli.debug {
         return config::LogLevel::Debug;
     }
-    match command_exec::load_config(cli) {
-        Ok(config) => config.log.level,
-        Err(_) => config::LogLevel::Info,
-    }
+    config
+        .map(|config| config.log.level)
+        .unwrap_or(config::LogLevel::Info)
 }
 
 /// Returns true if diagnostics should be emitted for the log level.
