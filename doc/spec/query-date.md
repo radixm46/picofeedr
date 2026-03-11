@@ -1,10 +1,9 @@
-# 日付検索拡張仕様（Draft）
+# 日付検索仕様（現行）
 
 ## 1. 目的
 
-本ドキュメントは、日付検索の拡張構文を導入する際の仕様方針を定義する。
-現行の `after:YYYY-MM-DD` / `before:YYYY-MM-DD` に対して、相対時間指定（例: 3ヶ月前）を安全に導入し、
-CLI / UI / 保存クエリで一貫した挙動を提供することを目的とする。
+本ドキュメントは、`list --query` における日付検索の現行仕様を定義する。
+絶対日付と相対durationの両方を受理し、同一クエリ内で一貫した評価結果を返す。
 
 ## 2. 現行仕様（前提）
 
@@ -20,9 +19,9 @@ CLI / UI / 保存クエリで一貫した挙動を提供することを目的と
 - 相対時刻は評価時点 (`now`) を固定して計算する
 - 無効レンジは静かに0件にせず `INVALID_QUERY` を返す
 
-## 4. 採用方針（案B'）
+## 4. 受理構文
 
-- `after:` / `before:` の値として、絶対日付と相対 duration を許可する
+- `after:` / `before:` の値として、絶対日付と相対 duration を受理する
 - 新キーワード（`newer_than` / `older_than`）は追加しない
 - date math 形式（`now-3m` など）は導入しない
 
@@ -49,14 +48,14 @@ CLI / UI / 保存クエリで一貫した挙動を提供することを目的と
   - `after:3m before:2026-01-01`
   - `after:2026-01-01 before:3m`
 
-## 5. 正規化仕様（必須）
+## 5. 正規化仕様
 
 最終評価は以下に正規化する。
 
-- `lower_bounds`（下限候補）と `upper_bounds`（上限候補）を収集
-- 実効下限: `effective_after = max(lower_bounds)`
-- 実効上限: `effective_before = min(upper_bounds)`
-- 妥当性: `effective_after < effective_before` を必須
+- `lower_bounds`（下限候補）と `upper_bounds`（上限候補）を収集する
+- 実効下限: `effective_after = max(lower_bounds)` とする
+- 実効上限: `effective_before = min(upper_bounds)` とする
+- 妥当性: `effective_after < effective_before` を必須とする
 
 ### 5.1 変換規則
 
@@ -77,9 +76,7 @@ CLI / UI / 保存クエリで一貫した挙動を提供することを目的と
 ## 6. `now` と再現性
 
 - `now` はクエリ評価開始時の1回だけ取得し、同一リクエスト内で固定する
-- ページング（cursor）継続時の再現性を担保するため、`query_hash` には次を含める
-  - 正規化後の `effective_after` / `effective_before`
-  - または `as_of_epoch`（評価時刻）
+- ページング継続時の再現性のため、カーソル検証に使う `query_hash` には正規化後の境界値が反映される
 
 ### 6.1 タイムゾーン方針（決定）
 
@@ -87,7 +84,7 @@ CLI / UI / 保存クエリで一貫した挙動を提供することを目的と
 - 絶対日付と相対時刻のどちらも `system default timezone` で日付境界を決定する
 - 相対時刻（`after:3m` / `before:14d` など）の計算は `system default timezone` で行う
 - 計算結果は内部で UTC epoch に正規化して評価する
-- 1クエリ中は `as_of_epoch_utc` と `timezone` を固定値として扱う
+- 1クエリ中は評価時刻とタイムゾーンを固定値として扱う
 
 ### 6.2 実装メモ
 
@@ -96,29 +93,12 @@ CLI / UI / 保存クエリで一貫した挙動を提供することを目的と
 
 ## 7. エラー仕様（追加）
 
-- 不正 duration: `INVALID_QUERY`（例: `after:3x`）
-- 負数 duration: `INVALID_QUERY`
-- 0 duration: 許可するか禁止するかを明示（初期は許可推奨）
-- 無効レンジ（`after >= before`）: `INVALID_QUERY`
+- 不正 duration: `INVALID_QUERY`（例: `after:3x`）とする
+- 負数 duration: `INVALID_QUERY` とする
+- 0 duration: 許可する
+- 無効レンジ（`after >= before`）: `INVALID_QUERY` とする
 
-## 8. 導入ステップ（提案）
+## 8. 補足
 
-### Phase 1
-
-- `after/before` の値として `YYYY-MM-DD` と `N[d|w|m|y]` を実装
-- 正規化基盤（max/min + 妥当性チェック）を実装
-- 混在指定（絶対 + 相対）を受理
-
-### Phase 2
-
-- 追加の duration 記法（必要なら）を検討
-- 既存正規化基盤を再利用
-
-## 9. コスト見積もり（実装目安）
-
-- Phase 1（`after/before` への duration 導入 + 正規化 + テスト）: 中
-- Phase 2（追加記法導入 + テスト追加）: 小〜中
-
-備考:
-
-- 相対値を `after/before` に統一すると、UI/CLI で同一記法を共有しやすい。
+- 相対値を `after/before` に統一することで、CLIと保存済みクエリで同じ記法を共有できる。
+- 詳細な全体クエリ文法は `doc/spec/query.md` を正本とする。

@@ -1,91 +1,125 @@
-# CLI API（出力）
+# CLI 出力仕様
 
-## A6. CLI API（出力）
+## Scope
 
-### A6.1 共通
+この文書は、`picofeedr` の CLI 出力契約を定義する。  
+対象は `--output json` の envelope と、各コマンドの payload shape、`--output plain` の最低契約。
 
-CLI の主要な出力は stdout に出すのだ。`--output` で形式を切り替えるのだ。
+## Output Modes
 
-```
---output json   # 機械可読（UI/自動化向け）
---output plain  # 対話向け
-```
+- `--output json`: 機械可読契約
+- `--output plain`: 人間向け表示
 
-#### A6.1.1 JSON モードの共通 envelope（v1）
+## JSON Envelope
 
-`--output json` のとき、stdout は常にこの共通形式で包むのだ。
+`--output json` のとき、stdout は常に次の envelope で返す。
 
 ```json
-// ok/warning
-{ "status": "ok|warning", "result": <payload>, "error": null, "meta": {"api_version": "<string>", "db_schema_version": <int>, "generated_at": <epoch>} }
+// success / warning
+{ "status": "ok|warning", "result": <payload>, "error": null, "meta": { "api_version": "<string>", "db_schema_version": <int>, "generated_at": <epoch> } }
 
 // fatal
-{ "status": "error", "result": null,      "error": { "code": "<CODE>", "message": "<string>", "retryable": <bool>, "details": <object|null> }, "meta": {"api_version": "<string>", "db_schema_version": <int>, "generated_at": <epoch>} }
+{ "status": "error", "result": null, "error": { "code": "<CODE>", "message": "<string>", "retryable": <bool>, "details": <object|null> }, "meta": { "api_version": "<string>", "db_schema_version": <int>, "generated_at": <epoch> } }
 ```
 
-`result` の中身（payload）はコマンドごとに定義するのだ。致命では `error` を埋め、exit code も !=0 にするのだ（詳細は `doc/spec/errors.md`）。
-`stdout` が `BrokenPipe` になった場合は、下流コマンドの早期終了とみなして非致命（exit code 0）で終了するのだ。
-`status` は結果判定の単一軸なのだ。`ok` は正常、`warning` は非致命の注意付き成功、`error` は致命失敗を示すのだ。
+### Envelope Rules
 
-```
-picofeedr version
-# → {"status": "ok", "result": {"api_version": "0.5.0", "db_schema_version": 1, "build": "dev"}, "error": null, "meta": {...}}
+- `status` は結果判定の単一軸
+- `status = "error"` のとき `result = null` かつ `error != null` を必須とする
+- `status in {"ok","warning"}` のとき `result != null` かつ `error = null` を必須とする
+- `meta` は常に返す
+- 致命失敗は exit code != 0
+- `BrokenPipe` は下流終了として扱い、exit code 0 で終了する
 
-picofeedr ping
-# → {"status": "ok", "result": {"status": "ok"}, "error": null, "meta": {...}}
-```
+## Command Payloads
 
-失敗例（`INVALID_QUERY`）:
+### `ping`
 
 ```json
-{ "status": "error", "result": null, "error": { "code": "INVALID_QUERY", "message": "--limit must be greater than 0", "retryable": false, "details": { "kind": "limit_out_of_range", "field": "limit", "value": 0, "hint": "limit_must_be_greater_than_zero" } }, "meta": { "api_version": "<string>", "db_schema_version": <int>, "generated_at": <epoch> } }
+{ "status": "ok", "result": { "status": "ok" }, "error": null, "meta": { ... } }
 ```
 
-失敗例（`ENTRY_NOT_FOUND`）:
+### `version`
 
 ```json
-{ "status": "error", "result": null, "error": { "code": "ENTRY_NOT_FOUND", "message": "Entry <entry_id> not found", "retryable": false, "details": { "resource": "entry", "entry_id": "<entry_id>" } }, "meta": { "api_version": "<string>", "db_schema_version": <int>, "generated_at": <epoch> } }
+{ "api_version": "<string>", "db_schema_version": <int>, "build": "<string>" }
 ```
 
-### A6.2 フィード管理
+### `feeds`
 
-```
-picofeedr feeds
-# → {"status": "ok", "result": {"feeds": [{feed_id, url, title, site_url, author, tags}]}, "error": null, "meta": {...}}
-
-picofeedr feeds --config-check
-# → {"status": "ok", "result": {"valid": true, "errors": [], "warnings": [], "checked_feeds": 12}, "error": null, "meta": {...}}
+```json
+{ "feeds": [{ "feed_id": "<string>", "url": "<string>", "title": "<string|null>", "site_url": "<string|null>", "author": "<string|null>", "tags": ["..."] }] }
 ```
 
-**ConfigCheckResult：**
+### `feeds --config-check`
 
 ```json
 { "valid": <bool>, "errors": [ValidationIssue...], "warnings": [ValidationIssue...], "checked_feeds": <int> }
 ```
 
-### A6.3 同期（取得）
+`result.valid = false` のときは `status = "warning"` かつ exit code 1。
 
-```
-picofeedr sync
-# → {"status": "ok", "result": {"status": "completed", "fetched_feed_count": 120, "failed_feed_count": 0, "new_entry_count": 42, "duration_ms": 245300, "errors": []}, "error": null, "meta": {...}}
-
-# 一部失敗時の例
-# → {"status": "warning", "result": {"status": "partial_failed", "fetched_feed_count": 120, "failed_feed_count": 3, "new_entry_count": 42, "duration_ms": 245300, "errors": [{"feed_url": "...", "code": "FETCH_FAILED", "message": "...", "retryable": true}]}, "error": null, "meta": {...}}
-```
-
-**SyncResult：**
+### `sync`
 
 ```json
 { "status": "completed|partial_failed|failed", "fetched_feed_count": <int>, "failed_feed_count": <int>, "new_entry_count": <int>, "duration_ms": <int>, "errors": [SyncError...] }
 ```
 
-**SyncError：**
+`SyncError` の shape:
 
 ```json
 { "feed_url": "<url>", "code": "FETCH_FAILED|PARSE_FAILED", "message": "<string>", "retryable": <bool> }
 ```
 
-`--output plain` では、`sync` 実行中に feed 単位の進捗を逐次出力するのだ。
+### `status`
+
+```json
+{ "revision": <int>, "last_write_at": <epoch|null>, "db_schema_version": <int>, "api_version": "<string>", "last_sync_at": <epoch|null>, "last_sync_status": "completed|partial_failed|failed|null" }
+```
+
+### `list`
+
+```json
+{ "total_count": <int>, "items": [EntrySummary...], "feeds": [FeedSummary...], "next_page_token": "<token|null>", "revision": <int>, "last_write_at": <epoch|null> }
+```
+
+`EntrySummary` の最低契約:
+
+```json
+{ "entry_id": "<string>", "feed_id": "<string>", "title": "<string|null>", "link": "<string|null>", "published_at": "<epoch|null>", "first_seen_at": "<epoch>", "tags": ["..."] }
+```
+
+`FeedSummary` の shape:
+
+```json
+{ "feed_id": "<string>", "title": "<string|null>" }
+```
+
+### `view`
+
+`result` は `EntryDetail`。  
+最低でも `entry_id`, `feed_title`, `title`, `link` を含む。
+
+### `mark`
+
+```json
+{ "updated_entry_count": <int> }
+```
+
+### `tags`
+
+```json
+{ "tags": ["<tag>", "..."] }
+```
+
+## Plain Output Minimum Contract
+
+`--output plain` は人間向け表示で、JSONほど厳密な全文字列契約は持たない。  
+ただし次は契約として扱う。
+
+### `sync`
+
+実行中に feed 単位の進捗を stdout に逐次出力する。
 
 ```text
 sync:start total_feeds=<N>
@@ -94,63 +128,20 @@ sync:feed ok index=<i>/<N> url=<feed_url> entries=<k>
 sync:feed error index=<i>/<N> url=<feed_url> code=<FETCH_FAILED|PARSE_FAILED> retryable=<true|false>
 ```
 
-進捗行の後に、従来どおり最終サマリ（`status` / 件数 / `errors`）を出力するのだ。
+進捗行の後に最終サマリを出す。
 
-### A6.4 DB状態メタデータ（軽量）
+### `list`
 
-```
-picofeedr status
-# → {"status": "ok", "result": {"revision": 1284, "last_write_at": 1705420900, "db_schema_version": 1, "api_version": "0.5.0", "last_sync_at": 1705420800, "last_sync_status": "completed"}, "error": null, "meta": {...}}
-```
+- 1エントリにつき1行を出力する
+- `--id` 指定時は末尾列として `entry_id` を追加する
+- `total_count` と `next_page_token` は stderr に出してよい
 
-**StatusResponse：**
+### `status`
 
-```json
-{ "revision": <int>, "last_write_at": <epoch|null>, "db_schema_version": <int>, "api_version": "<string>", "last_sync_at": <epoch|null>, "last_sync_status": "completed|partial_failed|failed|null" }
-```
+- `last_write_at` / `last_sync_at` は人間可読なローカル時刻で表示してよい
 
-### A6.5 一覧検索（軽量メタデータのみ）
+## References
 
-```
-picofeedr list --query <q> --sort <date_desc|date_asc|first_seen_desc|first_seen_asc> --limit <n> [--cursor <cursor>]
-# → {"status": "ok", "result": {"total_count": 342, "items": [EntrySummary...], "feeds": [FeedSummary...], "next_page_token": "eyJ...", "revision": 1284, "last_write_at": 1705420900}, "error": null, "meta": {...}}
-```
-
-**ListResponse：**
-
-```json
-{ "total_count": <int>, "items": [EntrySummary...], "feeds": [FeedSummary...], "next_page_token": "<token|null>", "revision": <int>, "last_write_at": <epoch|null> }
-```
-
-**EntrySummary：**
-
-```json
-{ "entry_id": "<string>", "feed_id": "<string>", "title": "<string|null>", "link": "<string|null>", "published_at": "<epoch|null>", "first_seen_at": "<epoch>", "tags": ["..."] }
-```
-
-**FeedSummary：**
-
-```json
-{ "feed_id": "<string>", "title": "<string|null>" }
-```
-
-### A6.6 詳細取得（遅延）
-
-```
-picofeedr view <entry_id>
-# → {"status": "ok", "result": EntryDetail, "error": null, "meta": {...}}
-```
-
-### A6.7 状態更新
-
-```
-picofeedr mark read <entry_id>...
-# → {"status": "ok", "result": {"updated_entry_count": 2}, "error": null, "meta": {...}}
-```
-
-### A6.8 タグ
-
-```
-picofeedr tags
-# → {"status": "ok", "result": {"tags": ["unread", "tech", "security", "rust", ...]}, "error": null, "meta": {...}}
-```
+- エラー契約は `doc/spec/errors.md` を参照する
+- JSON 命名規約は `doc/spec/api-naming.md` を参照する
+- ページング契約は `doc/spec/pagination.md` を参照する

@@ -1,8 +1,8 @@
 # DB 設計方針と運用想定
 
-このドキュメントは DB 設計（方針・運用想定）の正本なのだ。
+このドキュメントは DB 設計（方針・運用想定）の正本。
 
-スキーマ（テーブル/カラム/制約/参照/インデックス）の正本は `doc/db.dbml` なのだ。
+スキーマ（テーブル/カラム/制約/参照/インデックス）の正本は `doc/db.dbml`。
 
 > 重要：本DBは「購読（subscription）の真実」を保持しない。購読は外部設定（YAML/TOML等）が真実で、DBは **エントリ索引＋状態（タグ）＋帰属（provenance）** を保持する。
 
@@ -74,9 +74,9 @@
 * `feed_id` はアプリ定義の安定ID
 * 現行実装では `feed_id = "k_" + base64url_nopad(sha256(feed_url_bytes))`
   * 例: `k_nEYNGhY1VhMY6HOx32gKp764cXqV8XUpAdM2Js3GBQA`
-* 旧形式（URL文字列そのもの等）の `feed_id` は移行用の一時状態であり、最終DBには残さないのだ
+* 旧形式（URL文字列そのもの等）の `feed_id` は移行用の一時状態であり、最終DBには残さない
 * `url/title/site_url/meta_json` などは表示・説明のための最小情報
-* `meta_json` には `feeds.yaml` の設定値（tags / auto_tags ルール）を保存しないのだ
+* `meta_json` には `feeds.yaml` の設定値（tags / auto_tags ルール）を保存しない
 
 ### 4.3 `entries`
 
@@ -158,14 +158,14 @@
 
 ### 5.5 移行後DBの期待不変条件
 
-他システムから移行した後、`sync` 実行前に次を満たしていることを期待するのだ。
+他システムから移行した後、`sync` 実行前に次を満たしていることを期待する。
 
 * `feeds.feed_id` は全件 `k_` 形式である（旧形式IDを残さない）
 * 同一 `feeds.url` に対して `feeds` 行は高々1件
 * `entries.entry_id` は全件 `k_` 形式である
 * 同一実体を表す重複エントリ（同一 `feed_url + link` の多重行）を残さない
 
-上記を満たさない場合、既存実体が新規として再計上され、`first_seen_at` 基準の一覧で偏りが発生しうるのだ。
+上記を満たさない場合、既存実体が新規として再計上され、`first_seen_at` 基準の一覧で偏りが発生しうる。
 
 ---
 

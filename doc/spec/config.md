@@ -1,23 +1,32 @@
-# 設定ファイル（2層構造）
+# 設定仕様
 
-## A3. 設定ファイル（2層構造）
+## Scope
 
-### A3.1 config.toml（CLI動作設定）
+この文書は、`picofeedr` が読み込む設定ファイルの責務分担と、`config.toml` の契約を定義する。  
+`feeds.yaml` の詳細な読み込み仕様と検証仕様は `doc/spec/feeds.md` を正本とする。
 
-アプリケーションの**動作方法**を定義（変更頻度：低）
+## Files
 
-```
-# ~/.config/picofeedr/config.toml
+- `config.toml`: CLI動作設定
+- `feeds.yaml`: フィード定義と自動タグ規則
 
-unread_tag = "unread"       # 未読タグ名（新規取り込み時に付与）
+## `config.toml` Contract
+
+`config.toml` はアプリケーションの動作方法を定義する。  
+CLIフラグが同等の設定項目を持つ場合、CLIフラグを優先する。
+
+### Example
+
+```toml
+unread_tag = "unread"
 
 [storage]
 root_dir = "~/.local/share/picofeedr"
-content_store = "db"      # db | fs | none
+content_store = "db"
 
 [sync]
-parallel = 5              # 並列fetch数
-timeout = 30              # HTTP timeout（秒）
+parallel = 5
+timeout = 30
 user_agent = "picofeedr/0.1.0"
 retry_count = 3
 retry_delay = 5
@@ -30,105 +39,71 @@ max_limit = 1000
 source = "~/.config/picofeedr/feeds.yaml"
 
 [cli]
-output = "plain"          # json | plain（CLIフラグがあればそちらを優先）
+output = "plain"
 
 [log]
-level = "info"            # error | warn | info | debug | trace（主にstderr向け）
-
+level = "info"
 ```
 
-`content_store` は `entry_contents.storage` の値として扱うのだ。
+### Top-Level Keys
 
-`storage.root_dir` から `db.sqlite` と `data/` を導出するのだ。  
-つまり DB は `storage.root_dir/db.sqlite`、ファイル保存先は `storage.root_dir/data` になるのだ。
+- `unread_tag: string`
 
-`content_store = "fs"` の場合、`entry_contents.ref` は hash key（例：sha256 hex）で、実際の保存パスは `storage.root_dir/data` と導出ルールから決めるのだ（レコードにはパスを持たない）。
+### `[storage]`
 
-`unread_tag` は新規取り込み時に付与する未読タグ名なのだ（既読化はこのタグを外す）。
+- `root_dir: path`
+- `content_store: "db" | "fs" | "none"`
 
-`cli.output` は CLI の出力形式のデフォルト値なのだ。対話用途は `plain`、UI/自動化用途は `json` を推奨するのだ（詳細は `doc/spec/cli.md`）。
+`storage.root_dir` から `db.sqlite` と `data/` を導出する。  
+DBパスは `storage.root_dir/db.sqlite`、ファイル保存先は `storage.root_dir/data`。
 
-`log.level` はデバッグ/トレース出力の粒度の目安なのだ。ログは stdout を汚さないため、原則 stderr に寄せるのだ（詳細は `doc/spec/overview.md`）。
+`content_store = "fs"` のとき、`entry_contents.ref` は hash key を保持し、保存パスは `storage.root_dir/data` とアプリ側の導出規則で決まる。  
+レコードに実パスは保存しない。
 
-`query.default_limit` は `list --limit` 未指定時の既定件数なのだ。`query.max_limit` は安全上限で、`--limit` がこれを超える場合は `INVALID_QUERY` になるのだ。`default_limit` / `max_limit` はどちらも 1 以上で、`default_limit <= max_limit` を必須とするのだ。
+### `[sync]`
 
-### A3.2 feeds.yaml（フィード一覧・自動タグ）
+- `parallel: integer`
+- `timeout: integer`
+- `max_feed_bytes: integer`（省略時は実装既定値）
+- `user_agent: string`
+- `retry_count: integer`
+- `retry_delay: integer`
 
-**データの内容**を定義（変更頻度：高）
+### `[query]`
 
-```
-# ~/.config/picofeedr/feeds.yaml
+- `default_limit: integer`
+- `max_limit: integer`
 
-picofeedr:
-  auto_tags:
-    - title_regex: '(?i)CVE-\d{4}-\d+'
-      add_tags: [cve, security-alert]
-    - title_contains: [vulnerability, exploit, 0-day]
-      add_tags: [security-alert]
+`default_limit` / `max_limit` はどちらも 1 以上を必須とする。  
+`default_limit <= max_limit` を必須とする。  
+`list --limit` が `max_limit` を超える場合は `INVALID_QUERY`。
 
-  tech:
-    tags: [tech]
-    auto_tags:
-      - title_contains: [release]
-        add_tags: [release-note]
-    programming:
-      tags: [programming]
-      rust:
-        auto_tags:
-          - title_contains: [unsafe]
-            add_tags: [rust-unsafe]
-        tags: [rust]
-        feeds:
-          - url: https://blog.rust-lang.org/feed.xml
-            title: Rust Blog
-          - url: https://this-week-in-rust.org/rss.xml
-      go:
-        tags: [golang]
-        feeds:
-          - url: https://go.dev/blog/feed.atom
-    security:
-      tags: [security, important]
-      feeds:
-        - url: https://security.googleblog.com/feeds/posts/default
-        - url: https://krebsonsecurity.com/feed/
+### `[feeds]`
 
-  news:
-    tags: [news]
-    feeds:
-      - url: https://news.ycombinator.com/rss
-        title: Hacker News
-      - url: https://lobste.rs/rss
+- `source: path`
 
-```
+`feeds.source` は `feeds.yaml` のパス。
 
-**階層構造とタグ継承：**
+### `[cli]`
 
-* 親グループのタグは子グループに継承される
-* 例：`tech.programming.rust` のフィードは `[tech, programming, rust]` タグを持つ
-* トップレベルは `picofeedr` のみを解釈し、それ以外のキーは無視する
+- `output: "json" | "plain"`
 
-## A9. 自動タグ（feeds.yaml）
+`cli.output` は既定出力形式。  
+詳細な出力契約は `doc/spec/cli.md` を正本とする。
 
-### A9.1 ルール定義
+### `[log]`
 
-`auto_tags` は `picofeedr.auto_tags` だけでなく、任意のグループ配下にも定義できるのだ。
+- `level: "error" | "warn" | "info" | "debug" | "trace"`
 
-親グループの `auto_tags` は子グループ・配下 feed に継承されるのだ。
+ログや診断出力は原則 stderr に寄せる。
 
-ある feed に適用される `auto_tags` は「親から継承されたルール + 同一/子グループで追加されたルール」の合成結果なのだ。
+## `feeds.yaml` Contract Boundary
 
-`title_contains` が複数要素の場合は OR マッチ（いずれかを含めば一致）として扱うのだ。
-`title_contains` の一致判定は大文字小文字を区別しない（case-insensitive）挙動なのだ。
+- `feeds.yaml` は取得対象、タグ継承、自動タグ規則を定義する
+- `feeds.yaml` が購読定義の source of truth
+- `config.toml` は `feeds.yaml` の中身を上書きしない
 
-`priority` は任意項目なのだ。通常運用では指定しなくてもよく、未指定時は既定値（0）として扱うのだ。
+## Non-Goals
 
-### A9.2 適用タイミング
-
-- 新規エントリの取り込み時のみ（`sync` 実行時）
-- ルール変更を過去分に遡及しない
-
-### A9.3 タグ付与順序
-
-1. フィード階層から継承されたタグ
-2. `auto_tags` ルール（定義順。`priority` 指定時は優先度順）
-3. `unread_tag`（常に最後）
+- この文書は `feeds.yaml` の詳細な木構造や validation code を定義しない
+- この文書は CLI出力形式を定義しない

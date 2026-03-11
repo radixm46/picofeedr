@@ -5,8 +5,24 @@
 ```bash
 # 1. 設定ファイル作成
 mkdir -p ~/.config/picofeedr
-cp /usr/share/picofeedr/config.example.toml ~/.config/picofeedr/config.toml
-cp /usr/share/picofeedr/feeds.example.yaml ~/.config/picofeedr/feeds.yaml
+cat > ~/.config/picofeedr/config.toml <<'EOF'
+unread_tag = "unread"
+
+[feeds]
+source = "~/.config/picofeedr/feeds.yaml"
+
+[storage]
+root_dir = "~/.local/share/picofeedr"
+EOF
+
+cat > ~/.config/picofeedr/feeds.yaml <<'EOF'
+picofeedr:
+  tech:
+    tags: [tech]
+    feeds:
+      - url: https://example.com/feed.xml
+        title: Example Feed
+EOF
 
 # 2. feeds.yaml 編集
 vim ~/.config/picofeedr/feeds.yaml
@@ -33,7 +49,7 @@ picofeedr --output json view <entry_id>
 picofeedr --output json mark read <entry_id>
 
 # 注：本文（content）が無い/取得しない運用の場合は、
-# EntryDetail の `link` を外部ブラウザ等で開くのだ。
+# EntryDetail の `link` を外部ブラウザ等で開く。
 ```
 
 ## C3. フィード追加
@@ -45,7 +61,7 @@ vim ~/.config/picofeedr/feeds.yaml
 
 ```yaml
 # 新規追加:
-feeds:
+picofeedr:
   tech:
     programming:
       rust:

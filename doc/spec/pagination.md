@@ -19,7 +19,7 @@
 
 ### A8.3 date_desc（推奨：人間が見る日付）
 
-`published_at` / `updated_at` は欠損しうるので、一覧用の「実効日付」を定義するのだ。
+`published_at` / `updated_at` は欠損しうるので、一覧用の「実効日付」を定義する。
 
 - `date = COALESCE(published_at, updated_at, first_seen_at)`
 - 並び順：`ORDER BY date DESC, id DESC`

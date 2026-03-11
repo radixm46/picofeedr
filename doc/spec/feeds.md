@@ -1,42 +1,37 @@
 # Feed Source Spec (`feeds.yaml`)
 
-This document defines the current, implementation-aligned behavior of feed source loading.
-It intentionally captures current contracts before introducing behavior changes.
-
 ## Scope
 
-- Input file format for `feeds.yaml`
-- How feed entries are discovered and flattened
-- Which keys are interpreted and which are ignored
-- Validation semantics used by `feeds --config-check`
+This document defines the current contract for loading `feeds.yaml`.
+
+It covers:
+
+- accepted top-level structure
+- feed tree flattening
+- tag inheritance
+- auto-tag rule placement
+- validation semantics used by `feeds --config-check`
 
 ## Top-Level Contract
 
 - `picofeedr` is required.
 - `picofeedr` must be a YAML mapping.
-- Top-level keys other than `picofeedr` are ignored by the loader.
+- top-level keys other than `picofeedr` are ignored.
 
 If top-level `picofeedr` is missing, loading fails with a configuration error.
 
-## Feed Tree Model
+## Group Model
 
-The value under top-level `picofeedr` is a nested group tree.
+The value under `picofeedr` is a nested group tree.
 
-At the root group (`picofeedr`):
-
-- `tags`: optional list of strings inherited by descendants
-- `auto_tags`: optional list of auto-tag rules
-- `feeds`: optional list of feed entries
-- any other key: treated as a feed group name
-
-Each feed group is a YAML mapping. Within a group:
+Each group may define:
 
 - `tags`: optional list of strings inherited by descendants
 - `auto_tags`: optional list of auto-tag rules inherited by descendants
 - `feeds`: optional list of feed entries
 - any other key: treated as a nested child group
 
-This means arbitrary group names remain supported.
+Arbitrary group names are supported.
 
 ## Feed Entry Contract
 
@@ -48,27 +43,26 @@ Each item in a group `feeds` list must be a mapping with:
 
 The loader trims surrounding whitespace from `url`.
 
-## Flattening and Tag Inheritance
+## Flattening Contract
 
-- The tree is flattened into a linear feed list.
-- Group tags are inherited downward.
-- Feed-level tags are appended after inherited tags.
-- Tag order is preserved by first appearance.
-- Duplicate tags are de-duplicated while keeping first-seen order.
+- the group tree is flattened into a linear feed list
+- group tags are inherited downward
+- feed-level tags are appended after inherited tags
+- tag order is preserved by first appearance
+- duplicate tags are removed while keeping first-seen order
 
 ## Auto Tags
 
-- `auto_tags` can be defined at the root (`picofeedr.auto_tags`) and at any nested group (`picofeedr.<group>.auto_tags`).
-- Parent `auto_tags` are inherited by descendant groups and feeds.
-- Feed-level effective rules are the merged list of inherited + local rules.
-- `title_contains` matching is case-insensitive.
-- `auto_tags` participates in validation and sync-time rule compilation.
-- Auto-tag application itself occurs during sync for newly ingested entries.
-- `priority` in auto-tag rules is optional. Default operation does not require specifying it.
+- `auto_tags` may be defined at the root and at any nested group
+- parent `auto_tags` are inherited by descendant groups and feeds
+- effective feed rules are the merged list of inherited + local rules
+- `title_contains` matching is case-insensitive
+- `priority` is optional and defaults to `0`
+- auto-tag application occurs during sync for newly ingested entries only
 
-## Validation (`feeds --config-check`)
+## Validation Contract
 
-The static validator checks:
+The static validator checks at least the following:
 
 - empty feed URL -> error (`EMPTY_FEED_URL`)
 - duplicated feed URL -> error (`DUPLICATE_FEED_URL`)
@@ -79,10 +73,11 @@ Validation reports include logical YAML paths for issue locations.
 
 ## Sync-Relevant Behavior
 
-- Sync targets are built from the flattened `feeds` list only.
-- URLs removed from `feeds.yaml` are not fetched, while historical DB rows may remain.
+- sync targets are built from the flattened `feeds` list only
+- URLs removed from `feeds.yaml` are not fetched
+- historical DB rows may remain after a feed URL is removed from `feeds.yaml`
 
-## Non-Goals of This Document
+## Non-Goals
 
-- This document does not define a future behavior change yet.
-- In particular, it does not include a strict mode (`--strict`) for warning escalation.
+- this document does not define a strict mode such as `--strict`
+- this document does not define CLI output shapes beyond the validation payload
