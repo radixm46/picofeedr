@@ -3,7 +3,7 @@
 use crate::config::AppConfig;
 use crate::error::AppError;
 use crate::identity::EntryIdentity;
-use crate::tag::dedupe_strings_preserve_order;
+use crate::string_set::dedupe_strings_preserve_order;
 use crate::time::current_epoch;
 
 use super::autotag::match_auto_tags;

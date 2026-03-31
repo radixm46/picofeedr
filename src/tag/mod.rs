@@ -2,7 +2,10 @@
 
 use crate::db::sqlite::SqliteStore;
 use crate::error::AppError;
-use std::collections::HashSet;
+use crate::string_set::{
+    dedupe_strings_preserve_order, duplicated_strings_preserve_order, merge_unique_strings,
+    split_csv_trimmed_unique,
+};
 
 /// Tag manager for tag dictionary operations.
 pub struct TagManager<'a> {
@@ -21,56 +24,22 @@ impl<'a> TagManager<'a> {
     }
 }
 
-/// Deduplicates strings while preserving first-seen order.
-pub(crate) fn dedupe_strings_preserve_order(
-    values: impl IntoIterator<Item = String>,
-) -> Vec<String> {
-    let mut seen = HashSet::new();
-    let mut deduped = Vec::new();
-    for value in values {
-        if seen.insert(value.clone()) {
-            deduped.push(value);
-        }
-    }
-    deduped
+/// Parses a comma-separated tag list from CLI input.
+pub fn parse_tag_csv(raw: Option<&str>) -> Vec<String> {
+    split_csv_trimmed_unique(raw)
 }
 
-/// Merges two string lists while preserving order and uniqueness.
-pub(crate) fn merge_unique_strings(base: &[String], extra: &[String]) -> Vec<String> {
-    dedupe_strings_preserve_order(base.iter().chain(extra.iter()).cloned())
+/// Deduplicates tag names while preserving first-seen order.
+pub(crate) fn dedupe_tag_names(values: impl IntoIterator<Item = String>) -> Vec<String> {
+    dedupe_strings_preserve_order(values)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{dedupe_strings_preserve_order, merge_unique_strings};
+/// Merges tag lists while preserving order and uniqueness.
+pub(crate) fn merge_tag_names(base: &[String], extra: &[String]) -> Vec<String> {
+    merge_unique_strings(base, extra)
+}
 
-    #[test]
-    fn dedupe_strings_preserve_first_seen_order() {
-        let values = vec![
-            "tech".to_string(),
-            "rust".to_string(),
-            "tech".to_string(),
-            "cli".to_string(),
-            "rust".to_string(),
-        ];
-
-        let deduped = dedupe_strings_preserve_order(values);
-
-        assert_eq!(deduped, vec!["tech", "rust", "cli"]);
-    }
-
-    #[test]
-    fn merge_unique_strings_keeps_base_order_then_new_values() {
-        let base = vec!["tech".to_string(), "rust".to_string()];
-        let extra = vec![
-            "rust".to_string(),
-            "cli".to_string(),
-            "tech".to_string(),
-            "feed".to_string(),
-        ];
-
-        let merged = merge_unique_strings(&base, &extra);
-
-        assert_eq!(merged, vec!["tech", "rust", "cli", "feed"]);
-    }
+/// Returns duplicated tag names while preserving first duplicate order.
+pub(crate) fn duplicated_tag_names(values: &[String]) -> Vec<String> {
+    duplicated_strings_preserve_order(values)
 }

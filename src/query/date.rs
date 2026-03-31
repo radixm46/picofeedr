@@ -1,30 +1,14 @@
 use crate::error::AppError;
 use ::time::{Date, Month, OffsetDateTime, PrimitiveDateTime, Time, UtcOffset};
+use time::macros::format_description;
+
+const DATE_FORMAT: &[time::format_description::BorrowedFormatItem<'static>] =
+    format_description!("[year]-[month]-[day]");
 
 /// Parses an ISO date (YYYY-MM-DD) to epoch seconds at local midnight.
 fn parse_date_to_epoch(value: &str, local_offset: UtcOffset) -> Result<i64, AppError> {
-    let mut parts = value.split('-');
-    let year = parts
-        .next()
-        .ok_or_else(|| AppError::invalid_query("Invalid date"))?
-        .parse::<i32>()
-        .map_err(|_| AppError::invalid_query("Invalid date"))?;
-    let month = parts
-        .next()
-        .ok_or_else(|| AppError::invalid_query("Invalid date"))?
-        .parse::<u8>()
-        .map_err(|_| AppError::invalid_query("Invalid date"))?;
-    let day = parts
-        .next()
-        .ok_or_else(|| AppError::invalid_query("Invalid date"))?
-        .parse::<u8>()
-        .map_err(|_| AppError::invalid_query("Invalid date"))?;
-    if parts.next().is_some() {
-        return Err(AppError::invalid_query("Invalid date"));
-    }
-    let month = Month::try_from(month).map_err(|_| AppError::invalid_query("Invalid date"))?;
-    let date = Date::from_calendar_date(year, month, day)
-        .map_err(|_| AppError::invalid_query("Invalid date"))?;
+    let date =
+        Date::parse(value, DATE_FORMAT).map_err(|_| AppError::invalid_query("Invalid date"))?;
     let datetime = PrimitiveDateTime::new(date, Time::MIDNIGHT);
     Ok(datetime.assume_offset(local_offset).unix_timestamp())
 }

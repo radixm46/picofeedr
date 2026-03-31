@@ -17,9 +17,9 @@ pub(crate) fn validate_sha256(reference: &str) -> Result<(), AppError> {
             reference.len()
         )));
     }
-    if !reference
-        .bytes()
-        .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+    let mut bytes = [0u8; 32];
+    if hex::decode_to_slice(reference, &mut bytes).is_err()
+        || reference.bytes().any(|byte| byte.is_ascii_uppercase())
     {
         return Err(AppError::internal(
             "Invalid content reference characters".to_string(),
@@ -52,6 +52,13 @@ mod tests {
     fn validate_sha256_rejects_non_hex() {
         let mut reference = "a".repeat(64);
         reference.replace_range(0..1, "g");
+        assert!(validate_sha256(&reference).is_err());
+    }
+
+    #[test]
+    fn validate_sha256_rejects_uppercase_hex() {
+        let mut reference = "a".repeat(64);
+        reference.replace_range(0..1, "A");
         assert!(validate_sha256(&reference).is_err());
     }
 

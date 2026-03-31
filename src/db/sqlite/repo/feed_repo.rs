@@ -5,9 +5,10 @@ use crate::db::sqlite::{feeds, tags};
 use crate::db::{FeedInput, FeedRow};
 use crate::error::AppError;
 use crate::feed::feed_id_from_url;
+use crate::tag::dedupe_tag_names;
 use crate::time::current_epoch;
 use rusqlite::Connection;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 /// Read-only repository for feed query operations.
 pub struct FeedReadRepo<'a> {
@@ -67,12 +68,12 @@ impl<'a> FeedWriteRepo<'a> {
                 all_tags.extend(rule.add_tags.iter().cloned());
             }
         }
-        all_tags.push(unread_tag.to_string());
-        let mut seen = HashSet::new();
-        for tag in all_tags {
-            if seen.insert(tag.clone()) {
-                self.ensure_tag(&tag)?;
-            }
+        for tag in dedupe_tag_names(
+            all_tags
+                .into_iter()
+                .chain(std::iter::once(unread_tag.to_string())),
+        ) {
+            self.ensure_tag(&tag)?;
         }
         for feed in &config.feeds {
             let input = feed_input(feed);

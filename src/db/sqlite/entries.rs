@@ -6,7 +6,7 @@
 use crate::db::sqlite::query::entries as q;
 use crate::db::{EntryContentInput, EntryInput, EntryInsertResult};
 use crate::error::AppError;
-use crate::tag::dedupe_strings_preserve_order;
+use crate::string_set::dedupe_strings_preserve_order;
 use rusqlite::{Connection, Statement, params, params_from_iter};
 use std::collections::HashMap;
 

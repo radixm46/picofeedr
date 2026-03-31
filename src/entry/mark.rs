@@ -1,6 +1,6 @@
 use crate::db::sqlite::SqliteStore;
 use crate::error::AppError;
-use crate::tag::dedupe_strings_preserve_order;
+use crate::string_set::dedupe_strings_preserve_order;
 
 /// Updates entry tags and returns the number of affected entries.
 ///

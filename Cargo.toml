@@ -25,7 +25,7 @@ toml = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt"] }
 ureq = { version = "2", features = ["tls"] }
-time = { version = "0.3", features = ["local-offset"] }
+time = { version = "0.3", features = ["local-offset", "macros", "parsing"] }
 
 [dev-dependencies]
 assert_cmd = "2"

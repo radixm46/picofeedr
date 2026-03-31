@@ -1,14 +1,13 @@
 //! Feeds configuration parser for feeds.yaml.
 
 use crate::error::{AppError, error_details};
-use crate::tag::merge_unique_strings;
+use crate::tag::{duplicated_tag_names, merge_tag_names};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value as JsonValue;
 use serde_yaml_ng::Value;
 use std::collections::HashMap;
-use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 
@@ -84,7 +83,7 @@ impl FeedsConfig {
     pub fn all_tags(&self) -> Vec<String> {
         let mut tags = Vec::new();
         for feed in &self.feeds {
-            tags = merge_unique_strings(&tags, &feed.tags);
+            tags = merge_tag_names(&tags, &feed.tags);
         }
         tags
     }
@@ -108,7 +107,7 @@ impl FeedsConfig {
                 .or_default()
                 .push(feed.path.clone());
 
-            for duplicated_tag in duplicated_values(&feed.declared_tags) {
+            for duplicated_tag in duplicated_tag_names(&feed.declared_tags) {
                 warnings.push(ValidationIssue {
                     code: "DUPLICATE_FEED_TAG".to_string(),
                     message: format!("duplicated feed tag '{duplicated_tag}'"),
@@ -326,7 +325,7 @@ fn parse_tag_list(values: &Vec<Value>) -> Result<Vec<String>, AppError> {
 
 /// Merges two tag lists while preserving order and uniqueness.
 fn merge_tags(base: &[String], extra: &[String]) -> Vec<String> {
-    merge_unique_strings(base, extra)
+    merge_tag_names(base, extra)
 }
 
 /// Merges inherited and local auto-tag rules while preserving order.
@@ -345,17 +344,4 @@ fn append_scoped_rules(path_prefix: &str, rules: &[AutoTagRule], out: &mut Vec<S
             rule: rule.clone(),
         });
     }
-}
-
-/// Returns duplicated values while preserving first-seen order.
-fn duplicated_values(values: &[String]) -> Vec<String> {
-    let mut seen = HashSet::new();
-    let mut duplicates = HashSet::new();
-    let mut result = Vec::new();
-    for value in values {
-        if !seen.insert(value.clone()) && duplicates.insert(value.clone()) {
-            result.push(value.clone());
-        }
-    }
-    result
 }

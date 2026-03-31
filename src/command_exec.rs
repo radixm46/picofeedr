@@ -10,9 +10,8 @@ use picofeedr::feed;
 use picofeedr::query::EntryQuery;
 use picofeedr::status::StatusResponse;
 use picofeedr::sync;
-use picofeedr::{TagManager, current_epoch};
+use picofeedr::{TagManager, current_epoch, parse_tag_csv};
 use serde_json::Value;
-use std::collections::HashSet;
 use std::io::{self, Write};
 use tracing::{debug, trace};
 
@@ -208,19 +207,5 @@ fn execute_mark(
 }
 
 fn parse_tag_list(raw: Option<&str>) -> Vec<String> {
-    let Some(raw) = raw else {
-        return Vec::new();
-    };
-    let mut seen = HashSet::new();
-    let mut tags = Vec::new();
-    for part in raw.split(',') {
-        let tag = part.trim();
-        if tag.is_empty() {
-            continue;
-        }
-        if seen.insert(tag.to_string()) {
-            tags.push(tag.to_string());
-        }
-    }
-    tags
+    parse_tag_csv(raw)
 }

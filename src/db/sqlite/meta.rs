@@ -6,6 +6,7 @@
 use crate::db::sqlite::query::sync;
 use crate::error::AppError;
 use rusqlite::{Connection, params};
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 /// Database-wide status metadata used by `status` and list snapshots.
@@ -21,6 +22,34 @@ pub struct SystemMeta {
     pub sync_status: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct StoredSystemMeta {
+    #[serde(default)]
+    revision: i64,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    updated_at: Option<i64>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sync_at: Option<i64>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sync_status: Option<String>,
+    #[serde(flatten)]
+    extra: Map<String, Value>,
+}
+
+impl From<StoredSystemMeta> for SystemMeta {
+    fn from(value: StoredSystemMeta) -> Self {
+        Self {
+            revision: value.revision,
+            updated_at: value.updated_at,
+            sync_at: value.sync_at,
+            sync_status: value.sync_status,
+        }
+    }
+}
+
 /// Loads system metadata from `es_meta.meta_json`.
 pub(crate) fn read_meta_with_conn(conn: &Connection) -> Result<SystemMeta, AppError> {
     let meta_json = load_meta_json_text_with_conn(conn)?;
@@ -30,15 +59,10 @@ pub(crate) fn read_meta_with_conn(conn: &Connection) -> Result<SystemMeta, AppEr
 /// Increments `revision` and updates `updated_at`.
 pub(crate) fn bump_revision_with_conn(conn: &Connection, now: i64) -> Result<SystemMeta, AppError> {
     let meta_json = load_meta_json_text_with_conn(conn)?;
-    let mut object = parse_meta_object(meta_json)?;
-    let revision = object
-        .get("revision")
-        .and_then(Value::as_i64)
-        .unwrap_or(0)
-        .saturating_add(1);
-    object.insert("revision".to_string(), Value::from(revision));
-    object.insert("updated_at".to_string(), Value::from(now));
-    write_meta_json_object_with_conn(conn, object)
+    let mut meta = parse_meta_object(&meta_json)?;
+    meta.revision = meta.revision.saturating_add(1);
+    meta.updated_at = Some(now);
+    write_meta_json_object_with_conn(conn, &meta)
 }
 
 /// Updates `sync_at` and `sync_status`.
@@ -48,10 +72,10 @@ pub(crate) fn update_sync_with_conn(
     status: &str,
 ) -> Result<SystemMeta, AppError> {
     let meta_json = load_meta_json_text_with_conn(conn)?;
-    let mut object = parse_meta_object(meta_json)?;
-    object.insert("sync_at".to_string(), Value::from(now));
-    object.insert("sync_status".to_string(), Value::from(status));
-    write_meta_json_object_with_conn(conn, object)
+    let mut meta = parse_meta_object(&meta_json)?;
+    meta.sync_at = Some(now);
+    meta.sync_status = Some(status.to_string());
+    write_meta_json_object_with_conn(conn, &meta)
 }
 
 /// Reads raw `meta_json` text from `es_meta`.
@@ -60,44 +84,96 @@ fn load_meta_json_text_with_conn(conn: &Connection) -> Result<String, AppError> 
         .map_err(AppError::from)
 }
 
-/// Parses `meta_json` text into a JSON object.
-fn parse_meta_object(meta_json: String) -> Result<Map<String, Value>, AppError> {
-    match serde_json::from_str::<Value>(&meta_json)? {
-        Value::Object(object) => Ok(object),
-        _ => Ok(Map::new()),
+/// Parses `meta_json` text into persisted metadata.
+fn parse_meta_object(meta_json: &str) -> Result<StoredSystemMeta, AppError> {
+    let value = serde_json::from_str::<Value>(meta_json)?;
+    match value {
+        Value::Object(_) => serde_json::from_value(value).map_err(AppError::from),
+        _ => Ok(StoredSystemMeta::default()),
     }
 }
 
-/// Writes a JSON object back into `es_meta.meta_json`.
+/// Writes persisted metadata back into `es_meta.meta_json`.
 fn write_meta_json_object_with_conn(
     conn: &Connection,
-    object: Map<String, Value>,
+    meta: &StoredSystemMeta,
 ) -> Result<SystemMeta, AppError> {
-    let meta_json = serde_json::to_string(&Value::Object(object.clone()))?;
+    let meta_json = serde_json::to_string(meta)?;
     conn.execute(sync::UPDATE_META_JSON, params![meta_json])?;
-    parse_meta_object_to_status(object)
+    Ok(meta.clone().into())
 }
 
 /// Parses status fields from `meta_json` text.
 fn parse_meta(meta_json: &str) -> Result<SystemMeta, AppError> {
-    let object = parse_meta_object(meta_json.to_string())?;
-    parse_meta_object_to_status(object)
+    Ok(parse_meta_object(meta_json)?.into())
 }
 
-/// Parses status fields from JSON object.
-fn parse_meta_object_to_status(object: Map<String, Value>) -> Result<SystemMeta, AppError> {
-    let revision = object.get("revision").and_then(Value::as_i64).unwrap_or(0);
-    let updated_at = object.get("updated_at").and_then(Value::as_i64);
-    let sync_at = object.get("sync_at").and_then(Value::as_i64);
-    let sync_status = object
-        .get("sync_status")
-        .and_then(Value::as_str)
-        .map(str::to_string);
+#[cfg(test)]
+mod tests {
+    use super::{bump_revision_with_conn, read_meta_with_conn, update_sync_with_conn};
+    use crate::db::sqlite::query::sync;
+    use rusqlite::{Connection, params};
+    use serde_json::{Value, json};
 
-    Ok(SystemMeta {
-        revision,
-        updated_at,
-        sync_at,
-        sync_status,
-    })
+    fn setup_conn(meta_json: &str) -> Connection {
+        let conn = Connection::open_in_memory().expect("in-memory db");
+        conn.execute(
+            "CREATE TABLE es_meta (id INTEGER PRIMARY KEY, meta_json TEXT NOT NULL)",
+            [],
+        )
+        .expect("create meta table");
+        conn.execute(sync::INSERT_META_ROW, params![meta_json])
+            .expect("insert meta row");
+        conn
+    }
+
+    fn load_raw_meta_json(conn: &Connection) -> Value {
+        let raw: String = conn
+            .query_row(sync::SELECT_META_JSON, [], |row| row.get(0))
+            .expect("load meta json");
+        serde_json::from_str(&raw).expect("valid json")
+    }
+
+    #[test]
+    fn read_meta_with_conn_treats_non_object_payload_as_default() {
+        let conn = setup_conn("null");
+
+        let meta = read_meta_with_conn(&conn).expect("meta");
+
+        assert_eq!(meta.revision, 0);
+        assert_eq!(meta.updated_at, None);
+        assert_eq!(meta.sync_at, None);
+        assert_eq!(meta.sync_status, None);
+    }
+
+    #[test]
+    fn bump_revision_with_conn_preserves_unknown_fields() {
+        let conn = setup_conn(r#"{"revision":1,"custom":"keep"}"#);
+
+        let meta = bump_revision_with_conn(&conn, 42).expect("updated meta");
+        let stored = load_raw_meta_json(&conn);
+
+        assert_eq!(meta.revision, 2);
+        assert_eq!(meta.updated_at, Some(42));
+        assert_eq!(
+            stored,
+            json!({"revision": 2, "updated_at": 42, "custom": "keep"})
+        );
+    }
+
+    #[test]
+    fn update_sync_with_conn_preserves_unknown_fields() {
+        let conn = setup_conn(r#"{"revision":7,"custom":{"keep":true}}"#);
+
+        let meta = update_sync_with_conn(&conn, 99, "partial").expect("updated meta");
+        let stored = load_raw_meta_json(&conn);
+
+        assert_eq!(meta.revision, 7);
+        assert_eq!(meta.sync_at, Some(99));
+        assert_eq!(meta.sync_status.as_deref(), Some("partial"));
+        assert_eq!(
+            stored,
+            json!({"revision": 7, "sync_at": 99, "sync_status": "partial", "custom": {"keep": true}})
+        );
+    }
 }
