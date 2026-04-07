@@ -87,7 +87,7 @@
       ],
       "type": "object"
     },
-    "MarkResult": {
+    "MarkResponse": {
       "description": "Mark payload.",
       "properties": {
         "updated_entry_count": {
@@ -178,7 +178,7 @@
     "result": {
       "anyOf": [
         {
-          "$ref": "#/definitions/MarkResult"
+          "$ref": "#/definitions/MarkResponse"
         },
         {
           "type": "null"
@@ -201,6 +201,6 @@
     "error",
     "meta"
   ],
-  "title": "Envelope_for_MarkResult",
+  "title": "Envelope_for_MarkResponse",
   "type": "object"
 }

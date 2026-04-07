@@ -9,7 +9,9 @@ use picofeedr::config;
 use picofeedr::entry::{EntryDetail, EntryListResponse};
 use picofeedr::error::AppError;
 use picofeedr::feed::FeedListResponse;
-use picofeedr::response::{Envelope, ResponseStatus};
+use picofeedr::response::{
+    Envelope, MarkResponse, PingResponse, ResponsePayload, TagListResponse, VersionResponse,
+};
 use picofeedr::status::StatusResponse;
 use picofeedr::sync::SyncSummary;
 use std::env;
@@ -21,34 +23,18 @@ use tracing::debug;
 
 /// Execution results for CLI commands.
 enum CommandOutput {
-    Ping,
-    Version {
-        api_version: &'static str,
-        db_schema_version: i64,
-        build: &'static str,
-    },
-    Tags {
-        tags: Vec<String>,
-    },
-    Status {
-        status: StatusResponse,
-    },
-    FeedsList {
-        feeds: FeedListResponse,
-    },
-    Sync {
-        summary: SyncSummary,
-    },
+    Ping(PingResponse),
+    Version(VersionResponse),
+    Tags(TagListResponse),
+    Status(StatusResponse),
+    FeedsList(FeedListResponse),
+    Sync(SyncSummary),
     List {
         list: EntryListResponse,
         include_id: bool,
     },
-    View {
-        detail: EntryDetail,
-    },
-    Mark {
-        updated: usize,
-    },
+    View(EntryDetail),
+    Mark(MarkResponse),
 }
 
 /// Runtime failure category for command execution and output rendering.
@@ -125,12 +111,12 @@ fn run(
     config: Option<&config::AppConfig>,
 ) -> Result<(), RunFailure> {
     let result = match &cli.command {
-        Command::Ping => CommandOutput::Ping,
-        Command::Version => CommandOutput::Version {
-            api_version: env!("CARGO_PKG_VERSION"),
+        Command::Ping => CommandOutput::Ping(PingResponse::ok()),
+        Command::Version => CommandOutput::Version(VersionResponse {
+            api_version: env!("CARGO_PKG_VERSION").to_string(),
             db_schema_version: picofeedr::db::migrate::current_schema_version(),
-            build: "dev",
-        },
+            build: "dev".to_string(),
+        }),
         Command::Sync if matches!(output, OutputFormat::Plain) => {
             command_exec::execute_sync_command_plain(config.expect("sync requires config"))?
         }
@@ -140,8 +126,8 @@ fn run(
         )?,
     };
     match output {
-        OutputFormat::Json => output::render_json(&result)?,
-        OutputFormat::Plain => output::render_plain(&result)?,
+        OutputFormat::Json => output::render_json(result)?,
+        OutputFormat::Plain => output::render_plain(result)?,
     }
     Ok(())
 }
@@ -156,14 +142,7 @@ fn run_config_check(
     let report = feeds_config.validate();
     let is_valid = report.valid;
     match output {
-        OutputFormat::Json => {
-            let status = if is_valid {
-                ResponseStatus::Ok
-            } else {
-                ResponseStatus::Warning
-            };
-            output::print_json_or_fallback(&Envelope::ok_with_status(report, status))?;
-        }
+        OutputFormat::Json => output::print_json_or_fallback(&report.into_envelope())?,
         OutputFormat::Plain => output::render_config_check_plain(&report)?,
     }
     Ok(if is_valid {

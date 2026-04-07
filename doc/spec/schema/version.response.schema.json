@@ -138,7 +138,7 @@
         }
       ]
     },
-    "VersionResult": {
+    "VersionResponse": {
       "description": "Version payload.",
       "properties": {
         "api_version": {
@@ -187,7 +187,7 @@
     "result": {
       "anyOf": [
         {
-          "$ref": "#/definitions/VersionResult"
+          "$ref": "#/definitions/VersionResponse"
         },
         {
           "type": "null"
@@ -210,6 +210,6 @@
     "error",
     "meta"
   ],
-  "title": "Envelope_for_VersionResult",
+  "title": "Envelope_for_VersionResponse",
   "type": "object"
 }

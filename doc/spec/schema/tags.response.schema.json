@@ -138,7 +138,7 @@
         }
       ]
     },
-    "TagsResult": {
+    "TagListResponse": {
       "description": "Tags payload.",
       "properties": {
         "tags": {
@@ -179,7 +179,7 @@
     "result": {
       "anyOf": [
         {
-          "$ref": "#/definitions/TagsResult"
+          "$ref": "#/definitions/TagListResponse"
         },
         {
           "type": "null"
@@ -202,6 +202,6 @@
     "error",
     "meta"
   ],
-  "title": "Envelope_for_TagsResult",
+  "title": "Envelope_for_TagListResponse",
   "type": "object"
 }

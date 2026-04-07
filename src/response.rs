@@ -2,6 +2,10 @@
 
 use crate::error::{AppError, ErrorPayload};
 use crate::time;
+use crate::{
+    config::feeds::ConfigCheckReport, entry::EntryDetail, entry::EntryListResponse,
+    feed::FeedListResponse, status::StatusResponse, sync::SyncStatus, sync::SyncSummary,
+};
 use schemars::JsonSchema;
 use serde::Serialize;
 
@@ -49,12 +53,12 @@ pub enum PingStatus {
 
 /// Ping payload.
 #[derive(Debug, Serialize, JsonSchema)]
-pub struct PingResult {
+pub struct PingResponse {
     /// Fixed heartbeat status.
     pub status: PingStatus,
 }
 
-impl PingResult {
+impl PingResponse {
     /// Builds a default ping payload.
     pub fn ok() -> Self {
         Self {
@@ -65,7 +69,7 @@ impl PingResult {
 
 /// Version payload.
 #[derive(Debug, Serialize, JsonSchema)]
-pub struct VersionResult {
+pub struct VersionResponse {
     /// CLI API version.
     pub api_version: String,
     /// SQLite schema version.
@@ -76,16 +80,66 @@ pub struct VersionResult {
 
 /// Tags payload.
 #[derive(Debug, Serialize, JsonSchema)]
-pub struct TagsResult {
+pub struct TagListResponse {
     /// Known tag dictionary.
     pub tags: Vec<String>,
 }
 
 /// Mark payload.
 #[derive(Debug, Serialize, JsonSchema)]
-pub struct MarkResult {
+pub struct MarkResponse {
     /// Number of entries updated by mark command.
     pub updated_entry_count: usize,
+}
+
+/// Trait for payloads that can be wrapped in the standard JSON response envelope.
+pub trait ResponsePayload: Serialize + JsonSchema + Sized {
+    /// Returns the envelope status for this payload.
+    fn response_status(&self) -> ResponseStatus {
+        ResponseStatus::Ok
+    }
+
+    /// Wraps the payload in the standard JSON response envelope.
+    fn into_envelope(self) -> Envelope<Self> {
+        let status = self.response_status();
+        Envelope::ok_with_status(self, status)
+    }
+}
+
+impl ResponsePayload for PingResponse {}
+
+impl ResponsePayload for VersionResponse {}
+
+impl ResponsePayload for TagListResponse {}
+
+impl ResponsePayload for MarkResponse {}
+
+impl ResponsePayload for StatusResponse {}
+
+impl ResponsePayload for FeedListResponse {}
+
+impl ResponsePayload for EntryListResponse {}
+
+impl ResponsePayload for EntryDetail {}
+
+impl ResponsePayload for SyncSummary {
+    fn response_status(&self) -> ResponseStatus {
+        if matches!(self.status, SyncStatus::Completed) {
+            ResponseStatus::Ok
+        } else {
+            ResponseStatus::Warning
+        }
+    }
+}
+
+impl ResponsePayload for ConfigCheckReport {
+    fn response_status(&self) -> ResponseStatus {
+        if self.valid {
+            ResponseStatus::Ok
+        } else {
+            ResponseStatus::Warning
+        }
+    }
 }
 
 /// CLI response envelope for `--output json`.
@@ -142,17 +196,19 @@ impl<T> Envelope<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::{MarkResult, PingResult, TagsResult, VersionResult};
+    use super::{MarkResponse, PingResponse, ResponsePayload, TagListResponse, VersionResponse};
+    use crate::config::feeds::ConfigCheckReport;
+    use crate::sync::{SyncStatus, SyncSummary};
 
     #[test]
-    fn ping_result_serializes_as_fixed_ok_status() {
-        let value = serde_json::to_value(PingResult::ok()).expect("serialize ping");
+    fn ping_response_serializes_as_fixed_ok_status() {
+        let value = serde_json::to_value(PingResponse::ok()).expect("serialize ping");
         assert_eq!(value, serde_json::json!({ "status": "ok" }));
     }
 
     #[test]
-    fn version_result_serializes_expected_keys() {
-        let value = serde_json::to_value(VersionResult {
+    fn version_response_serializes_expected_keys() {
+        let value = serde_json::to_value(VersionResponse {
             api_version: "1.2.3".to_string(),
             db_schema_version: 7,
             build: "dev".to_string(),
@@ -169,17 +225,53 @@ mod tests {
     }
 
     #[test]
-    fn tags_and_mark_payloads_serialize_stably() {
-        let tags = serde_json::to_value(TagsResult {
+    fn tag_list_and_mark_payloads_serialize_stably() {
+        let tags = serde_json::to_value(TagListResponse {
             tags: vec!["rust".to_string(), "tech".to_string()],
         })
         .expect("serialize tags");
         assert_eq!(tags, serde_json::json!({ "tags": ["rust", "tech"] }));
 
-        let mark = serde_json::to_value(MarkResult {
+        let mark = serde_json::to_value(MarkResponse {
             updated_entry_count: 2,
         })
         .expect("serialize mark");
         assert_eq!(mark, serde_json::json!({ "updated_entry_count": 2 }));
+    }
+
+    #[test]
+    fn sync_summary_into_envelope_uses_warning_for_non_completed_status() {
+        let value = serde_json::to_value(
+            SyncSummary {
+                status: SyncStatus::PartialFailed,
+                fetched_feed_count: 2,
+                failed_feed_count: 1,
+                new_entry_count: 3,
+                duration_ms: 10,
+                errors: Vec::new(),
+            }
+            .into_envelope(),
+        )
+        .expect("serialize sync envelope");
+        assert_eq!(value["status"], "warning");
+        assert_eq!(value["result"]["status"], "partial_failed");
+        assert!(value["error"].is_null());
+    }
+
+    #[test]
+    fn config_check_report_into_envelope_uses_warning_for_invalid_report() {
+        let value = serde_json::to_value(
+            ConfigCheckReport {
+                valid: false,
+                errors: Vec::new(),
+                warnings: Vec::new(),
+                checked_feeds: 1,
+            }
+            .into_envelope(),
+        )
+        .expect("serialize config check envelope");
+        assert_eq!(value["status"], "warning");
+        assert_eq!(value["result"]["valid"], false);
+        assert!(value["error"].is_null());
     }
 }

@@ -8,6 +8,7 @@ use picofeedr::entry;
 use picofeedr::error::{AppError, ErrorDetails, error_details};
 use picofeedr::feed;
 use picofeedr::query::EntryQuery;
+use picofeedr::response::{MarkResponse, PingResponse, TagListResponse, VersionResponse};
 use picofeedr::status::StatusResponse;
 use picofeedr::sync;
 use picofeedr::{TagManager, current_epoch, parse_tag_csv};
@@ -22,12 +23,12 @@ pub(crate) fn execute_command(
 ) -> Result<CommandOutput, AppError> {
     trace!("execute_command start");
     match &cli.command {
-        Command::Ping => Ok(CommandOutput::Ping),
-        Command::Version => Ok(CommandOutput::Version {
-            api_version: env!("CARGO_PKG_VERSION"),
+        Command::Ping => Ok(CommandOutput::Ping(PingResponse::ok())),
+        Command::Version => Ok(CommandOutput::Version(VersionResponse {
+            api_version: env!("CARGO_PKG_VERSION").to_string(),
             db_schema_version: db::migrate::current_schema_version(),
-            build: "dev",
-        }),
+            build: "dev".to_string(),
+        })),
         Command::Tags
         | Command::Status
         | Command::Feeds { .. }
@@ -47,7 +48,7 @@ pub(crate) fn execute_command(
                 Command::Tags => {
                     let tag_manager = TagManager::new(&store);
                     let tags = tag_manager.list_tags()?;
-                    Ok(CommandOutput::Tags { tags })
+                    Ok(CommandOutput::Tags(TagListResponse { tags }))
                 }
                 Command::Status => {
                     let meta = store.read_system_meta()?;
@@ -56,7 +57,7 @@ pub(crate) fn execute_command(
                         db::migrate::current_schema_version(),
                         env!("CARGO_PKG_VERSION"),
                     );
-                    Ok(CommandOutput::Status { status })
+                    Ok(CommandOutput::Status(status))
                 }
                 Command::Feeds { config_check } => {
                     let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
@@ -65,7 +66,7 @@ pub(crate) fn execute_command(
                     let db_feeds = store.list_feeds()?;
                     let feeds = feed::render_feed_list(&feeds_config, &db_feeds);
                     store.bump_revision(current_epoch())?;
-                    Ok(CommandOutput::FeedsList { feeds })
+                    Ok(CommandOutput::FeedsList(feeds))
                 }
                 Command::Sync => execute_sync_with_store(config, &mut store),
                 Command::List {
@@ -86,12 +87,14 @@ pub(crate) fn execute_command(
                 }
                 Command::View { id } => {
                     let detail = entry::view_entry(&store, config, id)?;
-                    Ok(CommandOutput::View { detail })
+                    Ok(CommandOutput::View(detail))
                 }
                 Command::Mark { command } => {
                     let updated = execute_mark(&mut store, config, command)?;
                     store.bump_revision(current_epoch())?;
-                    Ok(CommandOutput::Mark { updated })
+                    Ok(CommandOutput::Mark(MarkResponse {
+                        updated_entry_count: updated,
+                    }))
                 }
                 Command::Ping | Command::Version => unreachable!("handled above"),
             }
@@ -137,7 +140,7 @@ pub(crate) fn execute_sync_command_plain(
     let now = current_epoch();
     store.bump_revision(now)?;
     store.update_sync(now, summary.status.as_str())?;
-    Ok(CommandOutput::Sync { summary })
+    Ok(CommandOutput::Sync(summary))
 }
 
 /// Executes sync command using the shared store path without progress rendering.
@@ -150,7 +153,7 @@ fn execute_sync_with_store(
     let now = current_epoch();
     store.bump_revision(now)?;
     store.update_sync(now, summary.status.as_str())?;
-    Ok(CommandOutput::Sync { summary })
+    Ok(CommandOutput::Sync(summary))
 }
 
 /// Resolves the effective list limit from CLI argument and query config.

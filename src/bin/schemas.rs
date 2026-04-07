@@ -5,7 +5,8 @@ use picofeedr::entry::{EntryDetail, EntryListResponse};
 use picofeedr::error::ErrorPayload;
 use picofeedr::feed::FeedListResponse;
 use picofeedr::response::{
-    Envelope, MarkResult, PingResult, PingStatus, ResponseMeta, TagsResult, VersionResult,
+    Envelope, MarkResponse, PingResponse, PingStatus, ResponseMeta, TagListResponse,
+    VersionResponse,
 };
 use picofeedr::status::StatusResponse;
 use picofeedr::sync::SyncSummary;
@@ -134,16 +135,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = FatalStatus::Error;
     fs::create_dir_all("doc/spec/schema")?;
 
-    write_schema::<Envelope<PingResult>>("ping.response.schema.json")?;
-    write_schema::<Envelope<VersionResult>>("version.response.schema.json")?;
+    write_schema::<Envelope<PingResponse>>("ping.response.schema.json")?;
+    write_schema::<Envelope<VersionResponse>>("version.response.schema.json")?;
     write_schema::<Envelope<FeedListResponse>>("feeds.response.schema.json")?;
     write_schema::<Envelope<ConfigCheckReport>>("config-check.response.schema.json")?;
     write_schema::<Envelope<SyncSummary>>("sync.response.schema.json")?;
     write_schema::<Envelope<StatusResponse>>("status.response.schema.json")?;
     write_schema::<Envelope<EntryListResponse>>("list.response.schema.json")?;
     write_schema::<Envelope<EntryDetail>>("view.response.schema.json")?;
-    write_schema::<Envelope<MarkResult>>("mark.response.schema.json")?;
-    write_schema::<Envelope<TagsResult>>("tags.response.schema.json")?;
+    write_schema::<Envelope<MarkResponse>>("mark.response.schema.json")?;
+    write_schema::<Envelope<TagListResponse>>("tags.response.schema.json")?;
     write_schema::<FatalErrorEnvelope>("fatal-error.response.schema.json")?;
 
     Ok(())

@@ -2,82 +2,49 @@
 
 use crate::{CommandOutput, RunFailure};
 use picofeedr::config::feeds::ConfigCheckReport;
-use picofeedr::response::{
-    Envelope, MarkResult, PingResult, ResponseStatus, TagsResult, VersionResult,
-};
+use picofeedr::response::ResponsePayload;
 use picofeedr::sync;
 use std::collections::HashMap;
 use std::io::{self, Write};
 use time::{OffsetDateTime, UtcOffset};
 
 /// Renders JSON output for a command result.
-pub(crate) fn render_json(result: &CommandOutput) -> Result<(), RunFailure> {
-    fn print_success<T: serde::Serialize>(
-        data: T,
-        status: ResponseStatus,
-    ) -> Result<(), RunFailure> {
-        print_json_or_fallback(&Envelope::ok_with_status(data, status))?;
+pub(crate) fn render_json(result: CommandOutput) -> Result<(), RunFailure> {
+    fn print_payload<T: ResponsePayload>(data: T) -> Result<(), RunFailure> {
+        print_json_or_fallback(&data.into_envelope())?;
         Ok(())
     }
 
     match result {
-        CommandOutput::Ping => print_success(PingResult::ok(), ResponseStatus::Ok),
-        CommandOutput::Version {
-            api_version,
-            db_schema_version,
-            build,
-        } => print_success(
-            VersionResult {
-                api_version: (*api_version).to_string(),
-                db_schema_version: *db_schema_version,
-                build: (*build).to_string(),
-            },
-            ResponseStatus::Ok,
-        ),
-        CommandOutput::Tags { tags } => {
-            print_success(TagsResult { tags: tags.clone() }, ResponseStatus::Ok)
-        }
-        CommandOutput::Status { status } => print_success(status, ResponseStatus::Ok),
-        CommandOutput::FeedsList { feeds } => print_success(feeds, ResponseStatus::Ok),
-        CommandOutput::Sync { summary } => {
-            let envelope_status = if matches!(summary.status, sync::SyncStatus::Completed) {
-                ResponseStatus::Ok
-            } else {
-                ResponseStatus::Warning
-            };
-            print_success(summary, envelope_status)
-        }
-        CommandOutput::List { list, .. } => print_success(list, ResponseStatus::Ok),
-        CommandOutput::View { detail } => print_success(detail, ResponseStatus::Ok),
-        CommandOutput::Mark { updated } => print_success(
-            MarkResult {
-                updated_entry_count: *updated,
-            },
-            ResponseStatus::Ok,
-        ),
+        CommandOutput::Ping(payload) => print_payload(payload),
+        CommandOutput::Version(payload) => print_payload(payload),
+        CommandOutput::Tags(payload) => print_payload(payload),
+        CommandOutput::Status(payload) => print_payload(payload),
+        CommandOutput::FeedsList(payload) => print_payload(payload),
+        CommandOutput::Sync(payload) => print_payload(payload),
+        CommandOutput::List { list, .. } => print_payload(list),
+        CommandOutput::View(detail) => print_payload(detail),
+        CommandOutput::Mark(payload) => print_payload(payload),
     }
 }
 
 /// Renders human-readable output for a command result.
-pub(crate) fn render_plain(result: &CommandOutput) -> io::Result<()> {
+pub(crate) fn render_plain(result: CommandOutput) -> io::Result<()> {
     let stdout = io::stdout();
     let mut writer = io::BufWriter::new(stdout.lock());
     match result {
-        CommandOutput::Ping => writeln!(writer, "ok")?,
-        CommandOutput::Version {
-            api_version,
-            db_schema_version,
-            build,
-        } => writeln!(
+        CommandOutput::Ping(_) => writeln!(writer, "ok")?,
+        CommandOutput::Version(payload) => writeln!(
             writer,
-            "api_version={api_version} db_schema_version={db_schema_version} build={build}"
+            "api_version={} db_schema_version={} build={}",
+            payload.api_version, payload.db_schema_version, payload.build
         )?,
-        CommandOutput::Tags { tags } => {
-            for tag in tags {
+        CommandOutput::Tags(payload) => {
+            for tag in payload.tags {
                 writeln!(writer, "{tag}")?;
             }
         }
-        CommandOutput::Status { status } => {
+        CommandOutput::Status(status) => {
             writeln!(writer, "revision: {}", status.revision)?;
             writeln!(
                 writer,
@@ -97,8 +64,8 @@ pub(crate) fn render_plain(result: &CommandOutput) -> io::Result<()> {
                 status.last_sync_status.as_deref().unwrap_or("null")
             )?;
         }
-        CommandOutput::FeedsList { feeds } => {
-            for feed in &feeds.feeds {
+        CommandOutput::FeedsList(feeds) => {
+            for feed in feeds.feeds {
                 let title = feed.title.as_deref().unwrap_or("(untitled)");
                 let tags = format_tags(&feed.tags);
                 if tags.is_empty() {
@@ -115,7 +82,7 @@ pub(crate) fn render_plain(result: &CommandOutput) -> io::Result<()> {
                 }
             }
         }
-        CommandOutput::Sync { summary } => {
+        CommandOutput::Sync(summary) => {
             writeln!(writer, "status: {}", summary.status.as_str())?;
             writeln!(
                 writer,
@@ -127,7 +94,7 @@ pub(crate) fn render_plain(result: &CommandOutput) -> io::Result<()> {
             )?;
             if !summary.errors.is_empty() {
                 writeln!(writer, "errors: {}", summary.errors.len())?;
-                for error in &summary.errors {
+                for error in summary.errors {
                     let feed_name = error.feed_name.as_deref().unwrap_or("(untitled)");
                     writeln!(
                         writer,
@@ -142,17 +109,14 @@ pub(crate) fn render_plain(result: &CommandOutput) -> io::Result<()> {
             }
         }
         CommandOutput::List { list, include_id } => {
+            let total_count = list.total_count;
+            let next_page_token = list.next_page_token;
             let feed_titles = list
                 .feeds
-                .iter()
-                .map(|feed| {
-                    (
-                        feed.feed_id.clone(),
-                        feed.title.as_deref().unwrap_or("").to_string(),
-                    )
-                })
+                .into_iter()
+                .map(|feed| (feed.feed_id, feed.title.unwrap_or_default()))
                 .collect::<HashMap<_, _>>();
-            for entry in &list.items {
+            for entry in list.items {
                 let date = format_plain_epoch(entry.published_at.unwrap_or(entry.first_seen_at));
                 let title = entry.title.as_deref().unwrap_or("");
                 let feed_title = feed_titles
@@ -161,7 +125,7 @@ pub(crate) fn render_plain(result: &CommandOutput) -> io::Result<()> {
                     .unwrap_or("");
                 let tags = format_tags(&entry.tags);
                 let link = entry.link.as_deref().unwrap_or("");
-                if *include_id {
+                if include_id {
                     writeln!(
                         writer,
                         "{date}\t{title}\t{feed_title}\t{tags}\t{link}\t{}",
@@ -174,13 +138,13 @@ pub(crate) fn render_plain(result: &CommandOutput) -> io::Result<()> {
             writer.flush()?;
             let stderr = io::stderr();
             let mut err_writer = io::BufWriter::new(stderr.lock());
-            writeln!(err_writer, "total_count: {}", list.total_count)?;
-            if let Some(cursor) = &list.next_page_token {
+            writeln!(err_writer, "total_count: {total_count}")?;
+            if let Some(cursor) = next_page_token {
                 writeln!(err_writer, "next_page_token: {cursor}")?;
             }
             err_writer.flush()?;
         }
-        CommandOutput::View { detail } => {
+        CommandOutput::View(detail) => {
             let title = detail.title.as_deref().unwrap_or("(untitled)");
             writeln!(writer, "{} {title}", detail.entry_id)?;
             if let Some(feed_title) = &detail.feed_title {
@@ -206,7 +170,11 @@ pub(crate) fn render_plain(result: &CommandOutput) -> io::Result<()> {
                 writeln!(writer, "{content}")?;
             }
         }
-        CommandOutput::Mark { updated } => writeln!(writer, "updated_entry_count: {updated}")?,
+        CommandOutput::Mark(payload) => writeln!(
+            writer,
+            "updated_entry_count: {}",
+            payload.updated_entry_count
+        )?,
     }
     writer.flush()?;
     Ok(())

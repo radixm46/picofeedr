@@ -87,7 +87,7 @@
       ],
       "type": "object"
     },
-    "PingResult": {
+    "PingResponse": {
       "description": "Ping payload.",
       "properties": {
         "status": {
@@ -192,7 +192,7 @@
     "result": {
       "anyOf": [
         {
-          "$ref": "#/definitions/PingResult"
+          "$ref": "#/definitions/PingResponse"
         },
         {
           "type": "null"
@@ -215,6 +215,6 @@
     "error",
     "meta"
   ],
-  "title": "Envelope_for_PingResult",
+  "title": "Envelope_for_PingResponse",
   "type": "object"
 }
