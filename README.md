@@ -1,19 +1,21 @@
 # picofeedr
 
-`picofeedr` is a local-first feed reader backend for people who want CLI and JSON-first workflows.
-It fetches feed entries, normalizes them, stores them in SQLite, and exposes query-oriented output for scripts, automation, and terminal use.
+`picofeedr` is a CLI tool for collecting RSS/Atom feeds into a local store, browsing saved entries, and managing tags on them.
+It is built for people who want to keep feed data on their own machine and work with it from the terminal or from scripts.
 
 Status: alpha. Command behavior, response schemas, and configuration details may still change.
 
 ## What Is picofeedr?
 
-`picofeedr` is built around a simple split:
+`picofeedr` is a small feed ingestion and tagging tool for local use.
+At a glance, it lets you:
 
-- SQLite is the source of truth for ingested feed data
-- `--output plain` is for quick terminal inspection
-- `--output json` is the primary contract for automation and downstream tooling
+- fetch and ingest configured feeds
+- persist entries locally
+- manage unread and custom tags on entries
+- inspect results in the terminal or consume them as JSON
 
-If you want to sync feeds locally, query them with a structured CLI, and pipe stable JSON into tools like `jq`, this is the main use case.
+The main use case is simple: sync feeds on your machine, keep a persistent archive of entries, then search, inspect, and tag them later.
 
 ## Installation
 
@@ -55,6 +57,8 @@ source = "./feeds.yaml"
 [cli]
 output = "plain"
 ```
+
+Relative paths such as `./feeds.yaml` and `./var/picofeedr` are resolved from the current working directory when you run `picofeedr`.
 
 Create a minimal `feeds.yaml`:
 
@@ -110,14 +114,29 @@ Query in JSON for automation:
 target/release/picofeedr --config ./config.toml --output json list --query 'tag:tech after:1w' | jq '.result.items[].title'
 ```
 
+Storage can be configured in three ways:
+
+- keep metadata and content together in SQLite
+- keep metadata in SQLite and store content bodies in a filesystem directory
+- keep entry metadata and tags, but do not store feed-provided content bodies
+
+## Common Tasks
+
+If you are just getting started, these are the commands you will usually use first:
+
+| Task | Command |
+| --- | --- |
+| Validate your feed configuration | `feeds --config-check` |
+| Fetch latest entries | `sync` |
+| List saved entries | `list` |
+| View one saved entry | `view <entry-id>` |
+| Mark entries read or unread | `mark read ...` / `mark unread ...` |
+| Add or remove custom tags | `mark tag ...` |
+
 ## Commands
 
 | Command | Description |
 | --- | --- |
-| `ping` | Print a simple health response |
-| `version` | Print version information |
-| `tags` | List tags stored in the database |
-| `status` | Show lightweight database status metadata |
 | `feeds` | List feeds or run static config validation |
 | `sync` | Sync feeds and ingest new entries |
 | `list` | List entry summaries |
@@ -125,6 +144,10 @@ target/release/picofeedr --config ./config.toml --output json list --query 'tag:
 | `mark read <entry-id>...` | Remove the unread tag from entries |
 | `mark unread <entry-id>...` | Add the unread tag to entries |
 | `mark tag ...` | Add or remove custom tags |
+| `tags` | List tags stored in the database |
+| `status` | Show lightweight database status metadata |
+| `ping` | Print a simple health response |
+| `version` | Print version information |
 
 Examples:
 
@@ -183,8 +206,8 @@ Detailed specifications:
 
 ## Output Formats
 
-Use `--output plain` when you want quick human-readable terminal output.
-Use `--output json` when you want stable machine-readable output for scripts and integrations.
+Choose `plain` when you are working interactively in the terminal.
+Choose `json` when you want to pipe results into `jq`, scripts, or other tools.
 
 `plain` output:
 
@@ -195,23 +218,11 @@ Use `--output json` when you want stable machine-readable output for scripts and
 
 `json` output:
 
-- wraps every response in a consistent envelope with `status`, `result`, `error`, and `meta`
 - is the main contract for automation
+- wraps responses in a consistent envelope with `status`, `result`, `error`, and `meta`
 - is covered by JSON Schema documents in [`doc/spec/schema`](doc/spec/schema)
 
-Available schema files:
-
-- `config-check.response.schema.json`
-- `fatal-error.response.schema.json`
-- `feeds.response.schema.json`
-- `list.response.schema.json`
-- `mark.response.schema.json`
-- `ping.response.schema.json`
-- `status.response.schema.json`
-- `sync.response.schema.json`
-- `tags.response.schema.json`
-- `version.response.schema.json`
-- `view.response.schema.json`
+Schema files are available for `config-check`, `feeds`, `list`, `mark`, `ping`, `status`, `sync`, `tags`, `version`, `view`, and fatal error responses.
 
 ## Development
 
