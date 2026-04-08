@@ -6,36 +6,14 @@ mod output;
 use clap::Parser;
 use picofeedr::cli::{Cli, Command, OutputFormat};
 use picofeedr::config;
-use picofeedr::entry::{EntryDetail, EntryListResponse};
 use picofeedr::error::AppError;
-use picofeedr::feed::FeedListResponse;
-use picofeedr::response::{
-    Envelope, MarkResponse, PingResponse, ResponsePayload, TagListResponse, VersionResponse,
-};
-use picofeedr::status::StatusResponse;
-use picofeedr::sync::SyncSummary;
+use picofeedr::response::{Envelope, PingResponse, ResponsePayload, VersionResponse};
 use std::env;
 use std::error::Error;
 use std::ffi::OsString;
 use std::io;
 use std::process::ExitCode;
 use tracing::debug;
-
-/// Execution results for CLI commands.
-enum CommandOutput {
-    Ping(PingResponse),
-    Version(VersionResponse),
-    Tags(TagListResponse),
-    Status(StatusResponse),
-    FeedsList(FeedListResponse),
-    Sync(SyncSummary),
-    List {
-        list: EntryListResponse,
-        include_id: bool,
-    },
-    View(EntryDetail),
-    Mark(MarkResponse),
-}
 
 /// Runtime failure category for command execution and output rendering.
 enum RunFailure {
@@ -110,24 +88,72 @@ fn run(
     output: OutputFormat,
     config: Option<&config::AppConfig>,
 ) -> Result<(), RunFailure> {
+    match output {
+        OutputFormat::Json => run_json(cli, config)?,
+        OutputFormat::Plain => run_plain(cli, config)?,
+    }
+    Ok(())
+}
+
+fn run_json(cli: &Cli, config: Option<&config::AppConfig>) -> Result<(), RunFailure> {
+    match &cli.command {
+        Command::Ping => output::write_json_response(PingResponse::ok())?,
+        Command::Version => output::write_json_response(VersionResponse {
+            api_version: env!("CARGO_PKG_VERSION").to_string(),
+            db_schema_version: picofeedr::db::migrate::current_schema_version(),
+            build: "dev".to_string(),
+        })?,
+        Command::Tags => output::write_json_response(command_exec::load_tags_response(
+            config.expect("config-backed commands require config"),
+        )?)?,
+        Command::Status => output::write_json_response(command_exec::load_status_response(
+            config.expect("config-backed commands require config"),
+        )?)?,
+        Command::Feeds { .. } => output::write_json_response(command_exec::run_feeds_command(
+            config.expect("config-backed commands require config"),
+        )?)?,
+        Command::Sync => output::write_json_response(command_exec::run_sync_command(
+            config.expect("config-backed commands require config"),
+        )?)?,
+        Command::List {
+            query,
+            sort,
+            limit,
+            cursor,
+            ..
+        } => output::write_json_response(command_exec::run_list_command(
+            config.expect("config-backed commands require config"),
+            query.as_deref(),
+            *sort,
+            *limit,
+            cursor.as_deref(),
+        )?)?,
+        Command::View { id } => output::write_json_response(command_exec::run_view_command(
+            config.expect("config-backed commands require config"),
+            id,
+        )?)?,
+        Command::Mark { command } => output::write_json_response(command_exec::run_mark_response(
+            config.expect("config-backed commands require config"),
+            command,
+        )?)?,
+    }
+    Ok(())
+}
+
+fn run_plain(cli: &Cli, config: Option<&config::AppConfig>) -> Result<(), RunFailure> {
     let result = match &cli.command {
-        Command::Ping => CommandOutput::Ping(PingResponse::ok()),
-        Command::Version => CommandOutput::Version(VersionResponse {
+        Command::Ping => output::PlainOutput::Ping,
+        Command::Version => output::PlainOutput::Version(VersionResponse {
             api_version: env!("CARGO_PKG_VERSION").to_string(),
             db_schema_version: picofeedr::db::migrate::current_schema_version(),
             build: "dev".to_string(),
         }),
-        Command::Sync if matches!(output, OutputFormat::Plain) => {
-            command_exec::run_sync_command_plain(config.expect("sync requires config"))?
-        }
-        _ => {
-            command_exec::run_command(cli, config.expect("config-backed commands require config"))?
-        }
+        _ => command_exec::run_plain_command(
+            cli,
+            config.expect("config-backed commands require config"),
+        )?,
     };
-    match output {
-        OutputFormat::Json => output::write_json_output(result)?,
-        OutputFormat::Plain => output::write_plain_output(result)?,
-    }
+    output::write_plain_output(result)?;
     Ok(())
 }
 

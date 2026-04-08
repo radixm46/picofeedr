@@ -1,114 +1,154 @@
 //! Output rendering utilities for CLI responses.
 
-use crate::{CommandOutput, RunFailure};
+use crate::RunFailure;
 use picofeedr::config::feeds::ConfigCheckReport;
-use picofeedr::response::ResponsePayload;
+use picofeedr::entry::{EntryDetail, EntryListResponse};
+use picofeedr::feed::FeedListResponse;
+use picofeedr::response::{MarkResponse, ResponsePayload, VersionResponse};
+use picofeedr::status::StatusResponse;
 use picofeedr::sync;
+use picofeedr::sync::SyncSummary;
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::io::{self, Write};
 use time::{OffsetDateTime, UtcOffset};
 
-/// Writes JSON output for a command result.
-pub(crate) fn write_json_output(result: CommandOutput) -> Result<(), RunFailure> {
-    fn print_payload<T: ResponsePayload>(data: T) -> Result<(), RunFailure> {
-        print_json_or_fallback(&data.into_envelope())?;
-        Ok(())
-    }
+/// Plain CLI output payloads.
+pub(crate) enum PlainOutput {
+    Ping,
+    Version(VersionResponse),
+    Tags(Vec<String>),
+    Status(StatusResponse),
+    Feeds(FeedListResponse),
+    Sync(SyncSummary),
+    List {
+        list: EntryListResponse,
+        include_id: bool,
+    },
+    View(EntryDetail),
+    Mark(MarkResponse),
+}
 
-    match result {
-        CommandOutput::Ping(payload) => print_payload(payload),
-        CommandOutput::Version(payload) => print_payload(payload),
-        CommandOutput::Tags(payload) => print_payload(payload),
-        CommandOutput::Status(payload) => print_payload(payload),
-        CommandOutput::FeedsList(payload) => print_payload(payload),
-        CommandOutput::Sync(payload) => print_payload(payload),
-        CommandOutput::List { list, .. } => print_payload(list),
-        CommandOutput::View(detail) => print_payload(detail),
-        CommandOutput::Mark(payload) => print_payload(payload),
-    }
+struct PlainTextOutput {
+    stdout: String,
+    stderr: String,
+}
+
+/// Writes a JSON response payload.
+pub(crate) fn write_json_response<T: ResponsePayload>(payload: T) -> Result<(), RunFailure> {
+    print_json_or_fallback(&payload.into_envelope())?;
+    Ok(())
 }
 
 /// Writes human-readable output for a command result.
-pub(crate) fn write_plain_output(result: CommandOutput) -> io::Result<()> {
+pub(crate) fn write_plain_output(result: PlainOutput) -> io::Result<()> {
+    let rendered = format_plain_output(result);
     let stdout = io::stdout();
     let mut writer = io::BufWriter::new(stdout.lock());
+    writer.write_all(rendered.stdout.as_bytes())?;
+    writer.flush()?;
+    if !rendered.stderr.is_empty() {
+        let stderr = io::stderr();
+        let mut err_writer = io::BufWriter::new(stderr.lock());
+        err_writer.write_all(rendered.stderr.as_bytes())?;
+        err_writer.flush()?;
+    }
+    Ok(())
+}
+
+fn format_plain_output(result: PlainOutput) -> PlainTextOutput {
+    let mut stdout = String::new();
+    let mut stderr = String::new();
     match result {
-        CommandOutput::Ping(_) => writeln!(writer, "ok")?,
-        CommandOutput::Version(payload) => writeln!(
-            writer,
-            "api_version={} db_schema_version={} build={}",
-            payload.api_version, payload.db_schema_version, payload.build
-        )?,
-        CommandOutput::Tags(payload) => {
-            for tag in payload.tags {
-                writeln!(writer, "{tag}")?;
+        PlainOutput::Ping => {
+            writeln!(stdout, "ok").expect("write ping");
+        }
+        PlainOutput::Version(payload) => {
+            writeln!(
+                stdout,
+                "api_version={} db_schema_version={} build={}",
+                payload.api_version, payload.db_schema_version, payload.build
+            )
+            .expect("write version");
+        }
+        PlainOutput::Tags(tags) => {
+            for tag in tags {
+                writeln!(stdout, "{tag}").expect("write tag");
             }
         }
-        CommandOutput::Status(status) => {
-            writeln!(writer, "revision: {}", status.revision)?;
+        PlainOutput::Status(status) => {
+            writeln!(stdout, "revision: {}", status.revision).expect("write status revision");
             writeln!(
-                writer,
+                stdout,
                 "last_write_at: {}",
                 format_plain_timestamp(status.last_write_at)
-            )?;
-            writeln!(writer, "db_schema_version: {}", status.db_schema_version)?;
-            writeln!(writer, "api_version: {}", status.api_version)?;
+            )
+            .expect("write status last_write_at");
+            writeln!(stdout, "db_schema_version: {}", status.db_schema_version)
+                .expect("write status schema");
+            writeln!(stdout, "api_version: {}", status.api_version).expect("write status api");
             writeln!(
-                writer,
+                stdout,
                 "last_sync_at: {}",
                 format_plain_timestamp(status.last_sync_at)
-            )?;
+            )
+            .expect("write status last_sync_at");
             writeln!(
-                writer,
+                stdout,
                 "last_sync_status: {}",
                 status.last_sync_status.as_deref().unwrap_or("null")
-            )?;
+            )
+            .expect("write status sync_status");
         }
-        CommandOutput::FeedsList(feeds) => {
+        PlainOutput::Feeds(feeds) => {
             for feed in feeds.feeds {
                 let title = feed.title.as_deref().unwrap_or("(untitled)");
                 let tags = format_tags(&feed.tags);
                 if tags.is_empty() {
-                    writeln!(writer, "[{}] {}", feed.feed_id, title)?;
+                    writeln!(stdout, "[{}] {}", feed.feed_id, title).expect("write feed title");
                 } else {
-                    writeln!(writer, "[{}] {} [{}]", feed.feed_id, title, tags)?;
+                    writeln!(stdout, "[{}] {} [{}]", feed.feed_id, title, tags)
+                        .expect("write feed title/tags");
                 }
-                writeln!(writer, "  url: {}", feed.url)?;
+                writeln!(stdout, "  url: {}", feed.url).expect("write feed url");
                 if let Some(site_url) = &feed.site_url {
-                    writeln!(writer, "  site: {site_url}")?;
+                    writeln!(stdout, "  site: {site_url}").expect("write feed site");
                 }
                 if let Some(author) = &feed.author {
-                    writeln!(writer, "  author: {author}")?;
+                    writeln!(stdout, "  author: {author}").expect("write feed author");
                 }
             }
         }
-        CommandOutput::Sync(summary) => {
-            writeln!(writer, "status: {}", summary.status.as_str())?;
+        PlainOutput::Sync(summary) => {
+            writeln!(stdout, "status: {}", summary.status.as_str()).expect("write sync status");
             writeln!(
-                writer,
+                stdout,
                 "fetched_feed_count: {} failed_feed_count: {} new_entry_count: {} duration_ms: {}",
                 summary.fetched_feed_count,
                 summary.failed_feed_count,
                 summary.new_entry_count,
                 summary.duration_ms
-            )?;
+            )
+            .expect("write sync summary");
             if !summary.errors.is_empty() {
-                writeln!(writer, "errors: {}", summary.errors.len())?;
+                writeln!(stdout, "errors: {}", summary.errors.len())
+                    .expect("write sync error count");
                 for error in summary.errors {
                     let feed_name = error.feed_name.as_deref().unwrap_or("(untitled)");
                     writeln!(
-                        writer,
+                        stdout,
                         "  {} {} {} retryable={}",
                         feed_name,
                         error.feed_url,
                         error.code.as_str(),
                         error.retryable
-                    )?;
-                    writeln!(writer, "    {}", error.message)?;
+                    )
+                    .expect("write sync error summary");
+                    writeln!(stdout, "    {}", error.message).expect("write sync error message");
                 }
             }
         }
-        CommandOutput::List { list, include_id } => {
+        PlainOutput::List { list, include_id } => {
             let total_count = list.total_count;
             let next_page_token = list.next_page_token;
             let feed_titles = list
@@ -127,57 +167,59 @@ pub(crate) fn write_plain_output(result: CommandOutput) -> io::Result<()> {
                 let link = entry.link.as_deref().unwrap_or("");
                 if include_id {
                     writeln!(
-                        writer,
+                        stdout,
                         "{date}\t{title}\t{feed_title}\t{tags}\t{link}\t{}",
                         entry.entry_id
-                    )?;
+                    )
+                    .expect("write list line with id");
                 } else {
-                    writeln!(writer, "{date}\t{title}\t{feed_title}\t{tags}\t{link}")?;
+                    writeln!(stdout, "{date}\t{title}\t{feed_title}\t{tags}\t{link}")
+                        .expect("write list line");
                 }
             }
-            writer.flush()?;
-            let stderr = io::stderr();
-            let mut err_writer = io::BufWriter::new(stderr.lock());
-            writeln!(err_writer, "total_count: {total_count}")?;
+            writeln!(stderr, "total_count: {total_count}").expect("write list total_count");
             if let Some(cursor) = next_page_token {
-                writeln!(err_writer, "next_page_token: {cursor}")?;
+                writeln!(stderr, "next_page_token: {cursor}").expect("write list cursor");
             }
-            err_writer.flush()?;
         }
-        CommandOutput::View(detail) => {
+        PlainOutput::View(detail) => {
             let title = detail.title.as_deref().unwrap_or("(untitled)");
-            writeln!(writer, "{} {title}", detail.entry_id)?;
+            writeln!(stdout, "{} {title}", detail.entry_id).expect("write view title");
             if let Some(feed_title) = &detail.feed_title {
-                writeln!(writer, "feed: {feed_title} (id: {})", detail.feed_id)?;
+                writeln!(stdout, "feed: {feed_title} (id: {})", detail.feed_id)
+                    .expect("write view feed");
             } else {
-                writeln!(writer, "feed_id: {}", detail.feed_id)?;
+                writeln!(stdout, "feed_id: {}", detail.feed_id).expect("write view feed_id");
             }
             if let Some(author) = &detail.author {
-                writeln!(writer, "author: {author}")?;
+                writeln!(stdout, "author: {author}").expect("write view author");
             }
             if let Some(link) = &detail.link {
-                writeln!(writer, "link: {link}")?;
+                writeln!(stdout, "link: {link}").expect("write view link");
             }
             if !detail.tags.is_empty() {
-                writeln!(writer, "tags: {}", format_tags(&detail.tags))?;
+                writeln!(stdout, "tags: {}", format_tags(&detail.tags)).expect("write view tags");
             }
             if let Some(published) = detail.published_at {
-                writeln!(writer, "published_at: {published}")?;
+                writeln!(stdout, "published_at: {published}").expect("write view published");
             }
-            writeln!(writer, "first_seen_at: {}", detail.first_seen_at)?;
+            writeln!(stdout, "first_seen_at: {}", detail.first_seen_at)
+                .expect("write view first_seen");
             if let Some(content) = &detail.content {
-                writeln!(writer)?;
-                writeln!(writer, "{content}")?;
+                writeln!(stdout).expect("write view spacer");
+                writeln!(stdout, "{content}").expect("write view content");
             }
         }
-        CommandOutput::Mark(payload) => writeln!(
-            writer,
-            "updated_entry_count: {}",
-            payload.updated_entry_count
-        )?,
+        PlainOutput::Mark(payload) => {
+            writeln!(
+                stdout,
+                "updated_entry_count: {}",
+                payload.updated_entry_count
+            )
+            .expect("write mark");
+        }
     }
-    writer.flush()?;
-    Ok(())
+    PlainTextOutput { stdout, stderr }
 }
 
 /// Formats epoch seconds for plain output as local datetime.
@@ -220,35 +262,32 @@ pub(crate) fn write_sync_progress_line<W: Write>(
     writer: &mut W,
     event: &sync::SyncProgressEvent,
 ) -> io::Result<()> {
+    writeln!(writer, "{}", format_sync_progress_line(event))
+}
+
+fn format_sync_progress_line(event: &sync::SyncProgressEvent) -> String {
     match event {
         sync::SyncProgressEvent::Start { total_feeds } => {
-            writeln!(writer, "sync:start total_feeds={total_feeds}")
+            format!("sync:start total_feeds={total_feeds}")
         }
         sync::SyncProgressEvent::FeedStart {
             index,
             total_feeds,
             url,
-        } => writeln!(
-            writer,
-            "sync:feed start index={index}/{total_feeds} url={url}"
-        ),
+        } => format!("sync:feed start index={index}/{total_feeds} url={url}"),
         sync::SyncProgressEvent::FeedOk {
             index,
             total_feeds,
             url,
             entries,
-        } => writeln!(
-            writer,
-            "sync:feed ok index={index}/{total_feeds} url={url} entries={entries}"
-        ),
+        } => format!("sync:feed ok index={index}/{total_feeds} url={url} entries={entries}"),
         sync::SyncProgressEvent::FeedError {
             index,
             total_feeds,
             url,
             code,
             retryable,
-        } => writeln!(
-            writer,
+        } => format!(
             "sync:feed error index={index}/{total_feeds} url={url} code={} retryable={retryable}",
             code.as_str()
         ),
@@ -259,26 +298,37 @@ pub(crate) fn write_sync_progress_line<W: Write>(
 pub(crate) fn write_config_check_plain(report: &ConfigCheckReport) -> io::Result<()> {
     let stdout = io::stdout();
     let mut writer = io::BufWriter::new(stdout.lock());
-    writeln!(writer, "valid: {}", report.valid)?;
-    writeln!(writer, "checked_feeds: {}", report.checked_feeds)?;
-    writeln!(writer, "errors: {}", report.errors.len())?;
-    for issue in &report.errors {
-        if let Some(path) = &issue.path {
-            writeln!(writer, "  {} {} ({path})", issue.code, issue.message)?;
-        } else {
-            writeln!(writer, "  {} {}", issue.code, issue.message)?;
-        }
-    }
-    writeln!(writer, "warnings: {}", report.warnings.len())?;
-    for issue in &report.warnings {
-        if let Some(path) = &issue.path {
-            writeln!(writer, "  {} {} ({path})", issue.code, issue.message)?;
-        } else {
-            writeln!(writer, "  {} {}", issue.code, issue.message)?;
-        }
-    }
+    writer.write_all(format_config_check_plain(report).as_bytes())?;
     writer.flush()?;
     Ok(())
+}
+
+fn format_config_check_plain(report: &ConfigCheckReport) -> String {
+    let mut output = String::new();
+    writeln!(output, "valid: {}", report.valid).expect("write config-check valid");
+    writeln!(output, "checked_feeds: {}", report.checked_feeds)
+        .expect("write config-check checked_feeds");
+    writeln!(output, "errors: {}", report.errors.len()).expect("write config-check errors");
+    for issue in &report.errors {
+        if let Some(path) = &issue.path {
+            writeln!(output, "  {} {} ({path})", issue.code, issue.message)
+                .expect("write config-check error with path");
+        } else {
+            writeln!(output, "  {} {}", issue.code, issue.message)
+                .expect("write config-check error");
+        }
+    }
+    writeln!(output, "warnings: {}", report.warnings.len()).expect("write config-check warnings");
+    for issue in &report.warnings {
+        if let Some(path) = &issue.path {
+            writeln!(output, "  {} {} ({path})", issue.code, issue.message)
+                .expect("write config-check warning with path");
+        } else {
+            writeln!(output, "  {} {}", issue.code, issue.message)
+                .expect("write config-check warning");
+        }
+    }
+    output
 }
 
 /// Prints JSON to stdout, falling back to a hard-coded INTERNAL error JSON on failure.
@@ -302,7 +352,8 @@ const FALLBACK_INTERNAL_ERROR_JSON: &str = "{\"status\":\"error\",\"result\":nul
 
 #[cfg(test)]
 mod tests {
-    use super::{format_tags, write_sync_progress_line};
+    use super::{PlainOutput, format_plain_output, format_sync_progress_line, format_tags};
+    use picofeedr::entry::{EntryListResponse, EntrySummary, FeedSummary};
     use picofeedr::sync::SyncProgressEvent;
 
     #[test]
@@ -315,33 +366,59 @@ mod tests {
     }
 
     #[test]
-    fn write_sync_progress_line_renders_public_event_variants() {
-        let mut out = Vec::<u8>::new();
-        write_sync_progress_line(&mut out, &SyncProgressEvent::Start { total_feeds: 2 })
-            .expect("start line");
-        write_sync_progress_line(
-            &mut out,
-            &SyncProgressEvent::FeedStart {
-                index: 1,
-                total_feeds: 2,
-                url: "https://example.com/feed.xml".to_string(),
-            },
-        )
-        .expect("feed start line");
-        write_sync_progress_line(
-            &mut out,
-            &SyncProgressEvent::FeedOk {
-                index: 1,
-                total_feeds: 2,
-                url: "https://example.com/feed.xml".to_string(),
-                entries: 3,
-            },
-        )
-        .expect("feed ok line");
+    fn format_sync_progress_line_renders_public_event_variants() {
+        let start = format_sync_progress_line(&SyncProgressEvent::Start { total_feeds: 2 });
+        let feed_start = format_sync_progress_line(&SyncProgressEvent::FeedStart {
+            index: 1,
+            total_feeds: 2,
+            url: "https://example.com/feed.xml".to_string(),
+        });
+        let feed_ok = format_sync_progress_line(&SyncProgressEvent::FeedOk {
+            index: 1,
+            total_feeds: 2,
+            url: "https://example.com/feed.xml".to_string(),
+            entries: 3,
+        });
 
-        let s = String::from_utf8(out).expect("utf8 output");
-        assert!(s.contains("sync:start total_feeds=2"));
-        assert!(s.contains("sync:feed start index=1/2 url=https://example.com/feed.xml"));
-        assert!(s.contains("sync:feed ok index=1/2 url=https://example.com/feed.xml entries=3"));
+        assert_eq!(start, "sync:start total_feeds=2");
+        assert_eq!(
+            feed_start,
+            "sync:feed start index=1/2 url=https://example.com/feed.xml"
+        );
+        assert_eq!(
+            feed_ok,
+            "sync:feed ok index=1/2 url=https://example.com/feed.xml entries=3"
+        );
+    }
+
+    #[test]
+    fn format_plain_output_routes_list_metadata_to_stderr() {
+        let rendered = format_plain_output(PlainOutput::List {
+            list: EntryListResponse {
+                total_count: 42,
+                items: vec![EntrySummary {
+                    entry_id: "entry-1".to_string(),
+                    feed_id: "feed-1".to_string(),
+                    title: Some("Hello".to_string()),
+                    link: Some("https://example.com/1".to_string()),
+                    published_at: Some(1_704_067_200),
+                    first_seen_at: 1_704_067_200,
+                    tags: vec!["rust".to_string()],
+                }],
+                feeds: vec![FeedSummary {
+                    feed_id: "feed-1".to_string(),
+                    title: Some("Feed".to_string()),
+                }],
+                next_page_token: Some("cursor-1".to_string()),
+                revision: 7,
+                last_write_at: Some(1_704_067_200),
+            },
+            include_id: true,
+        });
+
+        assert!(rendered.stdout.contains("Hello"));
+        assert!(rendered.stdout.contains("entry-1"));
+        assert!(rendered.stderr.contains("total_count: 42"));
+        assert!(rendered.stderr.contains("next_page_token: cursor-1"));
     }
 }
