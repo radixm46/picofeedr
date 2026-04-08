@@ -1,4 +1,4 @@
-//! Command execution orchestration for CLI runtime.
+//! Command orchestration for CLI runtime.
 
 mod list;
 mod mark;

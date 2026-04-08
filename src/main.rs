@@ -1,6 +1,6 @@
 //! Picofeedr CLI entrypoint.
 
-mod command_exec;
+mod commands;
 mod output;
 
 use clap::Parser;
@@ -103,16 +103,16 @@ fn run_json(cli: &Cli, config: Option<&config::AppConfig>) -> Result<(), RunFail
             db_schema_version: picofeedr::db::migrate::current_schema_version(),
             build: "dev".to_string(),
         })?,
-        Command::Tags => output::write_json_response(command_exec::run_tags_command(
+        Command::Tags => output::write_json_response(commands::run_tags_command(
             config.expect("config-backed commands require config"),
         )?)?,
-        Command::Status => output::write_json_response(command_exec::run_status_command(
+        Command::Status => output::write_json_response(commands::run_status_command(
             config.expect("config-backed commands require config"),
         )?)?,
-        Command::Feeds { .. } => output::write_json_response(command_exec::run_feeds_command(
+        Command::Feeds { .. } => output::write_json_response(commands::run_feeds_command(
             config.expect("config-backed commands require config"),
         )?)?,
-        Command::Sync => output::write_json_response(command_exec::run_sync_command(
+        Command::Sync => output::write_json_response(commands::run_sync_command(
             config.expect("config-backed commands require config"),
         )?)?,
         Command::List {
@@ -121,18 +121,18 @@ fn run_json(cli: &Cli, config: Option<&config::AppConfig>) -> Result<(), RunFail
             limit,
             cursor,
             ..
-        } => output::write_json_response(command_exec::run_list_command(
+        } => output::write_json_response(commands::run_list_command(
             config.expect("config-backed commands require config"),
             query.as_deref(),
             *sort,
             *limit,
             cursor.as_deref(),
         )?)?,
-        Command::View { id } => output::write_json_response(command_exec::run_view_command(
+        Command::View { id } => output::write_json_response(commands::run_view_command(
             config.expect("config-backed commands require config"),
             id,
         )?)?,
-        Command::Mark { command } => output::write_json_response(command_exec::run_mark_command(
+        Command::Mark { command } => output::write_json_response(commands::run_mark_command(
             config.expect("config-backed commands require config"),
             command,
         )?)?,
@@ -148,7 +148,7 @@ fn run_plain(cli: &Cli, config: Option<&config::AppConfig>) -> Result<(), RunFai
             db_schema_version: picofeedr::db::migrate::current_schema_version(),
             build: "dev".to_string(),
         }),
-        _ => command_exec::run_plain_command(
+        _ => commands::run_plain_command(
             cli,
             config.expect("config-backed commands require config"),
         )?,
