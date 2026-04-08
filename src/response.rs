@@ -4,7 +4,7 @@ use crate::error::{AppError, ErrorPayload};
 use crate::time;
 use crate::{
     config::feeds::ConfigCheckReport, entry::EntryDetail, entry::EntryListResponse,
-    feed::FeedListResponse, status::StatusResponse, sync::SyncStatus, sync::SyncSummary,
+    feed::FeedListResponse, status::StatusResponse, sync::SyncSummary,
 };
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -124,20 +124,20 @@ impl ResponsePayload for EntryDetail {}
 
 impl ResponsePayload for SyncSummary {
     fn response_status(&self) -> ResponseStatus {
-        if matches!(self.status, SyncStatus::Completed) {
-            ResponseStatus::Ok
-        } else {
+        if self.status.is_warning() {
             ResponseStatus::Warning
+        } else {
+            ResponseStatus::Ok
         }
     }
 }
 
 impl ResponsePayload for ConfigCheckReport {
     fn response_status(&self) -> ResponseStatus {
-        if self.valid {
-            ResponseStatus::Ok
-        } else {
+        if self.has_errors() {
             ResponseStatus::Warning
+        } else {
+            ResponseStatus::Ok
         }
     }
 }

@@ -218,6 +218,13 @@ pub struct ConfigCheckReport {
     pub checked_feeds: usize,
 }
 
+impl ConfigCheckReport {
+    /// Returns true when validation found any blocking errors.
+    pub fn has_errors(&self) -> bool {
+        !self.valid
+    }
+}
+
 /// Parses auto_tag rules from YAML value.
 fn parse_auto_tags(value: Option<&Value>) -> Result<Vec<AutoTagRule>, AppError> {
     match value {
@@ -343,5 +350,29 @@ fn append_scoped_rules(path_prefix: &str, rules: &[AutoTagRule], out: &mut Vec<S
             path: format!("{path_prefix}[{index}]"),
             rule: rule.clone(),
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ConfigCheckReport;
+
+    #[test]
+    fn config_check_report_has_errors_reflects_validity() {
+        let valid = ConfigCheckReport {
+            valid: true,
+            errors: Vec::new(),
+            warnings: Vec::new(),
+            checked_feeds: 1,
+        };
+        assert!(!valid.has_errors());
+
+        let invalid = ConfigCheckReport {
+            valid: false,
+            errors: Vec::new(),
+            warnings: Vec::new(),
+            checked_feeds: 1,
+        };
+        assert!(invalid.has_errors());
     }
 }

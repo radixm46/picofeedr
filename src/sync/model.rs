@@ -59,6 +59,11 @@ impl SyncStatus {
             SyncStatus::Failed => "failed",
         }
     }
+
+    /// Returns true when the sync result should surface as a non-fatal warning.
+    pub fn is_warning(self) -> bool {
+        matches!(self, SyncStatus::PartialFailed | SyncStatus::Failed)
+    }
 }
 
 /// Sync error code values.
@@ -259,4 +264,16 @@ pub(crate) enum WorkerResult {
     },
     /// Fatal error that should abort sync.
     Fatal(AppError),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SyncStatus;
+
+    #[test]
+    fn sync_status_marks_non_completed_states_as_warning() {
+        assert!(!SyncStatus::Completed.is_warning());
+        assert!(SyncStatus::PartialFailed.is_warning());
+        assert!(SyncStatus::Failed.is_warning());
+    }
 }
