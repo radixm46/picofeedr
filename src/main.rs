@@ -118,16 +118,15 @@ fn run(
             build: "dev".to_string(),
         }),
         Command::Sync if matches!(output, OutputFormat::Plain) => {
-            command_exec::execute_sync_command_plain(config.expect("sync requires config"))?
+            command_exec::run_sync_command_plain(config.expect("sync requires config"))?
         }
-        _ => command_exec::execute_command(
-            cli,
-            config.expect("config-backed commands require config"),
-        )?,
+        _ => {
+            command_exec::run_command(cli, config.expect("config-backed commands require config"))?
+        }
     };
     match output {
-        OutputFormat::Json => output::render_json(result)?,
-        OutputFormat::Plain => output::render_plain(result)?,
+        OutputFormat::Json => output::write_json_output(result)?,
+        OutputFormat::Plain => output::write_plain_output(result)?,
     }
     Ok(())
 }
@@ -143,7 +142,7 @@ fn run_config_check(
     let is_valid = report.valid;
     match output {
         OutputFormat::Json => output::print_json_or_fallback(&report.into_envelope())?,
-        OutputFormat::Plain => output::render_config_check_plain(&report)?,
+        OutputFormat::Plain => output::write_config_check_plain(&report)?,
     }
     Ok(if is_valid {
         ExitCode::SUCCESS

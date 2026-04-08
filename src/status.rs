@@ -23,7 +23,11 @@ pub struct StatusResponse {
 
 impl StatusResponse {
     /// Builds status payload from persisted metadata and build-time versions.
-    pub fn from_meta(meta: &SystemMeta, db_schema_version: i64, api_version: &'static str) -> Self {
+    pub fn from_system_meta(
+        meta: &SystemMeta,
+        db_schema_version: i64,
+        api_version: &'static str,
+    ) -> Self {
         Self {
             revision: meta.revision,
             last_write_at: meta.updated_at,

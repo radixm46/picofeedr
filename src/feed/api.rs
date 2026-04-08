@@ -33,7 +33,7 @@ pub struct FeedListItem {
 }
 
 /// Builds the feed list response with config-derived tags.
-pub fn render_feed_list(config: &FeedsConfig, db_feeds: &[FeedRow]) -> FeedListResponse {
+pub fn build_feed_list_response(config: &FeedsConfig, db_feeds: &[FeedRow]) -> FeedListResponse {
     let config_map = build_config_map(config);
     let feeds = db_feeds
         .iter()

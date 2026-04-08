@@ -8,8 +8,8 @@ use std::collections::HashMap;
 use std::io::{self, Write};
 use time::{OffsetDateTime, UtcOffset};
 
-/// Renders JSON output for a command result.
-pub(crate) fn render_json(result: CommandOutput) -> Result<(), RunFailure> {
+/// Writes JSON output for a command result.
+pub(crate) fn write_json_output(result: CommandOutput) -> Result<(), RunFailure> {
     fn print_payload<T: ResponsePayload>(data: T) -> Result<(), RunFailure> {
         print_json_or_fallback(&data.into_envelope())?;
         Ok(())
@@ -28,8 +28,8 @@ pub(crate) fn render_json(result: CommandOutput) -> Result<(), RunFailure> {
     }
 }
 
-/// Renders human-readable output for a command result.
-pub(crate) fn render_plain(result: CommandOutput) -> io::Result<()> {
+/// Writes human-readable output for a command result.
+pub(crate) fn write_plain_output(result: CommandOutput) -> io::Result<()> {
     let stdout = io::stdout();
     let mut writer = io::BufWriter::new(stdout.lock());
     match result {
@@ -215,8 +215,8 @@ fn epoch_to_local(epoch: i64) -> OffsetDateTime {
     utc.to_offset(offset)
 }
 
-/// Renders one sync progress event as a plain output line.
-pub(crate) fn render_sync_progress_line<W: Write>(
+/// Writes one sync progress event as a plain output line.
+pub(crate) fn write_sync_progress_line<W: Write>(
     writer: &mut W,
     event: &sync::SyncProgressEvent,
 ) -> io::Result<()> {
@@ -255,8 +255,8 @@ pub(crate) fn render_sync_progress_line<W: Write>(
     }
 }
 
-/// Renders human-readable output for feeds config validation.
-pub(crate) fn render_config_check_plain(report: &ConfigCheckReport) -> io::Result<()> {
+/// Writes human-readable output for feeds config validation.
+pub(crate) fn write_config_check_plain(report: &ConfigCheckReport) -> io::Result<()> {
     let stdout = io::stdout();
     let mut writer = io::BufWriter::new(stdout.lock());
     writeln!(writer, "valid: {}", report.valid)?;
@@ -302,7 +302,7 @@ const FALLBACK_INTERNAL_ERROR_JSON: &str = "{\"status\":\"error\",\"result\":nul
 
 #[cfg(test)]
 mod tests {
-    use super::{format_tags, render_sync_progress_line};
+    use super::{format_tags, write_sync_progress_line};
     use picofeedr::sync::SyncProgressEvent;
 
     #[test]
@@ -315,11 +315,11 @@ mod tests {
     }
 
     #[test]
-    fn render_sync_progress_line_renders_public_event_variants() {
+    fn write_sync_progress_line_renders_public_event_variants() {
         let mut out = Vec::<u8>::new();
-        render_sync_progress_line(&mut out, &SyncProgressEvent::Start { total_feeds: 2 })
+        write_sync_progress_line(&mut out, &SyncProgressEvent::Start { total_feeds: 2 })
             .expect("start line");
-        render_sync_progress_line(
+        write_sync_progress_line(
             &mut out,
             &SyncProgressEvent::FeedStart {
                 index: 1,
@@ -328,7 +328,7 @@ mod tests {
             },
         )
         .expect("feed start line");
-        render_sync_progress_line(
+        write_sync_progress_line(
             &mut out,
             &SyncProgressEvent::FeedOk {
                 index: 1,

@@ -17,11 +17,11 @@ use std::io::{self, Write};
 use tracing::{debug, trace};
 
 /// Executes the CLI command and returns the result.
-pub(crate) fn execute_command(
+pub(crate) fn run_command(
     cli: &Cli,
     config: &config::AppConfig,
 ) -> Result<CommandOutput, AppError> {
-    trace!("execute_command start");
+    trace!("run_command start");
     match &cli.command {
         Command::Ping => Ok(CommandOutput::Ping(PingResponse::ok())),
         Command::Version => Ok(CommandOutput::Version(VersionResponse {
@@ -52,7 +52,7 @@ pub(crate) fn execute_command(
                 }
                 Command::Status => {
                     let meta = store.read_system_meta()?;
-                    let status = StatusResponse::from_meta(
+                    let status = StatusResponse::from_system_meta(
                         &meta,
                         db::migrate::current_schema_version(),
                         env!("CARGO_PKG_VERSION"),
@@ -64,11 +64,11 @@ pub(crate) fn execute_command(
                     debug_assert!(!config_check);
                     feed::reconcile_feeds(&mut store, &feeds_config, &config.unread_tag)?;
                     let db_feeds = store.list_feeds()?;
-                    let feeds = feed::render_feed_list(&feeds_config, &db_feeds);
+                    let feeds = feed::build_feed_list_response(&feeds_config, &db_feeds);
                     store.bump_revision(current_epoch())?;
                     Ok(CommandOutput::FeedsList(feeds))
                 }
-                Command::Sync => execute_sync_with_store(config, &mut store),
+                Command::Sync => run_sync_with_store(config, &mut store),
                 Command::List {
                     query,
                     sort,
@@ -90,7 +90,7 @@ pub(crate) fn execute_command(
                     Ok(CommandOutput::View(detail))
                 }
                 Command::Mark { command } => {
-                    let updated = execute_mark(&mut store, config, command)?;
+                    let updated = run_mark_command(&mut store, config, command)?;
                     store.bump_revision(current_epoch())?;
                     Ok(CommandOutput::Mark(MarkResponse {
                         updated_entry_count: updated,
@@ -103,7 +103,7 @@ pub(crate) fn execute_command(
 }
 
 /// Executes sync command and streams plain progress lines to stdout.
-pub(crate) fn execute_sync_command_plain(
+pub(crate) fn run_sync_command_plain(
     config: &config::AppConfig,
 ) -> Result<CommandOutput, RunFailure> {
     debug!(
@@ -122,7 +122,7 @@ pub(crate) fn execute_sync_command_plain(
         if write_error.is_some() {
             return;
         }
-        if let Err(error) = output::render_sync_progress_line(&mut writer, &event) {
+        if let Err(error) = output::write_sync_progress_line(&mut writer, &event) {
             write_error = Some(error);
             return;
         }
@@ -144,7 +144,7 @@ pub(crate) fn execute_sync_command_plain(
 }
 
 /// Executes sync command using the shared store path without progress rendering.
-fn execute_sync_with_store(
+fn run_sync_with_store(
     config: &config::AppConfig,
     store: &mut db::sqlite::SqliteStore,
 ) -> Result<CommandOutput, AppError> {
@@ -189,7 +189,7 @@ fn limit_error_details(kind: &str, value: usize, _max_limit: usize) -> ErrorDeta
     ])
 }
 
-fn execute_mark(
+fn run_mark_command(
     store: &mut db::sqlite::SqliteStore,
     config: &config::AppConfig,
     command: &MarkCommand,
