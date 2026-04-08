@@ -21,8 +21,8 @@ pub(crate) fn run_plain_command(
     config: &config::AppConfig,
 ) -> Result<output::PlainOutput, RunFailure> {
     match &cli.command {
-        Command::Tags => Ok(output::PlainOutput::Tags(load_tags_response(config)?.tags)),
-        Command::Status => Ok(output::PlainOutput::Status(load_status_response(config)?)),
+        Command::Tags => Ok(output::PlainOutput::Tags(run_tags_command(config)?.tags)),
+        Command::Status => Ok(output::PlainOutput::Status(run_status_command(config)?)),
         Command::Feeds { .. } => Ok(output::PlainOutput::Feeds(run_feeds_command(config)?)),
         Command::Sync => run_sync_command_plain(config),
         Command::List {
@@ -36,14 +36,14 @@ pub(crate) fn run_plain_command(
             include_id: *id,
         }),
         Command::View { id } => Ok(output::PlainOutput::View(run_view_command(config, id)?)),
-        Command::Mark { command } => Ok(output::PlainOutput::Mark(run_mark_response(
+        Command::Mark { command } => Ok(output::PlainOutput::Mark(run_mark_command(
             config, command,
         )?)),
         Command::Ping | Command::Version => unreachable!("handled in main"),
     }
 }
 
-pub(crate) fn load_tags_response(config: &config::AppConfig) -> Result<TagListResponse, AppError> {
+pub(crate) fn run_tags_command(config: &config::AppConfig) -> Result<TagListResponse, AppError> {
     with_store(config, |store| {
         let tag_manager = TagManager::new(store);
         let tags = tag_manager.list_tags()?;
@@ -51,7 +51,7 @@ pub(crate) fn load_tags_response(config: &config::AppConfig) -> Result<TagListRe
     })
 }
 
-pub(crate) fn load_status_response(config: &config::AppConfig) -> Result<StatusResponse, AppError> {
+pub(crate) fn run_status_command(config: &config::AppConfig) -> Result<StatusResponse, AppError> {
     with_store(config, |store| {
         let meta = store.read_system_meta()?;
         Ok(StatusResponse::from_system_meta(
@@ -99,12 +99,12 @@ pub(crate) fn run_view_command(
     with_store(config, |store| entry::view_entry(store, config, id))
 }
 
-pub(crate) fn run_mark_response(
+pub(crate) fn run_mark_command(
     config: &config::AppConfig,
     command: &MarkCommand,
 ) -> Result<MarkResponse, AppError> {
     with_store(config, |store| {
-        let updated = run_mark_command(store, config, command)?;
+        let updated = apply_mark_command(store, config, command)?;
         store.bump_revision(current_epoch())?;
         Ok(MarkResponse {
             updated_entry_count: updated,
@@ -199,7 +199,7 @@ fn limit_error_details(kind: &str, value: usize, _max_limit: usize) -> ErrorDeta
     ])
 }
 
-fn run_mark_command(
+fn apply_mark_command(
     store: &mut db::sqlite::SqliteStore,
     config: &config::AppConfig,
     command: &MarkCommand,
@@ -212,8 +212,8 @@ fn run_mark_command(
             entry::mark_entries(store, ids, std::slice::from_ref(&config.unread_tag), &[])
         }
         MarkCommand::Tag { ids, add, remove } => {
-            let add_tags = parse_tag_list(add.as_deref());
-            let remove_tags = parse_tag_list(remove.as_deref());
+            let add_tags = parse_tag_csv(add.as_deref());
+            let remove_tags = parse_tag_csv(remove.as_deref());
             entry::mark_entries(store, ids, &add_tags, &remove_tags)
         }
     }
@@ -231,8 +231,4 @@ fn with_store<T>(
     let mut store = db::sqlite::SqliteStore::open(&config.database.path)?;
     store.migrate()?;
     f(&mut store)
-}
-
-fn parse_tag_list(raw: Option<&str>) -> Vec<String> {
-    parse_tag_csv(raw)
 }
