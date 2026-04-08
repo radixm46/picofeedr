@@ -5,7 +5,6 @@ edition = "2024"
 license = "MIT"
 
 [dependencies]
-anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 feed-rs = "1"
 hex = "0.4"
@@ -29,7 +28,6 @@ time = { version = "0.3", features = ["local-offset", "macros", "parsing"] }
 
 [dev-dependencies]
 assert_cmd = "2"
-predicates = "3"
 tempfile = "3"
 criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
 
