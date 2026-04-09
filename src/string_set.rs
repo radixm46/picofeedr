@@ -14,6 +14,18 @@ pub(crate) fn dedupe_strings_preserve_order(
     deduped
 }
 
+/// Deduplicates borrowed strings while cloning only first-seen values.
+pub(crate) fn dedupe_string_slice_preserve_order(values: &[String]) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut deduped = Vec::new();
+    for value in values {
+        if seen.insert(value.as_str()) {
+            deduped.push(value.clone());
+        }
+    }
+    deduped
+}
+
 /// Merges two string lists while preserving order and uniqueness.
 pub(crate) fn merge_unique_strings(base: &[String], extra: &[String]) -> Vec<String> {
     dedupe_strings_preserve_order(base.iter().chain(extra.iter()).cloned())
@@ -38,7 +50,7 @@ pub(crate) fn duplicated_strings_preserve_order(values: &[String]) -> Vec<String
     let mut duplicates = HashSet::new();
     let mut result = Vec::new();
     for value in values {
-        if !seen.insert(value.clone()) && duplicates.insert(value.clone()) {
+        if !seen.insert(value.as_str()) && duplicates.insert(value.as_str()) {
             result.push(value.clone());
         }
     }
@@ -48,8 +60,8 @@ pub(crate) fn duplicated_strings_preserve_order(values: &[String]) -> Vec<String
 #[cfg(test)]
 mod tests {
     use super::{
-        dedupe_strings_preserve_order, duplicated_strings_preserve_order, merge_unique_strings,
-        split_csv_trimmed_unique,
+        dedupe_string_slice_preserve_order, dedupe_strings_preserve_order,
+        duplicated_strings_preserve_order, merge_unique_strings, split_csv_trimmed_unique,
     };
 
     #[test]
@@ -80,6 +92,20 @@ mod tests {
         let merged = merge_unique_strings(&base, &extra);
 
         assert_eq!(merged, vec!["tech", "rust", "cli", "feed"]);
+    }
+
+    #[test]
+    fn dedupe_string_slice_preserve_order_clones_unique_values_only() {
+        let values = vec![
+            "tech".to_string(),
+            "rust".to_string(),
+            "tech".to_string(),
+            "cli".to_string(),
+        ];
+
+        let deduped = dedupe_string_slice_preserve_order(&values);
+
+        assert_eq!(deduped, vec!["tech", "rust", "cli"]);
     }
 
     #[test]

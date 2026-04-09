@@ -29,8 +29,10 @@ pub(crate) fn normalize_entry(
 
     let mut tags = Vec::new();
     tags.extend(target.tags.iter().cloned());
-    let title_value = title.clone().unwrap_or_default();
-    tags.extend(match_auto_tags(&title_value, &target.auto_tag_rules));
+    tags.extend(match_auto_tags(
+        title.as_deref().unwrap_or(""),
+        &target.auto_tag_rules,
+    ));
     tags.push(config.unread_tag.clone());
     let tags = dedupe_strings_preserve_order(tags);
 

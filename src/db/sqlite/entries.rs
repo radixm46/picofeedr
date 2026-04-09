@@ -6,7 +6,7 @@
 use crate::db::sqlite::query::entries as q;
 use crate::db::{EntryContentInput, EntryInput, EntryInsertResult};
 use crate::error::AppError;
-use crate::string_set::dedupe_strings_preserve_order;
+use crate::string_set::dedupe_string_slice_preserve_order;
 use rusqlite::{Connection, Statement, params, params_from_iter};
 use std::collections::HashMap;
 
@@ -85,7 +85,7 @@ impl<'conn> IngestContext<'conn> {
         if tags.is_empty() {
             return Ok(());
         }
-        let unique = dedupe_strings_preserve_order(tags.iter().cloned());
+        let unique = dedupe_string_slice_preserve_order(tags);
         for tag in &unique {
             self.insert_tag_stmt.execute(params![tag])?;
         }
