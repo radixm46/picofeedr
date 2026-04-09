@@ -1,0 +1,34 @@
+[graph]
+all-features = true
+
+[licenses]
+# Keep inference strict enough to avoid accidental matches.
+confidence-threshold = 0.93
+
+# Warn if we allow more than we actually use, so the policy stays tidy.
+unused-allowed-license = "warn"
+
+# The common MIT-project stance is to allow broadly permissive licenses that
+# are routinely treated as compatible in redistribution, while keeping
+# copyleft licenses out of the global allowlist.
+allow = [
+    "0BSD",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+
+# Current dependency graph note:
+# shellexpand -> dirs -> dirs-sys -> option-ext pulls in MPL-2.0.
+# We keep that as a crate-scoped exception instead of globally allowing MPL.
+exceptions = [
+    { crate = "option-ext", allow = ["MPL-2.0"] },
+]
