@@ -2,7 +2,7 @@
 
 use crate::config::{AppConfig, SyncConfig};
 use crate::error::AppError;
-use crossbeam_channel::{Receiver, Sender, select, unbounded};
+use crossbeam_channel::{Receiver, Sender, bounded, select, unbounded};
 use std::fs;
 use std::io::{Cursor, Read};
 use std::thread;
@@ -19,14 +19,18 @@ struct FetchError {
 }
 
 /// Fetches and parses feeds in parallel.
-pub(crate) fn fetch_parallel(
+pub(crate) fn fetch_parallel<F>(
     targets: &[SyncTarget],
     config: &AppConfig,
     mut on_progress: Option<&mut dyn FnMut(SyncProgressEvent)>,
-) -> Result<(Vec<SyncResult>, Vec<SyncError>), AppError> {
+    mut on_result: F,
+) -> Result<Vec<SyncError>, AppError>
+where
+    F: FnMut(SyncResult) -> Result<(), SyncError>,
+{
     let workers = config.sync.parallel.max(1);
     let (job_tx, job_rx) = unbounded::<SyncTarget>();
-    let (result_tx, result_rx) = unbounded::<WorkerResult>();
+    let (result_tx, result_rx) = bounded::<WorkerResult>(workers * 2);
     let (cancel_tx, cancel_rx) = unbounded::<()>();
 
     let mut handles = Vec::new();
@@ -47,7 +51,6 @@ pub(crate) fn fetch_parallel(
     drop(job_tx);
     drop(result_tx);
 
-    let mut results = Vec::new();
     let mut errors = Vec::new();
     let mut fatal: Option<AppError> = None;
     loop {
@@ -83,7 +86,9 @@ pub(crate) fn fetch_parallel(
                         entries: result.entries.len(),
                     });
                 }
-                results.push(result);
+                if let Err(error) = on_result(result) {
+                    errors.push(error);
+                }
             }
             WorkerResult::Error {
                 index,
@@ -119,7 +124,7 @@ pub(crate) fn fetch_parallel(
     if let Some(error) = fatal {
         return Err(error);
     }
-    Ok((results, errors))
+    Ok(errors)
 }
 
 /// Worker loop that consumes sync targets and reports results.

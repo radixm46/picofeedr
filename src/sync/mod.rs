@@ -11,6 +11,7 @@ use crate::config::feeds::FeedsConfig;
 use crate::db::sqlite::SqliteStore;
 use crate::error::AppError;
 use crate::feed::feed_id_from_url;
+use std::collections::HashMap;
 use std::time::Instant;
 
 pub use model::{SyncProgressEvent, SyncStatus, SyncSummary};
@@ -42,9 +43,13 @@ pub fn run_sync_with_progress(
             total_feeds: targets.len(),
         });
     }
-    let (results, mut errors) = fetch_parallel(&targets, config, on_progress)?;
-    let ingest = persist_sync_results(store, config, feeds_config, results)?;
-    errors.extend(ingest.errors);
+    let feed_pks_by_feed_id = prepare_sync_ingest(store, config, feeds_config, &targets)?;
+    let mut new_entry_count = 0;
+    let errors = fetch_parallel(&targets, config, on_progress, |result| {
+        let count = ingest_sync_result(store, config, &feed_pks_by_feed_id, result)?;
+        new_entry_count += count;
+        Ok(())
+    })?;
 
     let duration_ms = start.elapsed().as_millis() as u64;
     let failed_feed_count = errors.len();
@@ -53,83 +58,80 @@ pub fn run_sync_with_progress(
         status,
         fetched_feed_count: targets.len(),
         failed_feed_count,
-        new_entry_count: ingest.new_entry_count,
+        new_entry_count,
         duration_ms,
         errors,
     })
 }
 
-struct PersistOutcome {
-    new_entry_count: usize,
-    errors: Vec<model::SyncError>,
-}
-
-/// Persists feed metadata and ingests fetched results with per-feed transactions.
-fn persist_sync_results(
+/// Prepares feed metadata and resolves stable feed ids to primary keys.
+fn prepare_sync_ingest(
     store: &mut SqliteStore,
     config: &AppConfig,
     feeds_config: &FeedsConfig,
-    results: Vec<model::SyncResult>,
-) -> Result<PersistOutcome, AppError> {
+    targets: &[SyncTarget],
+) -> Result<HashMap<String, i64>, AppError> {
     let tx = store.tx()?;
     tx.feed_write_repo()
         .reconcile_feeds(feeds_config, &config.unread_tag)?;
     tx.commit()?;
 
-    let feed_ids = results
+    let feed_ids = targets
         .iter()
-        .map(|result| result.feed_id.clone())
+        .map(|target| target.feed_id.clone())
         .collect::<Vec<_>>();
-    let feed_pks_by_feed_id = store.feed_read_repo().find_feed_pks_by_ids(&feed_ids)?;
-    let mut new_entry_count = 0;
-    let mut errors = Vec::new();
-    for result in results {
-        let error_feed_id = result.feed_id.clone();
-        let error_feed_name = result.feed_name.clone();
-        let error_feed_url = result.feed_url.clone();
-        let feed_pk = match feed_pks_by_feed_id.get(&result.feed_id).copied() {
-            Some(feed_pk) => feed_pk,
-            None => {
-                errors.push(model::SyncError::ingest(
-                    &error_feed_id,
-                    error_feed_name.as_deref(),
-                    &error_feed_url,
-                    format!("Missing feed for {error_feed_id}"),
-                ));
-                continue;
-            }
-        };
-        let tx = store.tx()?;
-        match tx
-            .sync_write_repo()
-            .ingest_feed_result(config, feed_pk, result)
-        {
-            Ok(count) => {
-                if let Err(error) = tx.commit() {
-                    errors.push(model::SyncError::ingest(
-                        &error_feed_id,
-                        error_feed_name.as_deref(),
-                        &error_feed_url,
-                        error.to_string(),
-                    ));
-                    continue;
-                }
-                new_entry_count += count;
-            }
-            Err(error) => {
-                errors.push(model::SyncError::ingest(
-                    &error_feed_id,
-                    error_feed_name.as_deref(),
-                    &error_feed_url,
-                    error.to_string(),
-                ));
-            }
-        }
-    }
-    Ok(PersistOutcome {
-        new_entry_count,
-        errors,
-    })
+    store.feed_read_repo().find_feed_pks_by_ids(&feed_ids)
+}
+
+/// Ingests one fetched feed result and returns the number of newly inserted entries.
+fn ingest_sync_result(
+    store: &mut SqliteStore,
+    config: &AppConfig,
+    feed_pks_by_feed_id: &HashMap<String, i64>,
+    result: model::SyncResult,
+) -> Result<usize, model::SyncError> {
+    let error_feed_id = result.feed_id.clone();
+    let error_feed_name = result.feed_name.clone();
+    let error_feed_url = result.feed_url.clone();
+    let feed_pk = feed_pks_by_feed_id
+        .get(&result.feed_id)
+        .copied()
+        .ok_or_else(|| {
+            model::SyncError::ingest(
+                &error_feed_id,
+                error_feed_name.as_deref(),
+                &error_feed_url,
+                format!("Missing feed for {error_feed_id}"),
+            )
+        })?;
+    let tx = store.tx().map_err(|error| {
+        model::SyncError::ingest(
+            &error_feed_id,
+            error_feed_name.as_deref(),
+            &error_feed_url,
+            error.to_string(),
+        )
+    })?;
+    let count = tx
+        .sync_write_repo()
+        .ingest_feed_result(config, feed_pk, result)
+        .map_err(|error| {
+            model::SyncError::ingest(
+                &error_feed_id,
+                error_feed_name.as_deref(),
+                &error_feed_url,
+                error.to_string(),
+            )
+        })?;
+    tx.commit().map_err(|error| {
+        model::SyncError::ingest(
+            &error_feed_id,
+            error_feed_name.as_deref(),
+            &error_feed_url,
+            error.to_string(),
+        )
+    })?;
+    Ok(count)
 }
 
 /// Computes sync status from failed feed count.
@@ -165,7 +167,7 @@ fn build_sync_targets(feeds_config: &FeedsConfig) -> Result<Vec<SyncTarget>, App
 #[cfg(test)]
 mod tests {
     use super::model::{PendingEntry, SyncEntry, SyncResult};
-    use super::{build_sync_targets, derive_sync_status, persist_sync_results};
+    use super::{build_sync_targets, derive_sync_status, ingest_sync_result, prepare_sync_ingest};
     use crate::config::AppConfig;
     use crate::config::feeds::FeedsConfig;
     use crate::db::sqlite::SqliteStore;
@@ -243,7 +245,7 @@ retry_delay = 0
     }
 
     #[test]
-    fn persist_sync_results_counts_new_entries_across_feeds() {
+    fn prepare_and_ingest_sync_results_counts_new_entries_across_feeds() {
         let temp = TempDir::new().expect("temp dir");
         let (config_path, feeds_path) = write_config_files(&temp);
         let config = AppConfig::load(Some(config_path)).expect("load config");
@@ -256,10 +258,18 @@ retry_delay = 0
 
         let mut store = SqliteStore::open(&config.database.path).expect("open store");
         store.migrate().expect("migrate");
-        let count =
-            persist_sync_results(&mut store, &config, &feeds_config, results).expect("persist");
-        assert_eq!(count.new_entry_count, 2);
-        assert!(count.errors.is_empty());
+        let feed_pks_by_feed_id =
+            prepare_sync_ingest(&mut store, &config, &feeds_config, &targets).expect("prepare");
+        let mut new_entry_count = 0;
+        let mut errors = Vec::new();
+        for result in results {
+            match ingest_sync_result(&mut store, &config, &feed_pks_by_feed_id, result) {
+                Ok(count) => new_entry_count += count,
+                Err(error) => errors.push(error),
+            }
+        }
+        assert_eq!(new_entry_count, 2);
+        assert!(errors.is_empty());
 
         let ids = vec!["entry-a".to_string(), "entry-b".to_string()];
         let found = store
@@ -270,7 +280,7 @@ retry_delay = 0
     }
 
     #[test]
-    fn persist_sync_results_keeps_committed_feeds_on_later_error() {
+    fn sequential_ingest_keeps_committed_feeds_on_later_error() {
         let temp = TempDir::new().expect("temp dir");
         let (config_path, feeds_path) = write_config_files(&temp);
         let config = AppConfig::load(Some(config_path)).expect("load config");
@@ -283,13 +293,21 @@ retry_delay = 0
 
         let mut store = SqliteStore::open(&config.database.path).expect("open store");
         store.migrate().expect("migrate");
-        let outcome = persist_sync_results(&mut store, &config, &feeds_config, results)
-            .expect("persist with ingest errors");
-        assert_eq!(outcome.new_entry_count, 1);
-        assert_eq!(outcome.errors.len(), 1);
-        assert_eq!(outcome.errors[0].feed_id, "missing-feed-id");
-        assert_eq!(outcome.errors[0].code.as_str(), "INGEST_FAILED");
-        assert!(outcome.errors[0].message.contains("Missing feed"));
+        let feed_pks_by_feed_id =
+            prepare_sync_ingest(&mut store, &config, &feeds_config, &targets).expect("prepare");
+        let mut new_entry_count = 0;
+        let mut errors = Vec::new();
+        for result in results {
+            match ingest_sync_result(&mut store, &config, &feed_pks_by_feed_id, result) {
+                Ok(count) => new_entry_count += count,
+                Err(error) => errors.push(error),
+            }
+        }
+        assert_eq!(new_entry_count, 1);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].feed_id, "missing-feed-id");
+        assert_eq!(errors[0].code.as_str(), "INGEST_FAILED");
+        assert!(errors[0].message.contains("Missing feed"));
 
         let ids = vec!["entry-a".to_string()];
         let found = store
@@ -297,5 +315,24 @@ retry_delay = 0
             .find_entry_pks_by_ids(&ids)
             .expect("find committed ids");
         assert_eq!(found.len(), 1);
+    }
+
+    #[test]
+    fn prepare_sync_ingest_resolves_feed_pks_for_all_targets() {
+        let temp = TempDir::new().expect("temp dir");
+        let (config_path, feeds_path) = write_config_files(&temp);
+        let config = AppConfig::load(Some(config_path)).expect("load config");
+        let feeds_config = FeedsConfig::load(&feeds_path).expect("load feeds");
+        let targets = build_sync_targets(&feeds_config).expect("build targets");
+
+        let mut store = SqliteStore::open(&config.database.path).expect("open store");
+        store.migrate().expect("migrate");
+        let feed_pks_by_feed_id =
+            prepare_sync_ingest(&mut store, &config, &feeds_config, &targets).expect("prepare");
+
+        assert_eq!(feed_pks_by_feed_id.len(), targets.len());
+        for target in &targets {
+            assert!(feed_pks_by_feed_id.contains_key(&target.feed_id));
+        }
     }
 }
