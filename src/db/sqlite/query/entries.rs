@@ -206,7 +206,9 @@ pub(crate) fn select_entry_rows_by_entry_pks(placeholders: &str) -> String {
 
 /// Builds SQL that loads entry primary keys by tag ids.
 pub(crate) fn select_entry_pks_by_tag_ids(tag_placeholders: &str) -> String {
-    format!("SELECT tag_id, entry_pk FROM entry_tags WHERE tag_id IN ({tag_placeholders})")
+    format!(
+        "SELECT tag_id, entry_pk FROM entry_tags WHERE tag_id IN ({tag_placeholders}) ORDER BY tag_id, entry_pk"
+    )
 }
 
 /// Builds SQL that loads tags for a set of entry ids.

@@ -10,7 +10,7 @@ use rusqlite::types::Value;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use sha1::{Digest, Sha1};
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 /// Cursor payload for pagination.
 #[derive(Debug, Serialize, Deserialize)]
@@ -26,6 +26,23 @@ type EntryListPage = (Vec<EntrySummary>, Vec<FeedSummary>, Option<String>);
 enum FeedIdPredicate {
     NotRequested,
     Resolved(i64),
+}
+
+#[derive(Clone, Copy)]
+struct UniverseView<'a>(&'a [(i64, i64)]);
+
+impl<'a> UniverseView<'a> {
+    fn len(self) -> usize {
+        self.0.len()
+    }
+
+    fn intersect_sorted(self, right: &[i64]) -> Vec<i64> {
+        intersect_pairs_sorted(self.0, right)
+    }
+
+    fn difference_sorted(self, right: &[i64]) -> Vec<i64> {
+        difference_pairs_sorted(self.0, right)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,18 +73,16 @@ pub fn list_entries(
     {
         let (universe_where_sql, universe_params) =
             build_non_tag_where_clause(query, sort, None, &query_hash, &feed_id_predicate)?;
-        let universe_sort_pairs = entry_repo.list_filtered_entry_sort_keys(
+        let mut universe_sort_pairs = entry_repo.list_filtered_entry_sort_keys(
             &universe_where_sql,
             &universe_params,
             sort_key_expr(sort),
         )?;
-        let universe_entry_pks = universe_sort_pairs
-            .iter()
-            .map(|(entry_pk, _)| *entry_pk)
-            .collect::<Vec<_>>();
+        universe_sort_pairs.sort_unstable_by_key(|(entry_pk, _)| *entry_pk);
+        universe_sort_pairs.dedup_by_key(|(entry_pk, _)| *entry_pk);
         let matched_entry_pks = resolve_complex_tag_entry_pks(
             &entry_repo,
-            &universe_entry_pks,
+            &universe_sort_pairs,
             &resolved_tag_ids,
             tag_expr,
         )?;
@@ -150,57 +165,60 @@ fn route_tag_eval_path(expr: &TagExpr) -> TagEvalPath {
 
 fn resolve_complex_tag_entry_pks(
     entry_repo: &EntryReadRepo<'_>,
-    universe_pks: &[i64],
+    universe_sort_pairs: &[(i64, i64)],
     resolved_tag_ids: &HashMap<String, i64>,
     tag_expr: &TagExpr,
 ) -> Result<Vec<i64>, AppError> {
     // NOTE: This set evaluation is recomputed for every list request (including cursor pages).
     // Keeping it stateless preserves correctness, and caching can be considered in a follow-up.
-    if universe_pks.is_empty() {
+    if universe_sort_pairs.is_empty() {
         return Ok(Vec::new());
     }
-    let universe = universe_pks.iter().copied().collect::<HashSet<_>>();
     let tag_ids = resolved_tag_ids.values().copied().collect::<Vec<_>>();
     let tag_entry_pks = entry_repo.find_entry_pks_by_tag_ids(&tag_ids)?;
-    let matched = evaluate_tag_expr_set(tag_expr, &universe, resolved_tag_ids, &tag_entry_pks);
-    let mut pks = matched.into_iter().collect::<Vec<_>>();
-    pks.sort_unstable();
-    Ok(pks)
+    let matched = evaluate_tag_expr_set(
+        tag_expr,
+        UniverseView(universe_sort_pairs),
+        resolved_tag_ids,
+        &tag_entry_pks,
+    );
+    Ok(matched)
 }
 
 fn evaluate_tag_expr_set(
     expr: &TagExpr,
-    universe: &HashSet<i64>,
+    universe: UniverseView<'_>,
     resolved_tag_ids: &HashMap<String, i64>,
-    tag_entry_pks: &HashMap<i64, HashSet<i64>>,
-) -> HashSet<i64> {
+    tag_entry_pks: &HashMap<i64, Vec<i64>>,
+) -> Vec<i64> {
     match expr {
         TagExpr::Tag(tag) => {
             let Some(tag_id) = resolved_tag_ids.get(tag) else {
-                return HashSet::new();
+                return Vec::new();
             };
             let Some(entry_pks) = tag_entry_pks.get(tag_id) else {
-                return HashSet::new();
+                return Vec::new();
             };
-            entry_pks
-                .iter()
-                .filter(|pk| universe.contains(pk))
-                .copied()
-                .collect()
+            universe.intersect_sorted(entry_pks)
         }
         TagExpr::Not(inner) => {
             let inner_set = evaluate_tag_expr_set(inner, universe, resolved_tag_ids, tag_entry_pks);
-            universe.difference(&inner_set).copied().collect()
+            universe.difference_sorted(&inner_set)
         }
         TagExpr::And(items) => {
             let mut iter = items.iter();
             let Some(first) = iter.next() else {
-                return HashSet::new();
+                return Vec::new();
             };
             let mut acc = evaluate_tag_expr_set(first, universe, resolved_tag_ids, tag_entry_pks);
+            let mut scratch = Vec::new();
             for item in iter {
                 let next = evaluate_tag_expr_set(item, universe, resolved_tag_ids, tag_entry_pks);
-                acc.retain(|pk| next.contains(pk));
+                if acc.is_empty() || next.is_empty() {
+                    return Vec::new();
+                }
+                intersect_sorted_into(&acc, &next, &mut scratch);
+                std::mem::swap(&mut acc, &mut scratch);
                 if acc.is_empty() {
                     break;
                 }
@@ -208,14 +226,156 @@ fn evaluate_tag_expr_set(
             acc
         }
         TagExpr::Or(items) => {
-            let mut acc = HashSet::new();
-            for item in items {
+            let mut iter = items.iter();
+            let Some(first) = iter.next() else {
+                return Vec::new();
+            };
+            let mut acc = evaluate_tag_expr_set(first, universe, resolved_tag_ids, tag_entry_pks);
+            let mut scratch = Vec::new();
+            if acc.len() == universe.len() {
+                return acc;
+            }
+            for item in iter {
                 let next = evaluate_tag_expr_set(item, universe, resolved_tag_ids, tag_entry_pks);
-                acc.extend(next);
+                if next.is_empty() {
+                    continue;
+                }
+                merge_union_sorted_into(&acc, &next, &mut scratch);
+                std::mem::swap(&mut acc, &mut scratch);
+                if acc.len() == universe.len() {
+                    break;
+                }
             }
             acc
         }
     }
+}
+
+#[cfg(test)]
+fn intersect_sorted(left: &[i64], right: &[i64]) -> Vec<i64> {
+    let mut result = Vec::with_capacity(left.len().min(right.len()));
+    intersect_sorted_into(left, right, &mut result);
+    result
+}
+
+fn intersect_pairs_sorted(left: &[(i64, i64)], right: &[i64]) -> Vec<i64> {
+    let mut result = Vec::with_capacity(left.len().min(right.len()));
+    let mut left_index = 0usize;
+    let mut right_index = 0usize;
+    while left_index < left.len() && right_index < right.len() {
+        match left[left_index].0.cmp(&right[right_index]) {
+            std::cmp::Ordering::Less => left_index += 1,
+            std::cmp::Ordering::Greater => right_index += 1,
+            std::cmp::Ordering::Equal => {
+                result.push(left[left_index].0);
+                left_index += 1;
+                right_index += 1;
+            }
+        }
+    }
+    result
+}
+
+fn intersect_sorted_into(left: &[i64], right: &[i64], result: &mut Vec<i64>) {
+    result.clear();
+    let target_capacity = left.len().min(right.len());
+    result.reserve(target_capacity.saturating_sub(result.capacity()));
+    let mut left_index = 0usize;
+    let mut right_index = 0usize;
+    while left_index < left.len() && right_index < right.len() {
+        match left[left_index].cmp(&right[right_index]) {
+            std::cmp::Ordering::Less => left_index += 1,
+            std::cmp::Ordering::Greater => right_index += 1,
+            std::cmp::Ordering::Equal => {
+                result.push(left[left_index]);
+                left_index += 1;
+                right_index += 1;
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+fn difference_sorted(left: &[i64], right: &[i64]) -> Vec<i64> {
+    let mut result = Vec::with_capacity(left.len());
+    let mut left_index = 0usize;
+    let mut right_index = 0usize;
+    while left_index < left.len() {
+        if right_index >= right.len() {
+            result.extend_from_slice(&left[left_index..]);
+            break;
+        }
+        match left[left_index].cmp(&right[right_index]) {
+            std::cmp::Ordering::Less => {
+                result.push(left[left_index]);
+                left_index += 1;
+            }
+            std::cmp::Ordering::Greater => right_index += 1,
+            std::cmp::Ordering::Equal => {
+                left_index += 1;
+                right_index += 1;
+            }
+        }
+    }
+    result
+}
+
+fn difference_pairs_sorted(left: &[(i64, i64)], right: &[i64]) -> Vec<i64> {
+    let mut result = Vec::with_capacity(left.len());
+    let mut left_index = 0usize;
+    let mut right_index = 0usize;
+    while left_index < left.len() {
+        if right_index >= right.len() {
+            result.extend(left[left_index..].iter().map(|(entry_pk, _)| *entry_pk));
+            break;
+        }
+        match left[left_index].0.cmp(&right[right_index]) {
+            std::cmp::Ordering::Less => {
+                result.push(left[left_index].0);
+                left_index += 1;
+            }
+            std::cmp::Ordering::Greater => right_index += 1,
+            std::cmp::Ordering::Equal => {
+                left_index += 1;
+                right_index += 1;
+            }
+        }
+    }
+    result
+}
+
+#[cfg(test)]
+fn merge_union_sorted(left: &[i64], right: &[i64]) -> Vec<i64> {
+    let mut result = Vec::with_capacity(left.len() + right.len());
+    merge_union_sorted_into(left, right, &mut result);
+    result
+}
+
+fn merge_union_sorted_into(left: &[i64], right: &[i64], result: &mut Vec<i64>) {
+    result.clear();
+    let target_capacity = left.len() + right.len();
+    result.reserve(target_capacity.saturating_sub(result.capacity()));
+    let mut left_index = 0usize;
+    let mut right_index = 0usize;
+    while left_index < left.len() && right_index < right.len() {
+        match left[left_index].cmp(&right[right_index]) {
+            std::cmp::Ordering::Less => {
+                result.push(left[left_index]);
+                left_index += 1;
+            }
+            std::cmp::Ordering::Greater => {
+                result.push(right[right_index]);
+                right_index += 1;
+            }
+            std::cmp::Ordering::Equal => {
+                result.push(left[left_index]);
+                left_index += 1;
+                right_index += 1;
+            }
+        }
+    }
+    result.extend_from_slice(&left[left_index..]);
+    result.extend_from_slice(&right[right_index..]);
 }
 
 fn resolve_feed_id_predicate(
@@ -420,11 +580,10 @@ fn fetch_entries_complex(
     cursor: Option<&str>,
     query_hash: &str,
 ) -> Result<EntryListPage, AppError> {
-    let matched_set = matched_pks.iter().copied().collect::<HashSet<_>>();
     let mut sort_pairs = universe_sort_pairs
         .iter()
         .copied()
-        .filter(|(entry_id, _)| matched_set.contains(entry_id))
+        .filter(|(entry_id, _)| matched_pks.binary_search(entry_id).is_ok())
         .collect::<Vec<_>>();
     sort_pairs.sort_unstable_by(|(id_a, key_a), (id_b, key_b)| match sort {
         SortOrder::DateDesc | SortOrder::FirstSeenDesc => {
@@ -673,8 +832,12 @@ fn build_tag_expr_clause(
 
 #[cfg(test)]
 mod tests {
-    use super::{TagEvalPath, route_tag_eval_path};
+    use super::{
+        TagEvalPath, UniverseView, difference_sorted, evaluate_tag_expr_set, intersect_sorted,
+        merge_union_sorted, route_tag_eval_path,
+    };
     use crate::query::TagExpr;
+    use std::collections::HashMap;
 
     #[test]
     fn route_complex_when_contains_not() {
@@ -716,5 +879,85 @@ mod tests {
     fn route_complex_when_or_fanout_exceeds_threshold() {
         let expr = TagExpr::Or((0..7).map(|i| TagExpr::Tag(format!("t{i}"))).collect());
         assert_eq!(route_tag_eval_path(&expr), TagEvalPath::Complex);
+    }
+
+    #[test]
+    fn intersect_sorted_returns_common_values_in_order() {
+        assert_eq!(intersect_sorted(&[1, 3, 4, 7], &[2, 3, 4, 8]), vec![3, 4]);
+    }
+
+    #[test]
+    fn difference_sorted_returns_values_missing_from_right() {
+        assert_eq!(difference_sorted(&[1, 2, 3, 5], &[2, 4, 5]), vec![1, 3]);
+    }
+
+    #[test]
+    fn merge_union_sorted_merges_without_duplicates() {
+        assert_eq!(
+            merge_union_sorted(&[1, 2, 5, 9], &[2, 3, 4, 9]),
+            vec![1, 2, 3, 4, 5, 9]
+        );
+    }
+
+    #[test]
+    fn merge_union_sorted_handles_empty_inputs() {
+        assert_eq!(merge_union_sorted(&[], &[2, 4]), vec![2, 4]);
+        assert_eq!(merge_union_sorted(&[1, 3], &[]), vec![1, 3]);
+    }
+
+    #[test]
+    fn evaluate_tag_expr_set_handles_nested_or_and_not() {
+        let expr = TagExpr::Or(vec![
+            TagExpr::And(vec![
+                TagExpr::Tag("a".to_string()),
+                TagExpr::Tag("b".to_string()),
+            ]),
+            TagExpr::Not(Box::new(TagExpr::Tag("c".to_string()))),
+        ]);
+        let universe = vec![(1, 100), (2, 90), (3, 80), (4, 70), (5, 60)];
+        let resolved_tag_ids = HashMap::from([
+            ("a".to_string(), 10),
+            ("b".to_string(), 20),
+            ("c".to_string(), 30),
+        ]);
+        let tag_entry_pks =
+            HashMap::from([(10, vec![1, 3, 5]), (20, vec![3, 4, 5]), (30, vec![2, 5])]);
+
+        let matched = evaluate_tag_expr_set(
+            &expr,
+            UniverseView(&universe),
+            &resolved_tag_ids,
+            &tag_entry_pks,
+        );
+
+        assert_eq!(matched, vec![1, 3, 4, 5]);
+    }
+
+    #[test]
+    fn evaluate_tag_expr_set_accepts_pair_universe_without_materializing_ids() {
+        let expr = TagExpr::Or(vec![
+            TagExpr::And(vec![
+                TagExpr::Tag("a".to_string()),
+                TagExpr::Tag("b".to_string()),
+            ]),
+            TagExpr::Not(Box::new(TagExpr::Tag("c".to_string()))),
+        ]);
+        let universe_pairs = vec![(1, 100), (2, 90), (3, 80), (4, 70), (5, 60)];
+        let resolved_tag_ids = HashMap::from([
+            ("a".to_string(), 10),
+            ("b".to_string(), 20),
+            ("c".to_string(), 30),
+        ]);
+        let tag_entry_pks =
+            HashMap::from([(10, vec![1, 3, 5]), (20, vec![3, 4, 5]), (30, vec![2, 5])]);
+
+        let matched = evaluate_tag_expr_set(
+            &expr,
+            UniverseView(&universe_pairs),
+            &resolved_tag_ids,
+            &tag_entry_pks,
+        );
+
+        assert_eq!(matched, vec![1, 3, 4, 5]);
     }
 }

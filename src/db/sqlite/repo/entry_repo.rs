@@ -7,7 +7,7 @@ use crate::entry::{EntryEnclosure, EntrySummary};
 use crate::error::AppError;
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
@@ -136,11 +136,11 @@ impl<'a> EntryReadRepo<'a> {
     pub fn find_entry_pks_by_tag_ids(
         &self,
         tag_ids: &[i64],
-    ) -> Result<HashMap<i64, HashSet<i64>>, AppError> {
+    ) -> Result<HashMap<i64, Vec<i64>>, AppError> {
         if tag_ids.is_empty() {
             return Ok(HashMap::new());
         }
-        let mut map: HashMap<i64, HashSet<i64>> = HashMap::new();
+        let mut map: HashMap<i64, Vec<i64>> = HashMap::new();
         for tag_chunk in tag_ids.chunks(Self::IN_CHUNK_SIZE) {
             let tag_placeholders = std::iter::repeat_n("?", tag_chunk.len())
                 .collect::<Vec<_>>()
@@ -151,7 +151,7 @@ impl<'a> EntryReadRepo<'a> {
             while let Some(row) = rows.next()? {
                 let tag_id: i64 = row.get(0)?;
                 let entry_pk: i64 = row.get(1)?;
-                map.entry(tag_id).or_default().insert(entry_pk);
+                map.entry(tag_id).or_default().push(entry_pk);
             }
         }
         Ok(map)
@@ -732,5 +732,29 @@ mod tests {
             .count_mark_changed_entries()
             .expect("count changed after clear");
         assert_eq!(changed_after_clear, 0);
+    }
+
+    #[test]
+    fn find_entry_pks_by_tag_ids_returns_sorted_vectors() {
+        let conn = Connection::open_in_memory().expect("open in-memory sqlite");
+        create_store_schema(&conn);
+        insert_feed(&conn);
+        insert_entry(&conn, 1, "entry-1");
+        insert_entry(&conn, 2, "entry-2");
+        insert_entry(&conn, 3, "entry-3");
+        insert_tag(&conn, 10, "foo");
+        insert_tag(&conn, 20, "bar");
+        conn.execute(
+            "INSERT INTO entry_tags (entry_pk, tag_id) VALUES (3, 10), (1, 10), (2, 20), (1, 20)",
+            [],
+        )
+        .expect("seed entry tags");
+
+        let map = EntryReadRepo::new(&conn)
+            .find_entry_pks_by_tag_ids(&[10, 20])
+            .expect("find entry pks by tag ids");
+
+        assert_eq!(map.get(&10), Some(&vec![1, 3]));
+        assert_eq!(map.get(&20), Some(&vec![1, 2]));
     }
 }
