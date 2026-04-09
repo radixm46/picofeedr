@@ -137,11 +137,11 @@
         }
       },
       "required": [
-        "enclosures",
         "entry_id",
         "feed_id",
         "first_seen_at",
-        "tags"
+        "tags",
+        "enclosures"
       ],
       "type": "object"
     },
@@ -234,24 +234,18 @@
       "description": "Status of the response.",
       "oneOf": [
         {
+          "const": "ok",
           "description": "Command completed without warnings.",
-          "enum": [
-            "ok"
-          ],
           "type": "string"
         },
         {
+          "const": "warning",
           "description": "Command completed with non-fatal warnings.",
-          "enum": [
-            "warning"
-          ],
           "type": "string"
         },
         {
+          "const": "error",
           "description": "Command failed fatally.",
-          "enum": [
-            "error"
-          ],
           "type": "string"
         }
       ]
@@ -304,6 +298,6 @@
     "error",
     "meta"
   ],
-  "title": "Envelope_for_EntryDetail",
+  "title": "Envelope",
   "type": "object"
 }

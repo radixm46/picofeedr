@@ -61,7 +61,7 @@
         "checked_feeds": {
           "description": "Number of feed entries checked.",
           "format": "uint",
-          "minimum": 0.0,
+          "minimum": 0,
           "type": "integer"
         },
         "errors": {
@@ -84,10 +84,10 @@
         }
       },
       "required": [
-        "checked_feeds",
-        "errors",
         "valid",
-        "warnings"
+        "errors",
+        "warnings",
+        "checked_feeds"
       ],
       "type": "object"
     },
@@ -152,24 +152,18 @@
       "description": "Status of the response.",
       "oneOf": [
         {
+          "const": "ok",
           "description": "Command completed without warnings.",
-          "enum": [
-            "ok"
-          ],
           "type": "string"
         },
         {
+          "const": "warning",
           "description": "Command completed with non-fatal warnings.",
-          "enum": [
-            "warning"
-          ],
           "type": "string"
         },
         {
+          "const": "error",
           "description": "Command failed fatally.",
-          "enum": [
-            "error"
-          ],
           "type": "string"
         }
       ]
@@ -247,6 +241,6 @@
     "error",
     "meta"
   ],
-  "title": "Envelope_for_ConfigCheckReport",
+  "title": "Envelope",
   "type": "object"
 }

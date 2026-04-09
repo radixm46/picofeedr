@@ -116,24 +116,18 @@
       "description": "Status of the response.",
       "oneOf": [
         {
+          "const": "ok",
           "description": "Command completed without warnings.",
-          "enum": [
-            "ok"
-          ],
           "type": "string"
         },
         {
+          "const": "warning",
           "description": "Command completed with non-fatal warnings.",
-          "enum": [
-            "warning"
-          ],
           "type": "string"
         },
         {
+          "const": "error",
           "description": "Command failed fatally.",
-          "enum": [
-            "error"
-          ],
           "type": "string"
         }
       ]
@@ -174,9 +168,9 @@
         }
       },
       "required": [
-        "code",
         "feed_id",
         "feed_url",
+        "code",
         "message",
         "retryable"
       ],
@@ -206,7 +200,7 @@
         "duration_ms": {
           "description": "Elapsed time in milliseconds.",
           "format": "uint64",
-          "minimum": 0.0,
+          "minimum": 0,
           "type": "integer"
         },
         "errors": {
@@ -219,19 +213,19 @@
         "failed_feed_count": {
           "description": "Number of failed feeds.",
           "format": "uint",
-          "minimum": 0.0,
+          "minimum": 0,
           "type": "integer"
         },
         "fetched_feed_count": {
           "description": "Number of feeds fetched.",
           "format": "uint",
-          "minimum": 0.0,
+          "minimum": 0,
           "type": "integer"
         },
         "new_entry_count": {
           "description": "Number of new entries ingested.",
           "format": "uint",
-          "minimum": 0.0,
+          "minimum": 0,
           "type": "integer"
         },
         "status": {
@@ -244,12 +238,12 @@
         }
       },
       "required": [
-        "duration_ms",
-        "errors",
-        "failed_feed_count",
+        "status",
         "fetched_feed_count",
+        "failed_feed_count",
         "new_entry_count",
-        "status"
+        "duration_ms",
+        "errors"
       ],
       "type": "object"
     }
@@ -301,6 +295,6 @@
     "error",
     "meta"
   ],
-  "title": "Envelope_for_SyncSummary",
+  "title": "Envelope",
   "type": "object"
 }

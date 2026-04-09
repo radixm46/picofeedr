@@ -93,7 +93,7 @@
         "updated_entry_count": {
           "description": "Number of entries updated by mark command.",
           "format": "uint",
-          "minimum": 0.0,
+          "minimum": 0,
           "type": "integer"
         }
       },
@@ -131,24 +131,18 @@
       "description": "Status of the response.",
       "oneOf": [
         {
+          "const": "ok",
           "description": "Command completed without warnings.",
-          "enum": [
-            "ok"
-          ],
           "type": "string"
         },
         {
+          "const": "warning",
           "description": "Command completed with non-fatal warnings.",
-          "enum": [
-            "warning"
-          ],
           "type": "string"
         },
         {
+          "const": "error",
           "description": "Command failed fatally.",
-          "enum": [
-            "error"
-          ],
           "type": "string"
         }
       ]
@@ -201,6 +195,6 @@
     "error",
     "meta"
   ],
-  "title": "Envelope_for_MarkResponse",
+  "title": "Envelope",
   "type": "object"
 }

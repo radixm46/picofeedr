@@ -207,11 +207,13 @@ fn fetch_and_parse(target: &SyncTarget, config: &AppConfig, agent: &ureq::Agent)
 }
 
 fn build_agent(sync: &SyncConfig) -> ureq::Agent {
-    ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_secs(sync.timeout_secs))
-        .timeout_read(Duration::from_secs(sync.timeout_secs))
-        .timeout_write(Duration::from_secs(sync.timeout_secs))
+    ureq::Agent::config_builder()
+        .timeout_connect(Some(Duration::from_secs(sync.timeout_secs)))
+        .timeout_send_request(Some(Duration::from_secs(sync.timeout_secs)))
+        .timeout_send_body(Some(Duration::from_secs(sync.timeout_secs)))
+        .timeout_recv_body(Some(Duration::from_secs(sync.timeout_secs)))
         .build()
+        .into()
 }
 
 fn read_limited_bytes<R: Read>(
@@ -274,20 +276,18 @@ fn fetch_feed_bytes(
         return read_feed_file(path, sync);
     }
     for attempt in 0..=sync.retry_count {
-        let response = agent.get(url).set("User-Agent", &sync.user_agent).call();
+        let response = agent.get(url).header("User-Agent", &sync.user_agent).call();
         match response {
-            Ok(response) => {
+            Ok(mut response) => {
                 return read_limited_bytes(
-                    response.into_reader(),
+                    response.body_mut().as_reader(),
                     sync.max_feed_bytes,
                     "Failed to read feed body",
                     true,
                 );
             }
             Err(error) => {
-                if let ureq::Error::Status(code, _) = &error
-                    && (400..500).contains(code)
-                {
+                if matches!(&error, ureq::Error::StatusCode(code) if (400..500).contains(code)) {
                     return Err(FetchError {
                         message: trim_url_prefix(url, error.to_string()),
                         retryable: false,

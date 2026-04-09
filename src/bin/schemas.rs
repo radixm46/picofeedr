@@ -11,7 +11,7 @@ use picofeedr::response::{
 use picofeedr::status::StatusResponse;
 use picofeedr::sync::SyncSummary;
 use schemars::JsonSchema;
-use schemars::r#gen::SchemaSettings;
+use schemars::generate::SchemaSettings;
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::fs;

@@ -108,10 +108,8 @@
       "description": "Ping status fixed literal.",
       "oneOf": [
         {
+          "const": "ok",
           "description": "Fixed status string.",
-          "enum": [
-            "ok"
-          ],
           "type": "string"
         }
       ]
@@ -145,24 +143,18 @@
       "description": "Status of the response.",
       "oneOf": [
         {
+          "const": "ok",
           "description": "Command completed without warnings.",
-          "enum": [
-            "ok"
-          ],
           "type": "string"
         },
         {
+          "const": "warning",
           "description": "Command completed with non-fatal warnings.",
-          "enum": [
-            "warning"
-          ],
           "type": "string"
         },
         {
+          "const": "error",
           "description": "Command failed fatally.",
-          "enum": [
-            "error"
-          ],
           "type": "string"
         }
       ]
@@ -215,6 +207,6 @@
     "error",
     "meta"
   ],
-  "title": "Envelope_for_PingResponse",
+  "title": "Envelope",
   "type": "object"
 }

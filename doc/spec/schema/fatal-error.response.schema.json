@@ -91,10 +91,8 @@
       "description": "Fatal status fixed literal.",
       "oneOf": [
         {
+          "const": "error",
           "description": "Fixed status string.",
-          "enum": [
-            "error"
-          ],
           "type": "string"
         }
       ]
