@@ -1,6 +1,10 @@
 [graph]
 all-features = true
 
+[advisories]
+version = 2
+yanked = "deny"
+
 [licenses]
 # Keep inference strict enough to avoid accidental matches.
 confidence-threshold = 0.93
@@ -32,3 +36,7 @@ allow = [
 exceptions = [
     { crate = "option-ext", allow = ["MPL-2.0"] },
 ]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
