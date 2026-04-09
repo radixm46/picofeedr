@@ -9,7 +9,7 @@ clap = { version = "4", features = ["derive"] }
 feed-rs = "1"
 hex = "0.4"
 regex = "1"
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.39", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 schemars = { version = "0.8", features = ["derive"] }
@@ -20,7 +20,7 @@ shellexpand = "3"
 base64 = "0.22"
 crossbeam-channel = "0.5"
 thiserror = "2"
-toml = "0.8"
+toml = "1.1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt"] }
 ureq = { version = "2", features = ["tls"] }
