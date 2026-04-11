@@ -74,6 +74,97 @@ fn parse_error_with_output_equals_json_is_enveloped() {
 }
 
 #[test]
+fn root_help_command_matches_long_help() {
+    let long_help = cargo_bin_cmd!("picofeedr")
+        .arg("--help")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let help_subcommand = cargo_bin_cmd!("picofeedr")
+        .arg("help")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    assert_eq!(help_subcommand, long_help);
+}
+
+#[test]
+fn root_short_help_stays_distinct_from_long_help() {
+    let long_help = String::from_utf8(
+        cargo_bin_cmd!("picofeedr")
+            .arg("--help")
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone(),
+    )
+    .expect("utf8");
+    let short_help = String::from_utf8(
+        cargo_bin_cmd!("picofeedr")
+            .arg("-h")
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone(),
+    )
+    .expect("utf8");
+
+    assert_ne!(short_help, long_help);
+    assert!(short_help.contains("Print help (see more with '--help')"));
+    assert!(long_help.contains("Print help (see a summary with '-h')"));
+}
+
+#[test]
+fn missing_subcommand_error_stays_compact_and_points_to_help() {
+    let short_help = String::from_utf8(
+        cargo_bin_cmd!("picofeedr")
+            .arg("-h")
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone(),
+    )
+    .expect("utf8");
+    let stderr = String::from_utf8(
+        cargo_bin_cmd!("picofeedr")
+            .assert()
+            .failure()
+            .get_output()
+            .stderr
+            .clone(),
+    )
+    .expect("utf8");
+
+    assert_eq!(stderr.trim_end(), short_help.trim_end());
+}
+
+#[test]
+fn unknown_subcommand_error_stays_compact_and_points_to_help() {
+    let stderr = String::from_utf8(
+        cargo_bin_cmd!("picofeedr")
+            .arg("unknown")
+            .assert()
+            .failure()
+            .get_output()
+            .stderr
+            .clone(),
+    )
+    .expect("utf8");
+
+    assert!(stderr.starts_with("error: unrecognized subcommand 'unknown'"));
+    assert!(stderr.contains("Usage: picofeedr [OPTIONS] <COMMAND>"));
+    assert!(stderr.contains("For more information, try '--help'."));
+}
+
+#[test]
 fn ping_plain_uses_kv_status_line() {
     let output = picofeedr_cmd_plain()
         .arg("ping")

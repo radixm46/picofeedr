@@ -7,7 +7,7 @@ use clap::Parser;
 use picofeedr::cli::{Cli, Command, OutputFormat};
 use picofeedr::config;
 use picofeedr::error::AppError;
-use picofeedr::response::{Envelope, PingResponse, ResponsePayload, VersionResponse};
+use picofeedr::response::{Envelope, ResponsePayload, VersionResponse};
 use std::env;
 use std::error::Error;
 use std::ffi::OsString;
@@ -97,7 +97,6 @@ fn run(
 
 fn run_json(cli: &Cli, config: Option<&config::AppConfig>) -> Result<(), RunFailure> {
     match &cli.command {
-        Command::Ping => output::write_json_response(PingResponse::ok())?,
         Command::Version => output::write_json_response(VersionResponse {
             api_version: env!("CARGO_PKG_VERSION").to_string(),
             db_schema_version: picofeedr::db::migrate::current_schema_version(),
@@ -142,7 +141,6 @@ fn run_json(cli: &Cli, config: Option<&config::AppConfig>) -> Result<(), RunFail
 
 fn run_plain(cli: &Cli, config: Option<&config::AppConfig>) -> Result<(), RunFailure> {
     let result = match &cli.command {
-        Command::Ping => output::PlainOutput::Ping,
         Command::Version => output::PlainOutput::Version(VersionResponse {
             api_version: env!("CARGO_PKG_VERSION").to_string(),
             db_schema_version: picofeedr::db::migrate::current_schema_version(),
@@ -179,7 +177,7 @@ fn run_feeds_check(
 
 /// Loads config once for config-backed commands.
 fn preload_runtime_config(cli: &Cli) -> Result<Option<config::AppConfig>, AppError> {
-    if matches!(cli.command, Command::Ping | Command::Version) {
+    if matches!(cli.command, Command::Version) {
         return Ok(None);
     }
     load_runtime_config(cli).map(Some)
@@ -200,7 +198,7 @@ fn resolve_output_format(cli: &Cli, config: Option<&config::AppConfig>) -> Outpu
         return output;
     }
     match cli.command {
-        Command::Ping | Command::Version => OutputFormat::Plain,
+        Command::Version => OutputFormat::Plain,
         _ => config
             .map(|config| config.cli.output)
             .unwrap_or(OutputFormat::Plain),
@@ -238,7 +236,9 @@ fn handle_cli_parse_error(args: &[OsString], error: clap::Error) -> ExitCode {
                         eprintln!("failed to write CLI output: {write_error}");
                     }
                 }
-                OutputFormat::Plain => eprintln!("{error}"),
+                OutputFormat::Plain => {
+                    eprintln!("{error}");
+                }
             }
             ExitCode::from(1)
         }
