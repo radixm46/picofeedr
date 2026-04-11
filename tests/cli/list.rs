@@ -14,7 +14,7 @@ fn list_long_help_includes_query_reference_sections() {
     )
     .expect("utf8");
 
-    assert!(stdout.contains("Query syntax:"));
+    assert!(stdout.contains("--query <QUERY>"));
     assert!(stdout.contains("tag:<expr>"));
     assert!(stdout.contains("-tag:<expr>"));
     assert!(stdout.contains("after:<YYYY-MM-DD|Nd|Nw|Nm|Ny>"));

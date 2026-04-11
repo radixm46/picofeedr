@@ -3,8 +3,10 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
-const LIST_QUERY_AFTER_LONG_HELP: &str = "\
-Query syntax:
+const LIST_QUERY_LONG_HELP: &str = "\
+Query string for entry filters
+
+Supported terms:
   unread
   tag:<expr>         tag expression: AND/OR/NOT, &, |, !, ()
   -tag:<expr>        exclude tags
@@ -112,10 +114,9 @@ pub enum Command {
     Sync,
 
     /// List entry summaries.
-    #[command(after_long_help = LIST_QUERY_AFTER_LONG_HELP)]
     List {
         /// Query string for tag filters.
-        #[arg(long)]
+        #[arg(long, long_help = LIST_QUERY_LONG_HELP)]
         query: Option<String>,
         /// Sort order.
         #[arg(long, value_enum)]
