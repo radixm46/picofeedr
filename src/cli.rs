@@ -3,6 +3,22 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
+const LIST_QUERY_AFTER_LONG_HELP: &str = "\
+Query syntax:
+  unread
+  tag:<expr>         tag expression: AND/OR/NOT, &, |, !, ()
+  -tag:<expr>        exclude tags
+  title:\"<text>\"
+  feed:<id>|\"<title>\"
+  after:<YYYY-MM-DD|Nd|Nw|Nm|Ny>
+  before:<YYYY-MM-DD|Nd|Nw|Nm|Ny>
+
+Examples:
+  --query 'after:1w'
+  --query 'tag:(rust & cli)'
+  --query 'tag:rust -tag:(archived | misc)'
+  --query 'title:\"example title\"'";
+
 /// Output format for CLI responses.
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum OutputFormat {
@@ -99,6 +115,7 @@ pub enum Command {
     Sync,
 
     /// List entry summaries.
+    #[command(after_long_help = LIST_QUERY_AFTER_LONG_HELP)]
     List {
         /// Query string for tag filters.
         #[arg(long)]

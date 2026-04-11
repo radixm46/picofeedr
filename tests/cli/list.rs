@@ -1,6 +1,27 @@
 use super::*;
 
 #[test]
+fn list_long_help_includes_query_reference_sections() {
+    let stdout = String::from_utf8(
+        cargo_bin_cmd!("picofeedr")
+            .arg("list")
+            .arg("--help")
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone(),
+    )
+    .expect("utf8");
+
+    assert!(stdout.contains("Query syntax:"));
+    assert!(stdout.contains("tag:<expr>"));
+    assert!(stdout.contains("-tag:<expr>"));
+    assert!(stdout.contains("after:<YYYY-MM-DD|Nd|Nw|Nm|Ny>"));
+    assert!(stdout.contains("before:<YYYY-MM-DD|Nd|Nw|Nm|Ny>"));
+}
+
+#[test]
 fn list_plain_outputs_tsv_columns() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
