@@ -16,7 +16,6 @@ use time::{OffsetDateTime, UtcOffset};
 
 /// Plain CLI output payloads.
 pub(crate) enum PlainOutput {
-    Ping,
     Version(VersionResponse),
     Tags(Vec<String>),
     Status(StatusResponse),
@@ -64,9 +63,6 @@ fn format_plain_output(result: PlainOutput) -> PlainTextOutput {
     let mut stdout = String::new();
     let mut stderr = String::new();
     match result {
-        PlainOutput::Ping => {
-            writeln!(stdout, "status: ok").expect("write ping");
-        }
         PlainOutput::Version(payload) => {
             writeln!(stdout, "api_version: {}", payload.api_version).expect("write version api");
             writeln!(stdout, "db_schema_version: {}", payload.db_schema_version)

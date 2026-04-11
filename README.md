@@ -160,7 +160,6 @@ If you are just getting started, these are the commands you will usually use fir
 | `mark tag ...` | Add or remove custom tags |
 | `tags` | List tags stored in the database |
 | `status` | Show lightweight database status metadata |
-| `ping` | Print a simple health response |
 | `version` | Print version information |
 
 Examples:
@@ -240,7 +239,7 @@ Choose `json` when you want to pipe results into `jq`, scripts, or other tools.
 - wraps responses in a consistent envelope with `status`, `result`, `error`, and `meta`
 - is covered by JSON Schema documents in [`doc/spec/schema`](doc/spec/schema)
 
-Schema files are available for `config-check`, `feeds`, `list`, `mark`, `ping`, `status`, `sync`, `tags`, `version`, `view`, and fatal error responses.
+Schema files are available for `config-check`, `feeds`, `list`, `mark`, `status`, `sync`, `tags`, `version`, `view`, and fatal error responses.
 
 ## Development
 

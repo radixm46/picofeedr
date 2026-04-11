@@ -33,12 +33,6 @@
 
 ## Command Payloads
 
-### `ping`
-
-```json
-{ "status": "ok", "result": { "status": "ok" }, "error": null, "meta": { ... } }
-```
-
 ### `version`
 
 ```json
@@ -122,7 +116,7 @@ JSON ほど厳密な全文字列契約は持たないが、形式カテゴリと
 | Category | Commands | Format |
 | --- | --- | --- |
 | table | `list`, `feeds`, `tags` | タブ区切り、1レコード/行、ヘッダなし |
-| kv | `ping`, `version`, `status`, `mark`, `view` metadata, `feeds --check` | `key: value`、1行1項目 |
+| kv | `version`, `status`, `mark`, `view` metadata, `feeds --check` | `key: value`、1行1項目 |
 | log | `sync` | `sync:* key=value ...` |
 
 ### Common Rules

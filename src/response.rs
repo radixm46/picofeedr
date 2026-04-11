@@ -43,30 +43,6 @@ impl ResponseMeta {
     }
 }
 
-/// Ping status fixed literal.
-#[derive(Debug, Serialize, JsonSchema)]
-pub enum PingStatus {
-    /// Fixed status string.
-    #[serde(rename = "ok")]
-    Ok,
-}
-
-/// Ping payload.
-#[derive(Debug, Serialize, JsonSchema)]
-pub struct PingResponse {
-    /// Fixed heartbeat status.
-    pub status: PingStatus,
-}
-
-impl PingResponse {
-    /// Builds a default ping payload.
-    pub fn ok() -> Self {
-        Self {
-            status: PingStatus::Ok,
-        }
-    }
-}
-
 /// Version payload.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct VersionResponse {
@@ -105,8 +81,6 @@ pub trait ResponsePayload: Serialize + JsonSchema + Sized {
         Envelope::ok_with_status(self, status)
     }
 }
-
-impl ResponsePayload for PingResponse {}
 
 impl ResponsePayload for VersionResponse {}
 
@@ -196,15 +170,9 @@ impl<T> Envelope<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::{MarkResponse, PingResponse, ResponsePayload, TagListResponse, VersionResponse};
+    use super::{MarkResponse, ResponsePayload, TagListResponse, VersionResponse};
     use crate::config::feeds::ConfigCheckReport;
     use crate::sync::{SyncStatus, SyncSummary};
-
-    #[test]
-    fn ping_response_serializes_as_fixed_ok_status() {
-        let value = serde_json::to_value(PingResponse::ok()).expect("serialize ping");
-        assert_eq!(value, serde_json::json!({ "status": "ok" }));
-    }
 
     #[test]
     fn version_response_serializes_expected_keys() {

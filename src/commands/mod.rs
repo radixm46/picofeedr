@@ -48,7 +48,7 @@ pub(crate) fn run_plain_command(
         Command::Mark { command } => Ok(output::PlainOutput::Mark(run_mark_command(
             config, command,
         )?)),
-        Command::Ping | Command::Version => unreachable!("handled in main"),
+        Command::Version => unreachable!("handled in main"),
     }
 }
 

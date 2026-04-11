@@ -89,9 +89,6 @@ pub struct Cli {
 /// CLI subcommands.
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// Print a simple health response.
-    Ping,
-
     /// Print version information.
     Version,
 

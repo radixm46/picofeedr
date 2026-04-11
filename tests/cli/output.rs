@@ -165,19 +165,6 @@ fn unknown_subcommand_error_stays_compact_and_points_to_help() {
 }
 
 #[test]
-fn ping_plain_uses_kv_status_line() {
-    let output = picofeedr_cmd_plain()
-        .arg("ping")
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-
-    assert_eq!(String::from_utf8(output).expect("utf8"), "status: ok\n");
-}
-
-#[test]
 fn version_plain_renders_one_kv_per_line() {
     let output = picofeedr_cmd_plain()
         .arg("version")

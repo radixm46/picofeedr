@@ -4,10 +4,7 @@ use picofeedr::config::feeds::ConfigCheckReport;
 use picofeedr::entry::{EntryDetail, EntryListResponse};
 use picofeedr::error::ErrorPayload;
 use picofeedr::feed::FeedListResponse;
-use picofeedr::response::{
-    Envelope, MarkResponse, PingResponse, PingStatus, ResponseMeta, TagListResponse,
-    VersionResponse,
-};
+use picofeedr::response::{Envelope, MarkResponse, ResponseMeta, TagListResponse, VersionResponse};
 use picofeedr::status::StatusResponse;
 use picofeedr::sync::SyncSummary;
 use schemars::JsonSchema;
@@ -131,11 +128,9 @@ fn enforce_envelope_contract(schema: &mut Value) -> Result<(), Box<dyn std::erro
 
 /// Generates all command-wise response schemas.
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let _ = PingStatus::Ok;
     let _ = FatalStatus::Error;
     fs::create_dir_all("doc/spec/schema")?;
 
-    write_schema::<Envelope<PingResponse>>("ping.response.schema.json")?;
     write_schema::<Envelope<VersionResponse>>("version.response.schema.json")?;
     write_schema::<Envelope<FeedListResponse>>("feeds.response.schema.json")?;
     write_schema::<Envelope<ConfigCheckReport>>("config-check.response.schema.json")?;
