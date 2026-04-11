@@ -70,7 +70,7 @@
 ## Exit Code Rules
 
 - 致命エラーは exit code != 0
-- `feeds --config-check` は `result.valid = false` のとき `status = "warning"` かつ exit code 1
+- `feeds --check` は `result.valid = false` のとき `status = "warning"` かつ exit code 1
 - `sync` の fetch / parse 失敗は致命ではなく、exit code 0 のまま `result.errors` に積む
 - `BrokenPipe` は下流の早期終了として扱い、exit code 0 で終了する
 

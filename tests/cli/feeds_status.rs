@@ -72,6 +72,61 @@ fn tags_command_returns_tag_dictionary() {
 }
 
 #[test]
+fn feeds_plain_outputs_tsv_columns() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_fixture_files(&temp);
+
+    let output = picofeedr_cmd_plain()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("feeds")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let output = String::from_utf8(output).expect("utf8");
+    let lines: Vec<&str> = output.lines().collect();
+    assert_eq!(lines.len(), 1);
+    let columns: Vec<&str> = lines[0].split('\t').collect();
+    assert_eq!(columns.len(), 5);
+    assert_eq!(columns[0], "Example Feed");
+    assert_eq!(columns[1], "https://example.com/feed");
+    assert_eq!(columns[2], "");
+    assert_eq!(columns[3], "");
+    assert_eq!(columns[4], "tech, rust");
+}
+
+#[test]
+fn feeds_plain_with_id_appends_feed_id_column() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_fixture_files(&temp);
+
+    let output = picofeedr_cmd_plain()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("feeds")
+        .arg("--id")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let output = String::from_utf8(output).expect("utf8");
+    let lines: Vec<&str> = output.lines().collect();
+    assert_eq!(lines.len(), 1);
+    let columns: Vec<&str> = lines[0].split('\t').collect();
+    assert_eq!(columns.len(), 6);
+    assert!(!columns[5].is_empty());
+}
+
+#[test]
 fn status_returns_default_metadata() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_fixture_files(&temp);

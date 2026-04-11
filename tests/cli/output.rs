@@ -74,6 +74,37 @@ fn parse_error_with_output_equals_json_is_enveloped() {
 }
 
 #[test]
+fn ping_plain_uses_kv_status_line() {
+    let output = picofeedr_cmd_plain()
+        .arg("ping")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    assert_eq!(String::from_utf8(output).expect("utf8"), "status: ok\n");
+}
+
+#[test]
+fn version_plain_renders_one_kv_per_line() {
+    let output = picofeedr_cmd_plain()
+        .arg("version")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let output = String::from_utf8(output).expect("utf8");
+    let lines: Vec<&str> = output.lines().collect();
+    assert_eq!(lines.len(), 3);
+    assert!(lines[0].starts_with("api_version: "));
+    assert!(lines[1].starts_with("db_schema_version: "));
+    assert!(lines[2].starts_with("build: "));
+}
+
+#[test]
 fn db_locked_returns_retry_true() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_fixture_files(&temp);

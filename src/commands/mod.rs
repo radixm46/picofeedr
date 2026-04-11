@@ -29,7 +29,10 @@ pub(crate) fn run_plain_command(
     match &cli.command {
         Command::Tags => Ok(output::PlainOutput::Tags(run_tags_command(config)?.tags)),
         Command::Status => Ok(output::PlainOutput::Status(run_status_command(config)?)),
-        Command::Feeds { .. } => Ok(output::PlainOutput::Feeds(run_feeds_command(config)?)),
+        Command::Feeds { id, .. } => Ok(output::PlainOutput::Feeds {
+            feeds: run_feeds_command(config)?,
+            include_id: *id,
+        }),
         Command::Sync => run_sync_command_plain(config),
         Command::List {
             query,

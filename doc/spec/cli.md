@@ -3,7 +3,7 @@
 ## Scope
 
 この文書は、`picofeedr` の CLI 出力契約を定義する。  
-対象は `--output json` の envelope と、各コマンドの payload shape、`--output plain` の最低契約。
+対象は `--output json` の envelope と、各コマンドの payload shape、`--output plain` の形式契約。
 
 ## Output Modes
 
@@ -51,7 +51,7 @@
 { "feeds": [{ "feed_id": "<string>", "url": "<string>", "title": "<string|null>", "site_url": "<string|null>", "author": "<string|null>", "tags": ["..."] }] }
 ```
 
-### `feeds --config-check`
+### `feeds --check`
 
 ```json
 { "valid": <bool>, "errors": [ValidationIssue...], "warnings": [ValidationIssue...], "checked_feeds": <int> }
@@ -112,33 +112,78 @@
 { "tags": ["<tag>", "..."] }
 ```
 
-## Plain Output Minimum Contract
+## Plain Output Contract
 
-`--output plain` は人間向け表示で、JSONほど厳密な全文字列契約は持たない。  
-ただし次は契約として扱う。
+`--output plain` は人間向け表示だが、行志向で読みやすく、単純なシェル加工にも使えることを目標にする。  
+JSON ほど厳密な全文字列契約は持たないが、形式カテゴリと最低限の整形規則は契約として扱う。
+
+### Plain Categories
+
+| Category | Commands | Format |
+| --- | --- | --- |
+| table | `list`, `feeds`, `tags` | タブ区切り、1レコード/行、ヘッダなし |
+| kv | `ping`, `version`, `status`, `mark`, `view` metadata, `feeds --check` | `key: value`、1行1項目 |
+| log | `sync` | `sync:* key=value ...` |
+
+### Common Rules
+
+- `table` は 1 record = 1 line を守る
+- `table` の列区切りはタブ (`\t`) を使う
+- `table` の欠損値は空文字で表す
+- `--id` のような任意列は末尾に追加する
+- `kv` は `key: value` を使い、1行に複数項目を詰め込まない
+- `kv` の null 値は文字列 `null` で表す
+- `kv` の時刻はローカルタイムゾーンの ISO 8601 で表す
+- `log` は実行ログ向けで、1行ごとに自己完結した event を出す
+- `log` の key/value は `key=value` を使う
+- `log` で空白を含む文字列値を出す場合は引用符付きで表してよい
 
 ### `sync`
 
-実行中に feed 単位の進捗を stdout に逐次出力する。
+`sync` の plain 出力は log-oriented とする。default plain log では、ジョブ全体の開始、feed ごとの結果、最終要約を出す。`sync:start`、成功した feed ごとの結果、最終要約は stdout、詳細な error line は stderr に出す。
 
 ```text
 sync:start total_feeds=<N>
-sync:feed start index=<i>/<N> url=<feed_url>
-sync:feed ok index=<i>/<N> url=<feed_url> entries=<k>
-sync:feed error index=<i>/<N> url=<feed_url> code=<FETCH_FAILED|PARSE_FAILED> retryable=<true|false>
+sync:feed-ok index=<i>/<N> url=<feed_url> entries=<n>
+sync:done status=<completed|partial_failed|failed> fetched_feed_count=<n> failed_feed_count=<n> new_entry_count=<n> duration_ms=<n> errors=<n>
 ```
 
-進捗行の後に最終サマリを出す。
+詳細な error line は stderr に出す。
+
+```text
+sync:feed-error index=<i>/<N> url=<feed_url> code=<FETCH_FAILED|PARSE_FAILED|INGEST_FAILED> retryable=<true|false> message="<text>"
+```
 
 ### `list`
 
 - 1エントリにつき1行を出力する
+- 既定列は `datetime`, `title`, `feed_title`, `tags`, `link`
 - `--id` 指定時は末尾列として `entry_id` を追加する
 - `total_count` と `next_page_token` は stderr に出してよい
 
-### `status`
+### `feeds`
 
-- `last_write_at` / `last_sync_at` は人間可読なローカル時刻で表示してよい
+- 1 feed につき1行を出力する
+- 既定列は `title`, `url`, `site_url`, `author`, `tags`
+- `--id` 指定時は末尾列として `feed_id` を追加する
+
+### `tags`
+
+- 1 tag につき1行を出力する
+- 単一列の `table` として扱う
+
+### `view`
+
+- metadata は `kv` 形式で出す
+- `entry_id`, `title`, `feed_title`, `feed_id` は独立した項目として出す
+- 本文がある場合は metadata block の後に空行を1つ出し、その後に raw text body をそのまま出す
+
+### `feeds --check`
+
+- top-level summary は `kv` 形式で出す
+- `errors` / `warnings` の詳細は診断行として出す
+- 各診断は `error: code=<CODE> path=<PATH>` または `warning: code=<CODE> path=<PATH>` 形式を基本とする
+- 補足説明がある場合は直後に `message: ...` 行を出してよい
 
 ## References
 

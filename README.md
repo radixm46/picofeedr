@@ -84,7 +84,11 @@ sync:start total_feeds=1
 sync:feed start index=1/1 url=https://example.com/feed.xml
 sync:feed ok index=1/1 url=https://example.com/feed.xml entries=3
 status: completed
-fetched_feed_count: 1 failed_feed_count: 0 new_entry_count: 3 duration_ms: 120
+fetched_feed_count: 1
+failed_feed_count: 0
+new_entry_count: 3
+duration_ms: 120
+errors: 0
 ```
 
 List recent entries:
@@ -108,6 +112,22 @@ View one entry in detail:
 target/release/picofeedr --config ./config.toml view <entry-id>
 ```
 
+Typical `plain` view output:
+
+```text
+entry_id: k_abc123
+title: First Entry
+feed_id: k_feed123
+feed_title: Example Feed
+author: null
+link: https://example.com/1
+published_at: 2026-03-19T09:30:00+09:00
+first_seen_at: 2026-03-19T09:31:12+09:00
+tags: unread, tech
+
+Hello world
+```
+
 Query in JSON for automation:
 
 ```bash
@@ -126,7 +146,7 @@ If you are just getting started, these are the commands you will usually use fir
 
 | Task | Command |
 | --- | --- |
-| Validate your feed configuration | `feeds --config-check` |
+| Validate your feed configuration | `feeds --check` |
 | Fetch latest entries | `sync` |
 | List saved entries | `list` |
 | View one saved entry | `view <entry-id>` |
@@ -152,8 +172,10 @@ If you are just getting started, these are the commands you will usually use fir
 Examples:
 
 ```bash
-target/release/picofeedr --config ./config.toml feeds --config-check
+target/release/picofeedr --config ./config.toml feeds --check
+target/release/picofeedr --config ./config.toml feeds --id
 target/release/picofeedr --config ./config.toml --output plain list --query 'tag:tech after:1w'
+target/release/picofeedr --config ./config.toml --output plain list --id
 target/release/picofeedr --config ./config.toml --output json list | jq '.result.items[].title'
 target/release/picofeedr --config ./config.toml mark read <entry-id>
 ```
@@ -212,9 +234,11 @@ Choose `json` when you want to pipe results into `jq`, scripts, or other tools.
 `plain` output:
 
 - optimized for terminal inspection
-- `list` writes tab-separated rows
-- `status` renders timestamps in local time
-- `sync` prints incremental progress lines and a final summary
+- uses three shapes: tab-separated tables, `key: value` blocks, and `sync:*` progress events
+- `list`, `feeds`, and `tags` write tab-separated rows
+- `status`, `version`, `mark`, and `view` metadata use one `key: value` field per line
+- timestamps are rendered in local time
+- `sync` prints incremental progress lines followed by a final summary block
 
 `json` output:
 

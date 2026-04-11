@@ -63,11 +63,11 @@ fn main() -> ExitCode {
     let (output, log_level) = resolve_runtime_settings(&cli, preloaded_config.as_ref());
     init_logging(log_level);
     debug!(?output, ?cli.command, "resolved CLI output and command");
-    if matches!(cli.command, Command::Feeds { config_check: true }) {
+    if matches!(cli.command, Command::Feeds { check: true, .. }) {
         let config = preloaded_config
             .as_ref()
             .expect("config-backed commands should preload config");
-        match run_config_check(&cli, output, config) {
+        match run_feeds_check(&cli, output, config) {
             Ok(exit_code) => return exit_code,
             Err(RunFailure::Io(error)) => return handle_output_error(log_level, error),
             Err(RunFailure::App(error)) => return handle_app_failure(log_level, output, error),
@@ -158,7 +158,7 @@ fn run_plain(cli: &Cli, config: Option<&config::AppConfig>) -> Result<(), RunFai
 }
 
 /// Runs static feeds config validation without touching the database.
-fn run_config_check(
+fn run_feeds_check(
     _cli: &Cli,
     output: OutputFormat,
     config: &config::AppConfig,

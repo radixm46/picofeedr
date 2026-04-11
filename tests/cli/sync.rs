@@ -58,6 +58,35 @@ fn sync_plain_shows_feed_level_progress_and_final_summary() {
 }
 
 #[test]
+fn sync_plain_summary_uses_one_kv_per_line() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+
+    let output = picofeedr_cmd_plain()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let output = String::from_utf8_lossy(&output);
+    assert!(output.contains("\nstatus: completed\n"));
+    assert!(output.contains("\nfetched_feed_count: 1\n"));
+    assert!(output.contains("\nfailed_feed_count: 0\n"));
+    assert!(output.contains("\nnew_entry_count: 2\n"));
+    assert!(output.contains("\nduration_ms: "));
+    assert!(
+        !output.contains("fetched_feed_count: 1 failed_feed_count: 0"),
+        "summary metrics should not share one line"
+    );
+}
+
+#[test]
 fn sync_ignores_legacy_top_level_auto_tags() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
@@ -299,7 +328,7 @@ fn config_check_reports_invalid_nested_auto_tag_rule_path() {
         .arg("--storage-root")
         .arg(db_root(&paths.db_path))
         .arg("feeds")
-        .arg("--config-check")
+        .arg("--check")
         .assert()
         .failure()
         .get_output()
@@ -415,6 +444,31 @@ fn sync_plain_reports_partial_failed_with_feed_error_lines() {
         .clone();
     let output_str = String::from_utf8_lossy(&output);
     assert!(output_str.contains("status: partial_failed"));
+}
+
+#[test]
+fn sync_plain_flattens_errors_into_indexed_kv_lines() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_failure_fixture_files(&temp);
+
+    let output = picofeedr_cmd_plain()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let output = String::from_utf8_lossy(&output);
+    assert!(output.contains("\nerrors: 1\n"));
+    assert!(output.contains("errors[0].feed_url: "));
+    assert!(output.contains("errors[0].code: PARSE_FAILED"));
+    assert!(output.contains("errors[0].retryable: "));
+    assert!(output.contains("errors[0].message: "));
 }
 
 #[test]

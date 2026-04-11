@@ -43,7 +43,9 @@
   - パイプ先が早期終了して `stdout` が `BrokenPipe` になった場合は、致命扱いにせず exit code 0 で終了する
   - デバッグ/トレース等の詳細は **標準エラー（stderr）** に寄せる（通常は出さない）
 * `--output plain`（対話向け）
-  - 成功/失敗ともに、人間向け表示を stdout/stderr に出してよい（契約は緩め）
+  - 成功/失敗ともに、人間向け表示を stdout/stderr に出す
+  - 形式は table / kv / event の3カテゴリで定義する
+  - 一覧系はタブ区切り、結果系は `key: value`、進捗系は `sync:* key=value ...`
   - `sync` は feed 単位の進捗（start/ok/error）を stdout に逐次出力する
   - `stdout` の `BrokenPipe` は非致命として扱い、通常は無出力で終了する（`--debug`/`--trace` 時のみ stderr に診断を出してよい）
   - `--help` は plain 前提でよい（機械可読契約の対象外）
@@ -53,12 +55,12 @@
 ```
 picofeedr sync                      # 同期実行
 picofeedr status                    # DB状態メタデータ
-picofeedr list [--query <q>]        # エントリ一覧
+picofeedr list [--query <q>] [--id] # エントリ一覧
 picofeedr view <entry_id>           # エントリ詳細
 picofeedr mark <operation> <ids>    # 状態更新
 picofeedr tags                      # タグ一覧
-picofeedr feeds                     # フィード一覧
-picofeedr feeds --config-check      # 設定ファイルの静的妥当性検証（DB非依存）
+picofeedr feeds [--id]              # フィード一覧
+picofeedr feeds --check             # 設定ファイルの静的妥当性検証（DB非依存）
 
 ```
 

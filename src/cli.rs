@@ -89,7 +89,10 @@ pub enum Command {
     Feeds {
         /// Validate feeds config without touching the database.
         #[arg(long, action = clap::ArgAction::SetTrue)]
-        config_check: bool,
+        check: bool,
+        /// Append feed id as the last column in plain output.
+        #[arg(long, action = clap::ArgAction::SetTrue)]
+        id: bool,
     },
 
     /// Sync feeds and ingest new entries.

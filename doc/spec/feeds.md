@@ -10,7 +10,7 @@ It covers:
 - feed tree flattening
 - tag inheritance
 - auto-tag rule placement
-- validation semantics used by `feeds --config-check`
+- validation semantics used by `feeds --check`
 
 ## Top-Level Contract
 

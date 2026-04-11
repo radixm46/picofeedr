@@ -205,7 +205,7 @@ pub struct ValidationIssue {
     pub path: Option<String>,
 }
 
-/// Static validation report for `feeds --config-check`.
+/// Static validation report for `feeds --check`.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct ConfigCheckReport {
     /// True when no validation errors are present.

@@ -33,6 +33,47 @@ fn view_plain_is_human_readable() {
 }
 
 #[test]
+fn view_plain_renders_kv_metadata_and_human_timestamps() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let entry_id = entry_id_by_title(&paths.config_path, &paths.db_path, "First");
+
+    let output = picofeedr_cmd_plain()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("view")
+        .arg(entry_id)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let output = String::from_utf8(output).expect("utf8");
+    assert!(output.contains("entry_id: "));
+    assert!(output.contains("title: First Entry"));
+    assert!(output.contains("feed_title: Example Feed"));
+    assert!(output.contains("feed_id: "));
+    let published_at = status_plain_field(&output, "published_at");
+    let first_seen_at = status_plain_field(&output, "first_seen_at");
+    assert!(looks_like_human_datetime(published_at));
+    assert!(looks_like_human_datetime(first_seen_at));
+    assert!(output.contains("\n\nHello world\n"));
+}
+
+#[test]
 fn view_returns_entry_detail() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);

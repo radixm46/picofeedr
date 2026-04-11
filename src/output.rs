@@ -2,6 +2,7 @@
 
 use crate::RunFailure;
 use picofeedr::config::feeds::ConfigCheckReport;
+use picofeedr::config::feeds::ValidationIssue;
 use picofeedr::entry::{EntryDetail, EntryListResponse};
 use picofeedr::feed::FeedListResponse;
 use picofeedr::response::{MarkResponse, ResponsePayload, VersionResponse};
@@ -19,7 +20,10 @@ pub(crate) enum PlainOutput {
     Version(VersionResponse),
     Tags(Vec<String>),
     Status(StatusResponse),
-    Feeds(FeedListResponse),
+    Feeds {
+        feeds: FeedListResponse,
+        include_id: bool,
+    },
     Sync(SyncSummary),
     List {
         list: EntryListResponse,
@@ -61,15 +65,13 @@ fn format_plain_output(result: PlainOutput) -> PlainTextOutput {
     let mut stderr = String::new();
     match result {
         PlainOutput::Ping => {
-            writeln!(stdout, "ok").expect("write ping");
+            writeln!(stdout, "status: ok").expect("write ping");
         }
         PlainOutput::Version(payload) => {
-            writeln!(
-                stdout,
-                "api_version={} db_schema_version={} build={}",
-                payload.api_version, payload.db_schema_version, payload.build
-            )
-            .expect("write version");
+            writeln!(stdout, "api_version: {}", payload.api_version).expect("write version api");
+            writeln!(stdout, "db_schema_version: {}", payload.db_schema_version)
+                .expect("write version schema");
+            writeln!(stdout, "build: {}", payload.build).expect("write version build");
         }
         PlainOutput::Tags(tags) => {
             for tag in tags {
@@ -100,52 +102,54 @@ fn format_plain_output(result: PlainOutput) -> PlainTextOutput {
             )
             .expect("write status sync_status");
         }
-        PlainOutput::Feeds(feeds) => {
+        PlainOutput::Feeds { feeds, include_id } => {
             for feed in feeds.feeds {
-                let title = feed.title.as_deref().unwrap_or("(untitled)");
+                let title = feed.title.as_deref().unwrap_or("");
+                let site_url = feed.site_url.as_deref().unwrap_or("");
+                let author = feed.author.as_deref().unwrap_or("");
                 let tags = format_tags(&feed.tags);
-                if tags.is_empty() {
-                    writeln!(stdout, "[{}] {}", feed.feed_id, title).expect("write feed title");
+                if include_id {
+                    writeln!(
+                        stdout,
+                        "{title}\t{}\t{site_url}\t{author}\t{tags}\t{}",
+                        feed.url, feed.feed_id
+                    )
+                    .expect("write feed row with id");
                 } else {
-                    writeln!(stdout, "[{}] {} [{}]", feed.feed_id, title, tags)
-                        .expect("write feed title/tags");
-                }
-                writeln!(stdout, "  url: {}", feed.url).expect("write feed url");
-                if let Some(site_url) = &feed.site_url {
-                    writeln!(stdout, "  site: {site_url}").expect("write feed site");
-                }
-                if let Some(author) = &feed.author {
-                    writeln!(stdout, "  author: {author}").expect("write feed author");
+                    writeln!(
+                        stdout,
+                        "{title}\t{}\t{site_url}\t{author}\t{tags}",
+                        feed.url
+                    )
+                    .expect("write feed row");
                 }
             }
         }
         PlainOutput::Sync(summary) => {
             writeln!(stdout, "status: {}", summary.status.as_str()).expect("write sync status");
-            writeln!(
-                stdout,
-                "fetched_feed_count: {} failed_feed_count: {} new_entry_count: {} duration_ms: {}",
-                summary.fetched_feed_count,
-                summary.failed_feed_count,
-                summary.new_entry_count,
-                summary.duration_ms
-            )
-            .expect("write sync summary");
-            if !summary.errors.is_empty() {
-                writeln!(stdout, "errors: {}", summary.errors.len())
-                    .expect("write sync error count");
-                for error in summary.errors {
-                    let feed_name = error.feed_name.as_deref().unwrap_or("(untitled)");
-                    writeln!(
-                        stdout,
-                        "  {} {} {} retryable={}",
-                        feed_name,
-                        error.feed_url,
-                        error.code.as_str(),
-                        error.retryable
-                    )
-                    .expect("write sync error summary");
-                    writeln!(stdout, "    {}", error.message).expect("write sync error message");
+            writeln!(stdout, "fetched_feed_count: {}", summary.fetched_feed_count)
+                .expect("write sync fetched count");
+            writeln!(stdout, "failed_feed_count: {}", summary.failed_feed_count)
+                .expect("write sync failed count");
+            writeln!(stdout, "new_entry_count: {}", summary.new_entry_count)
+                .expect("write sync new count");
+            writeln!(stdout, "duration_ms: {}", summary.duration_ms).expect("write sync duration");
+            writeln!(stdout, "errors: {}", summary.errors.len()).expect("write sync error count");
+            for (index, error) in summary.errors.into_iter().enumerate() {
+                writeln!(stdout, "errors[{index}].feed_id: {}", error.feed_id)
+                    .expect("write sync error feed_id");
+                if let Some(feed_name) = error.feed_name.as_deref() {
+                    writeln!(stdout, "errors[{index}].feed_name: {feed_name}")
+                        .expect("write sync error feed_name");
                 }
+                writeln!(stdout, "errors[{index}].feed_url: {}", error.feed_url)
+                    .expect("write sync error feed_url");
+                writeln!(stdout, "errors[{index}].code: {}", error.code.as_str())
+                    .expect("write sync error code");
+                writeln!(stdout, "errors[{index}].retryable: {}", error.retryable)
+                    .expect("write sync error retryable");
+                writeln!(stdout, "errors[{index}].message: {}", error.message)
+                    .expect("write sync error message");
             }
         }
         PlainOutput::List { list, include_id } => {
@@ -183,28 +187,47 @@ fn format_plain_output(result: PlainOutput) -> PlainTextOutput {
             }
         }
         PlainOutput::View(detail) => {
-            let title = detail.title.as_deref().unwrap_or("(untitled)");
-            writeln!(stdout, "{} {title}", detail.entry_id).expect("write view title");
-            if let Some(feed_title) = &detail.feed_title {
-                writeln!(stdout, "feed: {feed_title} (id: {})", detail.feed_id)
-                    .expect("write view feed");
-            } else {
-                writeln!(stdout, "feed_id: {}", detail.feed_id).expect("write view feed_id");
-            }
-            if let Some(author) = &detail.author {
-                writeln!(stdout, "author: {author}").expect("write view author");
-            }
-            if let Some(link) = &detail.link {
-                writeln!(stdout, "link: {link}").expect("write view link");
-            }
+            writeln!(stdout, "entry_id: {}", detail.entry_id).expect("write view entry_id");
+            writeln!(
+                stdout,
+                "title: {}",
+                format_plain_optional_str(detail.title.as_deref())
+            )
+            .expect("write view title");
+            writeln!(stdout, "feed_id: {}", detail.feed_id).expect("write view feed_id");
+            writeln!(
+                stdout,
+                "feed_title: {}",
+                format_plain_optional_str(detail.feed_title.as_deref())
+            )
+            .expect("write view feed_title");
+            writeln!(
+                stdout,
+                "author: {}",
+                format_plain_optional_str(detail.author.as_deref())
+            )
+            .expect("write view author");
+            writeln!(
+                stdout,
+                "link: {}",
+                format_plain_optional_str(detail.link.as_deref())
+            )
+            .expect("write view link");
+            writeln!(
+                stdout,
+                "published_at: {}",
+                format_plain_timestamp(detail.published_at)
+            )
+            .expect("write view published");
+            writeln!(
+                stdout,
+                "first_seen_at: {}",
+                format_plain_epoch(detail.first_seen_at)
+            )
+            .expect("write view first_seen");
             if !detail.tags.is_empty() {
                 writeln!(stdout, "tags: {}", format_tags(&detail.tags)).expect("write view tags");
             }
-            if let Some(published) = detail.published_at {
-                writeln!(stdout, "published_at: {published}").expect("write view published");
-            }
-            writeln!(stdout, "first_seen_at: {}", detail.first_seen_at)
-                .expect("write view first_seen");
             if let Some(content) = &detail.content {
                 writeln!(stdout).expect("write view spacer");
                 writeln!(stdout, "{content}").expect("write view content");
@@ -227,6 +250,10 @@ fn format_plain_timestamp(value: Option<i64>) -> String {
     value
         .map(format_plain_epoch)
         .unwrap_or_else(|| "null".to_string())
+}
+
+fn format_plain_optional_str(value: Option<&str>) -> String {
+    value.unwrap_or("null").to_string()
 }
 
 /// Formats one epoch timestamp using local offset (fallback: UTC).
@@ -309,26 +336,21 @@ fn format_config_check_plain(report: &ConfigCheckReport) -> String {
     writeln!(output, "checked_feeds: {}", report.checked_feeds)
         .expect("write config-check checked_feeds");
     writeln!(output, "errors: {}", report.errors.len()).expect("write config-check errors");
-    for issue in &report.errors {
-        if let Some(path) = &issue.path {
-            writeln!(output, "  {} {} ({path})", issue.code, issue.message)
-                .expect("write config-check error with path");
-        } else {
-            writeln!(output, "  {} {}", issue.code, issue.message)
-                .expect("write config-check error");
-        }
-    }
     writeln!(output, "warnings: {}", report.warnings.len()).expect("write config-check warnings");
-    for issue in &report.warnings {
-        if let Some(path) = &issue.path {
-            writeln!(output, "  {} {} ({path})", issue.code, issue.message)
-                .expect("write config-check warning with path");
-        } else {
-            writeln!(output, "  {} {}", issue.code, issue.message)
-                .expect("write config-check warning");
-        }
-    }
+    write_validation_issue_lines(&mut output, "error", &report.errors);
+    write_validation_issue_lines(&mut output, "warning", &report.warnings);
     output
+}
+
+fn write_validation_issue_lines(output: &mut String, kind: &str, issues: &[ValidationIssue]) {
+    for issue in issues {
+        let mut line = format!("{kind}: code={}", issue.code);
+        if let Some(path) = issue.path.as_deref() {
+            write!(line, " path={path}").expect("write issue path");
+        }
+        writeln!(output, "{line}").expect("write issue line");
+        writeln!(output, "  message: {}", issue.message).expect("write issue message");
+    }
 }
 
 /// Prints JSON to stdout, falling back to a hard-coded INTERNAL error JSON on failure.
