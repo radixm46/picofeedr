@@ -51,14 +51,15 @@ fn sync_plain_shows_feed_level_progress_and_final_summary() {
 
     let output_str = String::from_utf8_lossy(&output);
     assert!(output_str.contains("sync:start total_feeds=1"));
-    assert!(output_str.contains("sync:feed start index=1/1 url=file://"));
-    assert!(output_str.contains("sync:feed ok index=1/1 url=file://"));
+    assert!(!output_str.contains("sync:feed start"));
+    assert!(output_str.contains("sync:feed-ok index=1/1"));
+    assert!(output_str.contains("url=file://"));
     assert!(output_str.contains("entries=2"));
-    assert!(output_str.contains("status: completed"));
+    assert!(output_str.contains("sync:done status=completed"));
 }
 
 #[test]
-fn sync_plain_summary_uses_one_kv_per_line() {
+fn sync_plain_summary_uses_single_log_line() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
 
@@ -75,15 +76,12 @@ fn sync_plain_summary_uses_one_kv_per_line() {
         .clone();
 
     let output = String::from_utf8_lossy(&output);
-    assert!(output.contains("\nstatus: completed\n"));
-    assert!(output.contains("\nfetched_feed_count: 1\n"));
-    assert!(output.contains("\nfailed_feed_count: 0\n"));
-    assert!(output.contains("\nnew_entry_count: 2\n"));
-    assert!(output.contains("\nduration_ms: "));
-    assert!(
-        !output.contains("fetched_feed_count: 1 failed_feed_count: 0"),
-        "summary metrics should not share one line"
-    );
+    assert!(output.contains("sync:done status=completed"));
+    assert!(output.contains("fetched_feed_count=1"));
+    assert!(output.contains("failed_feed_count=0"));
+    assert!(output.contains("new_entry_count=2"));
+    assert!(output.contains("duration_ms="));
+    assert!(output.contains("errors=0"));
 }
 
 #[test]
@@ -440,14 +438,16 @@ fn sync_plain_reports_partial_failed_with_feed_error_lines() {
         .assert()
         .success()
         .get_output()
-        .stdout
         .clone();
-    let output_str = String::from_utf8_lossy(&output);
-    assert!(output_str.contains("status: partial_failed"));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stdout.contains("sync:done status=partial_failed"));
+    assert!(stderr.contains("sync:feed-error"));
+    assert!(stderr.contains("index=2/2"));
 }
 
 #[test]
-fn sync_plain_flattens_errors_into_indexed_kv_lines() {
+fn sync_plain_reports_error_details_as_log_lines() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_failure_fixture_files(&temp);
 
@@ -460,15 +460,17 @@ fn sync_plain_flattens_errors_into_indexed_kv_lines() {
         .assert()
         .success()
         .get_output()
-        .stdout
         .clone();
 
-    let output = String::from_utf8_lossy(&output);
-    assert!(output.contains("\nerrors: 1\n"));
-    assert!(output.contains("errors[0].feed_url: "));
-    assert!(output.contains("errors[0].code: PARSE_FAILED"));
-    assert!(output.contains("errors[0].retryable: "));
-    assert!(output.contains("errors[0].message: "));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stdout.contains("sync:done"));
+    assert!(stdout.contains("errors=1"));
+    assert!(stderr.contains("sync:feed-error"));
+    assert!(stderr.contains("index=2/2"));
+    assert!(stderr.contains("code=PARSE_FAILED"));
+    assert!(stderr.contains("retryable=false"));
+    assert!(stderr.contains("message="));
 }
 
 #[test]
@@ -504,10 +506,12 @@ fn sync_plain_reports_failed_with_feed_error_lines() {
         .assert()
         .success()
         .get_output()
-        .stdout
         .clone();
-    let output_str = String::from_utf8_lossy(&output);
-    assert!(output_str.contains("status: failed"));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stdout.contains("sync:done status=failed"));
+    assert!(stderr.contains("sync:feed-error"));
+    assert!(stderr.contains("index="));
 }
 
 #[test]
@@ -575,12 +579,14 @@ fn sync_plain_http_404_error_output_is_not_redundant() {
         .assert()
         .success()
         .get_output()
-        .stdout
         .clone();
 
     server_thread.join().expect("join 404 server thread");
-    let output_str = String::from_utf8_lossy(&output);
-    assert!(output_str.contains("FETCH_FAILED retryable=false"));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("sync:feed-error"));
+    assert!(stderr.contains("index=1/1"));
+    assert!(stderr.contains("code=FETCH_FAILED"));
+    assert!(stderr.contains("retryable=false"));
 }
 
 #[test]

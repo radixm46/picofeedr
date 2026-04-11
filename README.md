@@ -81,14 +81,8 @@ Typical `plain` progress output:
 
 ```text
 sync:start total_feeds=1
-sync:feed start index=1/1 url=https://example.com/feed.xml
-sync:feed ok index=1/1 url=https://example.com/feed.xml entries=3
-status: completed
-fetched_feed_count: 1
-failed_feed_count: 0
-new_entry_count: 3
-duration_ms: 120
-errors: 0
+sync:feed-ok index=1/1 url=https://example.com/feed.xml entries=3
+sync:done status=completed fetched_feed_count=1 failed_feed_count=0 new_entry_count=3 duration_ms=120 errors=0
 ```
 
 List recent entries:
@@ -234,11 +228,11 @@ Choose `json` when you want to pipe results into `jq`, scripts, or other tools.
 `plain` output:
 
 - optimized for terminal inspection
-- uses three shapes: tab-separated tables, `key: value` blocks, and `sync:*` progress events
+- uses three shapes: tab-separated tables, `key: value` blocks, and `sync:*` log lines
 - `list`, `feeds`, and `tags` write tab-separated rows
 - `status`, `version`, `mark`, and `view` metadata use one `key: value` field per line
 - timestamps are rendered in local time
-- `sync` prints incremental progress lines followed by a final summary block
+- `sync` prints `sync:start`, `sync:feed-ok`, and `sync:done` to stdout, and detailed `sync:feed-error` lines to stderr
 
 `json` output:
 

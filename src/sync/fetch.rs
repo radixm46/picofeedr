@@ -167,6 +167,8 @@ fn fetch_and_parse(target: &SyncTarget, config: &AppConfig, agent: &ureq::Agent)
                     &target.feed_id,
                     target.feed_name.as_deref(),
                     &target.url,
+                    target.index,
+                    target.total_feeds,
                     error.message,
                     error.retryable,
                 ),
@@ -184,6 +186,8 @@ fn fetch_and_parse(target: &SyncTarget, config: &AppConfig, agent: &ureq::Agent)
                     &target.feed_id,
                     target.feed_name.as_deref(),
                     &target.url,
+                    target.index,
+                    target.total_feeds,
                     error.to_string(),
                 ),
             };
@@ -206,6 +210,8 @@ fn fetch_and_parse(target: &SyncTarget, config: &AppConfig, agent: &ureq::Agent)
             feed_id: target.feed_id.clone(),
             feed_name: target.feed_name.clone(),
             feed_url: target.url.clone(),
+            index: target.index,
+            total_feeds: target.total_feeds,
             entries,
         },
     }

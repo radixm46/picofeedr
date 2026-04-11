@@ -126,30 +126,34 @@ fn format_plain_output(result: PlainOutput) -> PlainTextOutput {
             }
         }
         PlainOutput::Sync(summary) => {
-            writeln!(stdout, "status: {}", summary.status.as_str()).expect("write sync status");
-            writeln!(stdout, "fetched_feed_count: {}", summary.fetched_feed_count)
-                .expect("write sync fetched count");
-            writeln!(stdout, "failed_feed_count: {}", summary.failed_feed_count)
-                .expect("write sync failed count");
-            writeln!(stdout, "new_entry_count: {}", summary.new_entry_count)
-                .expect("write sync new count");
-            writeln!(stdout, "duration_ms: {}", summary.duration_ms).expect("write sync duration");
-            writeln!(stdout, "errors: {}", summary.errors.len()).expect("write sync error count");
-            for (index, error) in summary.errors.into_iter().enumerate() {
-                writeln!(stdout, "errors[{index}].feed_id: {}", error.feed_id)
-                    .expect("write sync error feed_id");
+            writeln!(
+                stdout,
+                "sync:done status={} fetched_feed_count={} failed_feed_count={} new_entry_count={} duration_ms={} errors={}",
+                summary.status.as_str(),
+                summary.fetched_feed_count,
+                summary.failed_feed_count,
+                summary.new_entry_count,
+                summary.duration_ms,
+                summary.errors.len()
+            )
+            .expect("write sync done");
+            for error in summary.errors {
+                let (index, total_feeds) = error.progress_position();
+                let mut line = format!(
+                    "sync:feed-error index={}/{} url={} code={} retryable={}",
+                    index,
+                    total_feeds,
+                    error.feed_url,
+                    error.code.as_str(),
+                    error.retryable
+                );
                 if let Some(feed_name) = error.feed_name.as_deref() {
-                    writeln!(stdout, "errors[{index}].feed_name: {feed_name}")
+                    write!(line, " feed_name={}", format_log_value(feed_name))
                         .expect("write sync error feed_name");
                 }
-                writeln!(stdout, "errors[{index}].feed_url: {}", error.feed_url)
-                    .expect("write sync error feed_url");
-                writeln!(stdout, "errors[{index}].code: {}", error.code.as_str())
-                    .expect("write sync error code");
-                writeln!(stdout, "errors[{index}].retryable: {}", error.retryable)
-                    .expect("write sync error retryable");
-                writeln!(stdout, "errors[{index}].message: {}", error.message)
+                write!(line, " message={}", format_log_value(&error.message))
                     .expect("write sync error message");
+                writeln!(stderr, "{line}").expect("write sync error line");
             }
         }
         PlainOutput::List { list, include_id } => {
@@ -256,6 +260,10 @@ fn format_plain_optional_str(value: Option<&str>) -> String {
     value.unwrap_or("null").to_string()
 }
 
+fn format_log_value(value: &str) -> String {
+    serde_json::to_string(value).expect("serialize log value")
+}
+
 /// Formats one epoch timestamp using local offset (fallback: UTC).
 fn format_plain_epoch(epoch: i64) -> String {
     let local = epoch_to_local(epoch);
@@ -289,35 +297,33 @@ pub(crate) fn write_sync_progress_line<W: Write>(
     writer: &mut W,
     event: &sync::SyncProgressEvent,
 ) -> io::Result<()> {
-    writeln!(writer, "{}", format_sync_progress_line(event))
+    let Some(line) = format_sync_progress_line(event) else {
+        return Ok(());
+    };
+    writeln!(writer, "{line}")
 }
 
-fn format_sync_progress_line(event: &sync::SyncProgressEvent) -> String {
+fn format_sync_progress_line(event: &sync::SyncProgressEvent) -> Option<String> {
     match event {
         sync::SyncProgressEvent::Start { total_feeds } => {
-            format!("sync:start total_feeds={total_feeds}")
+            Some(format!("sync:start total_feeds={total_feeds}"))
         }
-        sync::SyncProgressEvent::FeedStart {
-            index,
-            total_feeds,
-            url,
-        } => format!("sync:feed start index={index}/{total_feeds} url={url}"),
+        sync::SyncProgressEvent::FeedStart { .. } => None,
         sync::SyncProgressEvent::FeedOk {
             index,
             total_feeds,
             url,
             entries,
-        } => format!("sync:feed ok index={index}/{total_feeds} url={url} entries={entries}"),
+        } => Some(format!(
+            "sync:feed-ok index={index}/{total_feeds} url={url} entries={entries}"
+        )),
         sync::SyncProgressEvent::FeedError {
-            index,
-            total_feeds,
-            url,
-            code,
-            retryable,
-        } => format!(
-            "sync:feed error index={index}/{total_feeds} url={url} code={} retryable={retryable}",
-            code.as_str()
-        ),
+            index: _,
+            total_feeds: _,
+            url: _,
+            code: _,
+            retryable: _,
+        } => None,
     }
 }
 
@@ -401,15 +407,11 @@ mod tests {
             url: "https://example.com/feed.xml".to_string(),
             entries: 3,
         });
-
-        assert_eq!(start, "sync:start total_feeds=2");
+        assert_eq!(start.as_deref(), Some("sync:start total_feeds=2"));
+        assert!(feed_start.is_none());
         assert_eq!(
-            feed_start,
-            "sync:feed start index=1/2 url=https://example.com/feed.xml"
-        );
-        assert_eq!(
-            feed_ok,
-            "sync:feed ok index=1/2 url=https://example.com/feed.xml entries=3"
+            feed_ok.as_deref(),
+            Some("sync:feed-ok index=1/2 url=https://example.com/feed.xml entries=3")
         );
     }
 

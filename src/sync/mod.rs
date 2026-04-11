@@ -93,6 +93,8 @@ fn ingest_sync_result(
     let error_feed_id = result.feed_id.clone();
     let error_feed_name = result.feed_name.clone();
     let error_feed_url = result.feed_url.clone();
+    let error_index = result.index;
+    let error_total_feeds = result.total_feeds;
     let feed_pk = feed_pks_by_feed_id
         .get(&result.feed_id)
         .copied()
@@ -101,6 +103,8 @@ fn ingest_sync_result(
                 &error_feed_id,
                 error_feed_name.as_deref(),
                 &error_feed_url,
+                error_index,
+                error_total_feeds,
                 format!("Missing feed for {error_feed_id}"),
             )
         })?;
@@ -109,6 +113,8 @@ fn ingest_sync_result(
             &error_feed_id,
             error_feed_name.as_deref(),
             &error_feed_url,
+            error_index,
+            error_total_feeds,
             error.to_string(),
         )
     })?;
@@ -120,6 +126,8 @@ fn ingest_sync_result(
                 &error_feed_id,
                 error_feed_name.as_deref(),
                 &error_feed_url,
+                error_index,
+                error_total_feeds,
                 error.to_string(),
             )
         })?;
@@ -128,6 +136,8 @@ fn ingest_sync_result(
             &error_feed_id,
             error_feed_name.as_deref(),
             &error_feed_url,
+            error_index,
+            error_total_feeds,
             error.to_string(),
         )
     })?;
@@ -219,6 +229,8 @@ retry_delay = 0
             feed_id: feed_id.to_string(),
             feed_name: Some(feed_id.to_string()),
             feed_url: format!("https://example.com/{feed_id}.xml"),
+            index: 1,
+            total_feeds: 1,
             entries: vec![SyncEntry {
                 entry: PendingEntry {
                     entry_id: entry_id.to_string(),

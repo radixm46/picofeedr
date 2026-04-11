@@ -33,6 +33,14 @@ pub struct SyncError {
     pub feed_name: Option<String>,
     /// Feed URL that failed.
     pub feed_url: String,
+    /// 1-based feed position within the sync job.
+    #[serde(skip)]
+    #[schemars(skip)]
+    pub(crate) index: usize,
+    /// Total feed count for the sync job.
+    #[serde(skip)]
+    #[schemars(skip)]
+    pub(crate) total_feeds: usize,
     /// Error code.
     pub code: SyncErrorCode,
     /// Error message.
@@ -118,11 +126,18 @@ pub enum SyncProgressEvent {
 }
 
 impl SyncError {
+    /// Returns the 1-based feed position and total feed count for plain progress output.
+    pub fn progress_position(&self) -> (usize, usize) {
+        (self.index, self.total_feeds)
+    }
+
     /// Builds a fetch error entry.
     pub(crate) fn fetch(
         feed_id: &str,
         feed_name: Option<&str>,
         feed_url: &str,
+        index: usize,
+        total_feeds: usize,
         message: String,
         retryable: bool,
     ) -> Self {
@@ -130,6 +145,8 @@ impl SyncError {
             feed_id: feed_id.to_string(),
             feed_name: feed_name.map(ToOwned::to_owned),
             feed_url: feed_url.to_string(),
+            index,
+            total_feeds,
             code: SyncErrorCode::FetchFailed,
             message,
             retryable,
@@ -141,12 +158,16 @@ impl SyncError {
         feed_id: &str,
         feed_name: Option<&str>,
         feed_url: &str,
+        index: usize,
+        total_feeds: usize,
         message: String,
     ) -> Self {
         Self {
             feed_id: feed_id.to_string(),
             feed_name: feed_name.map(ToOwned::to_owned),
             feed_url: feed_url.to_string(),
+            index,
+            total_feeds,
             code: SyncErrorCode::ParseFailed,
             message,
             retryable: false,
@@ -158,12 +179,16 @@ impl SyncError {
         feed_id: &str,
         feed_name: Option<&str>,
         feed_url: &str,
+        index: usize,
+        total_feeds: usize,
         message: String,
     ) -> Self {
         Self {
             feed_id: feed_id.to_string(),
             feed_name: feed_name.map(ToOwned::to_owned),
             feed_url: feed_url.to_string(),
+            index,
+            total_feeds,
             code: SyncErrorCode::IngestFailed,
             message,
             retryable: false,
@@ -189,6 +214,8 @@ pub(crate) struct SyncResult {
     pub(crate) feed_id: String,
     pub(crate) feed_name: Option<String>,
     pub(crate) feed_url: String,
+    pub(crate) index: usize,
+    pub(crate) total_feeds: usize,
     pub(crate) entries: Vec<SyncEntry>,
 }
 
