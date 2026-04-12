@@ -140,7 +140,7 @@ If you are just getting started, these are the commands you will usually use fir
 
 | Task | Command |
 | --- | --- |
-| Validate your feed configuration | `feeds --check` |
+| Validate your sync configuration | `sync --check` |
 | Fetch latest entries | `sync` |
 | List saved entries | `list` |
 | View one saved entry | `view <entry-id>` |
@@ -151,7 +151,7 @@ If you are just getting started, these are the commands you will usually use fir
 
 | Command | Description |
 | --- | --- |
-| `feeds` | List feeds or run static config validation |
+| `feeds` | List feeds from the local feed catalog |
 | `sync` | Sync feeds and ingest new entries |
 | `list` | List entry summaries |
 | `view <entry-id>` | View entry detail by id |
@@ -165,7 +165,7 @@ If you are just getting started, these are the commands you will usually use fir
 Examples:
 
 ```bash
-target/release/picofeedr --config ./config.toml feeds --check
+target/release/picofeedr --config ./config.toml sync --check
 target/release/picofeedr --config ./config.toml feeds --id
 target/release/picofeedr --config ./config.toml --output plain list --query 'tag:tech after:1w'
 target/release/picofeedr --config ./config.toml --output plain list --id
@@ -239,7 +239,7 @@ Choose `json` when you want to pipe results into `jq`, scripts, or other tools.
 - wraps responses in a consistent envelope with `status`, `result`, `error`, and `meta`
 - is covered by JSON Schema documents in [`doc/spec/schema`](doc/spec/schema)
 
-Schema files are available for `config-check`, `feeds`, `list`, `mark`, `status`, `sync`, `tags`, `version`, `view`, and fatal error responses.
+Schema files are available for `sync-check`, `feeds`, `list`, `mark`, `status`, `sync`, `tags`, `version`, `view`, and fatal error responses.
 
 ## Development
 

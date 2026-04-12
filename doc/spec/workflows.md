@@ -72,7 +72,7 @@ picofeedr:
 
 ```bash
 # 2. 設定の静的妥当性確認
-picofeedr --output json feeds --check
+picofeedr --output json sync --check
 
 # 3. 同期（自動的に新規フィードが追加される）
 picofeedr --output json sync

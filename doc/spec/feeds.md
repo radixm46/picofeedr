@@ -10,7 +10,7 @@ It covers:
 - feed tree flattening
 - tag inheritance
 - auto-tag rule placement
-- validation semantics used by `feeds --check`
+- validation semantics used by `sync --check`, `feeds`, and `sync`
 
 ## Top-Level Contract
 
@@ -62,14 +62,21 @@ The loader trims surrounding whitespace from `url`.
 
 ## Validation Contract
 
-The static validator checks at least the following:
+The shared validator checks at least the following:
 
 - empty feed URL -> error (`EMPTY_FEED_URL`)
 - duplicated feed URL -> error (`DUPLICATE_FEED_URL`)
 - invalid auto-tag rule shape -> error (`INVALID_AUTO_TAG_RULE`)
+- invalid `title_regex` pattern -> error (`INVALID_TITLE_REGEX`)
 - duplicated tags within a feed entry -> warning (`DUPLICATE_FEED_TAG`)
 
 Validation reports include logical YAML paths for issue locations.
+
+Blocking validation errors make `feeds` and `sync` fail with a configuration error before
+they touch the database or start fetching feeds.
+
+`sync --check` returns the same validation result as a report payload and exits with code 1
+when blocking errors are present.
 
 ## Sync-Relevant Behavior
 

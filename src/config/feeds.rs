@@ -2,6 +2,7 @@
 
 use crate::error::{AppError, error_details};
 use crate::tag::{duplicated_tag_names, merge_tag_names};
+use regex::Regex;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
@@ -144,6 +145,15 @@ impl FeedsConfig {
                     path: Some(scoped.path.clone()),
                 });
             }
+            if let Some(pattern) = &scoped.rule.title_regex
+                && let Err(error) = Regex::new(pattern)
+            {
+                errors.push(ValidationIssue {
+                    code: "INVALID_TITLE_REGEX".to_string(),
+                    message: format!("invalid title_regex: {error}"),
+                    path: Some(format!("{}.title_regex", scoped.path)),
+                });
+            }
         }
 
         ConfigCheckReport {
@@ -152,6 +162,17 @@ impl FeedsConfig {
             warnings,
             checked_feeds: self.feeds.len(),
         }
+    }
+
+    /// Returns a configuration error when feeds.yaml validation found blocking issues.
+    pub fn ensure_valid_for_runtime(&self) -> Result<(), AppError> {
+        let report = self.validate();
+        if report.has_errors() {
+            return Err(AppError::config(
+                "feeds.yaml validation failed; run `picofeedr sync --check` for details",
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -205,7 +226,7 @@ pub struct ValidationIssue {
     pub path: Option<String>,
 }
 
-/// Static validation report for `feeds --check`.
+/// Static validation report for `sync --check`.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct ConfigCheckReport {
     /// True when no validation errors are present.

@@ -18,25 +18,45 @@ struct FatalEnvelopeInputs {
     command_args: Vec<&'static str>,
 }
 
-fn feeds_check_json_cmd(config_path: &str, db_path: &str) -> assert_cmd::Command {
+fn sync_check_json_cmd(config_path: &str, db_path: &str) -> assert_cmd::Command {
     let mut cmd = picofeedr_cmd_json();
     cmd.arg("--config")
         .arg(config_path)
         .arg("--storage-root")
         .arg(db_root(db_path))
-        .arg("feeds")
+        .arg("sync")
         .arg("--check");
     cmd
 }
 
-fn feeds_check_plain_cmd(config_path: &str, db_path: &str) -> assert_cmd::Command {
+fn sync_check_plain_cmd(config_path: &str, db_path: &str) -> assert_cmd::Command {
     let mut cmd = picofeedr_cmd_plain();
     cmd.arg("--config")
         .arg(config_path)
         .arg("--storage-root")
         .arg(db_root(db_path))
-        .arg("feeds")
+        .arg("sync")
         .arg("--check");
+    cmd
+}
+
+fn feeds_json_cmd(config_path: &str, db_path: &str) -> assert_cmd::Command {
+    let mut cmd = picofeedr_cmd_json();
+    cmd.arg("--config")
+        .arg(config_path)
+        .arg("--storage-root")
+        .arg(db_root(db_path))
+        .arg("feeds");
+    cmd
+}
+
+fn sync_json_cmd(config_path: &str, db_path: &str) -> assert_cmd::Command {
+    let mut cmd = picofeedr_cmd_json();
+    cmd.arg("--config")
+        .arg(config_path)
+        .arg("--storage-root")
+        .arg(db_root(db_path))
+        .arg("sync");
     cmd
 }
 
@@ -45,7 +65,7 @@ fn config_check_returns_validation_report() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_fixture_files(&temp);
 
-    let output = feeds_check_json_cmd(&paths.config_path, &paths.db_path)
+    let output = sync_check_json_cmd(&paths.config_path, &paths.db_path)
         .assert()
         .success()
         .get_output()
@@ -73,7 +93,7 @@ fn config_check_fails_on_duplicate_url() {
 "#;
     fs::write(&paths.feeds_path, feeds).expect("rewrite feeds");
 
-    let output = feeds_check_json_cmd(&paths.config_path, &paths.db_path)
+    let output = sync_check_json_cmd(&paths.config_path, &paths.db_path)
         .assert()
         .failure()
         .get_output()
@@ -104,7 +124,7 @@ fn config_check_fails_on_empty_url() {
 "#;
     fs::write(&paths.feeds_path, feeds).expect("rewrite feeds");
 
-    let output = feeds_check_json_cmd(&paths.config_path, &paths.db_path)
+    let output = sync_check_json_cmd(&paths.config_path, &paths.db_path)
         .assert()
         .failure()
         .get_output()
@@ -122,11 +142,45 @@ fn config_check_fails_on_empty_url() {
 }
 
 #[test]
+fn config_check_fails_on_invalid_title_regex() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_fixture_files(&temp);
+    let feeds = r#"picofeedr:
+  group:
+    auto_tags:
+      - title_regex: "("
+        add_tags: [broken]
+    feeds:
+      - url: https://example.com/feed
+        title: Example
+"#;
+    fs::write(&paths.feeds_path, feeds).expect("rewrite feeds");
+
+    let output = sync_check_json_cmd(&paths.config_path, &paths.db_path)
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    let data = extract_ok_data(&output);
+    assert_envelope_status(&output, "warning");
+    assert_eq!(data["valid"], false);
+    let errors = data["errors"].as_array().expect("errors array");
+    assert!(
+        errors
+            .iter()
+            .any(|issue| issue["code"] == "INVALID_TITLE_REGEX"),
+        "expected INVALID_TITLE_REGEX error"
+    );
+}
+
+#[test]
 fn config_check_does_not_require_db() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_fixture_files(&temp);
 
-    let output = feeds_check_json_cmd(
+    let output = sync_check_json_cmd(
         &paths.config_path,
         temp.path()
             .join("missing-dir")
@@ -159,7 +213,7 @@ ended:
 "#;
     fs::write(&paths.feeds_path, feeds).expect("rewrite feeds");
 
-    let output = feeds_check_json_cmd(&paths.config_path, &paths.db_path)
+    let output = sync_check_json_cmd(&paths.config_path, &paths.db_path)
         .assert()
         .success()
         .get_output()
@@ -173,7 +227,7 @@ ended:
 }
 
 #[test]
-fn feeds_check_plain_shows_summary_and_diagnostic_lines() {
+fn sync_check_plain_shows_summary_and_diagnostic_lines() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_fixture_files(&temp);
     let feeds = r#"picofeedr:
@@ -184,7 +238,7 @@ fn feeds_check_plain_shows_summary_and_diagnostic_lines() {
 "#;
     fs::write(&paths.feeds_path, feeds).expect("rewrite feeds");
 
-    let output = feeds_check_plain_cmd(&paths.config_path, &paths.db_path)
+    let output = sync_check_plain_cmd(&paths.config_path, &paths.db_path)
         .assert()
         .failure()
         .get_output()
@@ -197,6 +251,131 @@ fn feeds_check_plain_shows_summary_and_diagnostic_lines() {
     assert!(output.contains("errors: 1"));
     assert!(output.contains("warnings: 0"));
     assert!(output.contains("error: code=EMPTY_FEED_URL path=picofeedr.group.feeds[0].url"));
+}
+
+#[test]
+fn feeds_check_is_rejected() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_fixture_files(&temp);
+
+    let stderr = picofeedr_cmd_plain()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("feeds")
+        .arg("--check")
+        .assert()
+        .failure()
+        .get_output()
+        .stderr
+        .clone();
+
+    let stderr = String::from_utf8(stderr).expect("utf8");
+    assert!(stderr.contains("--check"));
+}
+
+#[test]
+fn feeds_fails_fast_on_duplicate_url() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_fixture_files(&temp);
+    let feeds = r#"picofeedr:
+  group:
+    feeds:
+      - url: https://example.com/feed
+        title: First
+      - url: https://example.com/feed
+        title: Second
+"#;
+    fs::write(&paths.feeds_path, feeds).expect("rewrite feeds");
+
+    let output = feeds_json_cmd(&paths.config_path, &paths.db_path)
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    assert_error_envelope(&output, "CONFIG_ERROR", false);
+}
+
+#[test]
+fn sync_fails_fast_on_duplicate_url() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_fixture_files(&temp);
+    let feeds = r#"picofeedr:
+  group:
+    feeds:
+      - url: https://example.com/feed
+        title: First
+      - url: https://example.com/feed
+        title: Second
+"#;
+    fs::write(&paths.feeds_path, feeds).expect("rewrite feeds");
+
+    let output = sync_json_cmd(&paths.config_path, &paths.db_path)
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    assert_error_envelope(&output, "CONFIG_ERROR", false);
+}
+
+#[test]
+fn sync_fails_fast_on_invalid_title_regex() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_fixture_files(&temp);
+    let feeds = r#"picofeedr:
+  group:
+    auto_tags:
+      - title_regex: "("
+        add_tags: [broken]
+    feeds:
+      - url: https://example.com/feed
+        title: Example
+"#;
+    fs::write(&paths.feeds_path, feeds).expect("rewrite feeds");
+
+    let output = sync_json_cmd(&paths.config_path, &paths.db_path)
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    assert_error_envelope(&output, "CONFIG_ERROR", false);
+}
+
+#[test]
+fn feeds_and_sync_allow_warning_only_config() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_fixture_files(&temp);
+    let feed_path = temp.path().join("warning-only.xml");
+    fs::write(
+        &feed_path,
+        sample_feed_xml("warning-only", "Warning Only Feed"),
+    )
+    .expect("write feed");
+    let feeds = format!(
+        r#"picofeedr:
+  group:
+    feeds:
+      - url: file://{}
+        title: Example
+        tags: [dup, dup]
+"#,
+        feed_path.display()
+    );
+    fs::write(&paths.feeds_path, feeds).expect("rewrite feeds");
+
+    feeds_json_cmd(&paths.config_path, &paths.db_path)
+        .assert()
+        .success();
+    sync_json_cmd(&paths.config_path, &paths.db_path)
+        .assert()
+        .success();
 }
 
 #[test]
@@ -267,7 +446,7 @@ fn fatal_case_missing_feeds_yaml(temp: &TempDir) -> FatalEnvelopeInputs {
     FatalEnvelopeInputs {
         config_path: config_path.display().to_string(),
         db_path: Some(db_path.display().to_string()),
-        command_args: vec!["feeds", "--check"],
+        command_args: vec!["sync", "--check"],
     }
 }
 
@@ -302,7 +481,7 @@ fn fatal_case_invalid_feeds_yaml(temp: &TempDir) -> FatalEnvelopeInputs {
     FatalEnvelopeInputs {
         config_path: config_path.display().to_string(),
         db_path: Some(db_path.display().to_string()),
-        command_args: vec!["feeds", "--check"],
+        command_args: vec!["sync", "--check"],
     }
 }
 
@@ -315,7 +494,7 @@ fn fatal_case_missing_top_level_feeds_key(temp: &TempDir) -> FatalEnvelopeInputs
     FatalEnvelopeInputs {
         config_path: config_path.display().to_string(),
         db_path: Some(db_path.display().to_string()),
-        command_args: vec!["feeds", "--check"],
+        command_args: vec!["sync", "--check"],
     }
 }
 

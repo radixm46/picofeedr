@@ -60,7 +60,7 @@ picofeedr view <entry_id>           # エントリ詳細
 picofeedr mark <operation> <ids>    # 状態更新
 picofeedr tags                      # タグ一覧
 picofeedr feeds [--id]              # フィード一覧
-picofeedr feeds --check             # 設定ファイルの静的妥当性検証（DB非依存）
+picofeedr sync --check              # 同期設定の静的妥当性検証（DB非依存）
 
 ```
 

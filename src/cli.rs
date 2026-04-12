@@ -100,18 +100,19 @@ pub enum Command {
     /// Show lightweight database status metadata.
     Status,
 
-    /// List feeds or run static config validation.
+    /// List feeds from the local feed catalog.
     Feeds {
-        /// Validate feeds config without touching the database.
-        #[arg(long, action = clap::ArgAction::SetTrue)]
-        check: bool,
         /// Append feed id as the last column in plain output.
         #[arg(long, action = clap::ArgAction::SetTrue)]
         id: bool,
     },
 
     /// Sync feeds and ingest new entries.
-    Sync,
+    Sync {
+        /// Validate feeds YAML config without running.
+        #[arg(long, action = clap::ArgAction::SetTrue)]
+        check: bool,
+    },
 
     /// List entry summaries.
     List {

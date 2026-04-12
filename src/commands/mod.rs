@@ -29,11 +29,11 @@ pub(crate) fn run_plain_command(
     match &cli.command {
         Command::Tags => Ok(output::PlainOutput::Tags(run_tags_command(config)?.tags)),
         Command::Status => Ok(output::PlainOutput::Status(run_status_command(config)?)),
-        Command::Feeds { id, .. } => Ok(output::PlainOutput::Feeds {
+        Command::Feeds { id } => Ok(output::PlainOutput::Feeds {
             feeds: run_feeds_command(config)?,
             include_id: *id,
         }),
-        Command::Sync => run_sync_command_plain(config),
+        Command::Sync { .. } => run_sync_command_plain(config),
         Command::List {
             query,
             sort,
@@ -74,6 +74,7 @@ pub(crate) fn run_status_command(config: &config::AppConfig) -> Result<StatusRes
 pub(crate) fn run_feeds_command(config: &config::AppConfig) -> Result<FeedListResponse, AppError> {
     with_store(config, |store| {
         let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
+        feeds_config.ensure_valid_for_runtime()?;
         feed::reconcile_feeds(store, &feeds_config, &config.unread_tag)?;
         let db_feeds = store.list_feeds()?;
         let feeds = feed::build_feed_list_response(&feeds_config, &db_feeds);

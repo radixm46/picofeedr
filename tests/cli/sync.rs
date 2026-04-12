@@ -309,7 +309,7 @@ fn duplicate_tags_from_multiple_matching_rules_are_deduped() {
 }
 
 #[test]
-fn config_check_reports_invalid_nested_auto_tag_rule_path() {
+fn sync_check_reports_invalid_nested_auto_tag_rule_path() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_fixture_files(&temp);
     let feeds = r#"picofeedr:
@@ -325,7 +325,7 @@ fn config_check_reports_invalid_nested_auto_tag_rule_path() {
         .arg(&paths.config_path)
         .arg("--storage-root")
         .arg(db_root(&paths.db_path))
-        .arg("feeds")
+        .arg("sync")
         .arg("--check")
         .assert()
         .failure()

@@ -334,11 +334,11 @@ pub(crate) fn write_config_check_plain(report: &ConfigCheckReport) -> io::Result
 
 fn format_config_check_plain(report: &ConfigCheckReport) -> String {
     let mut output = String::new();
-    writeln!(output, "valid: {}", report.valid).expect("write config-check valid");
+    writeln!(output, "valid: {}", report.valid).expect("write sync-check valid");
     writeln!(output, "checked_feeds: {}", report.checked_feeds)
-        .expect("write config-check checked_feeds");
-    writeln!(output, "errors: {}", report.errors.len()).expect("write config-check errors");
-    writeln!(output, "warnings: {}", report.warnings.len()).expect("write config-check warnings");
+        .expect("write sync-check checked_feeds");
+    writeln!(output, "errors: {}", report.errors.len()).expect("write sync-check errors");
+    writeln!(output, "warnings: {}", report.warnings.len()).expect("write sync-check warnings");
     write_validation_issue_lines(&mut output, "error", &report.errors);
     write_validation_issue_lines(&mut output, "warning", &report.warnings);
     output

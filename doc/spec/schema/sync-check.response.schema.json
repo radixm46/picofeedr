@@ -56,7 +56,7 @@
   ],
   "definitions": {
     "ConfigCheckReport": {
-      "description": "Static validation report for `feeds --check`.",
+      "description": "Static validation report for `sync --check`.",
       "properties": {
         "checked_feeds": {
           "description": "Number of feed entries checked.",

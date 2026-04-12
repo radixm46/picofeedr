@@ -24,6 +24,7 @@ pub(crate) fn run_sync_command_plain(
     let mut store = db::sqlite::SqliteStore::open(&config.database.path)?;
     store.migrate()?;
     let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
+    feeds_config.ensure_valid_for_runtime()?;
 
     let stdout = io::stdout();
     let mut writer = io::BufWriter::new(stdout.lock());
@@ -59,6 +60,7 @@ fn run_sync_with_store(
     store: &mut db::sqlite::SqliteStore,
 ) -> Result<SyncSummary, AppError> {
     let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
+    feeds_config.ensure_valid_for_runtime()?;
     let summary = sync::run_sync(store, config, &feeds_config)?;
     let now = current_epoch();
     store.bump_revision(now)?;

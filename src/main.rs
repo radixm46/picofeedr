@@ -63,11 +63,11 @@ fn main() -> ExitCode {
     let (output, log_level) = resolve_runtime_settings(&cli, preloaded_config.as_ref());
     init_logging(log_level);
     debug!(?output, ?cli.command, "resolved CLI output and command");
-    if matches!(cli.command, Command::Feeds { check: true, .. }) {
+    if matches!(cli.command, Command::Sync { check: true }) {
         let config = preloaded_config
             .as_ref()
             .expect("config-backed commands should preload config");
-        match run_feeds_check(&cli, output, config) {
+        match run_sync_check(output, config) {
             Ok(exit_code) => return exit_code,
             Err(RunFailure::Io(error)) => return handle_output_error(log_level, error),
             Err(RunFailure::App(error)) => return handle_app_failure(log_level, output, error),
@@ -111,7 +111,7 @@ fn run_json(cli: &Cli, config: Option<&config::AppConfig>) -> Result<(), RunFail
         Command::Feeds { .. } => output::write_json_response(commands::run_feeds_command(
             config.expect("config-backed commands require config"),
         )?)?,
-        Command::Sync => output::write_json_response(commands::run_sync_command(
+        Command::Sync { .. } => output::write_json_response(commands::run_sync_command(
             config.expect("config-backed commands require config"),
         )?)?,
         Command::List {
@@ -155,9 +155,8 @@ fn run_plain(cli: &Cli, config: Option<&config::AppConfig>) -> Result<(), RunFai
     Ok(())
 }
 
-/// Runs static feeds config validation without touching the database.
-fn run_feeds_check(
-    _cli: &Cli,
+/// Runs static sync input validation without touching the database.
+fn run_sync_check(
     output: OutputFormat,
     config: &config::AppConfig,
 ) -> Result<ExitCode, RunFailure> {

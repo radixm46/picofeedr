@@ -45,7 +45,12 @@
 { "feeds": [{ "feed_id": "<string>", "url": "<string>", "title": "<string|null>", "site_url": "<string|null>", "author": "<string|null>", "tags": ["..."] }] }
 ```
 
-### `feeds --check`
+`feeds` はローカル DB 上の feed catalog を返す。
+
+Blocking `feeds.yaml` validation errors fail the command with `status = "error"` and
+`error.code = "CONFIG_ERROR"`.
+
+### `sync --check`
 
 ```json
 { "valid": <bool>, "errors": [ValidationIssue...], "warnings": [ValidationIssue...], "checked_feeds": <int> }
@@ -58,6 +63,9 @@
 ```json
 { "status": "completed|partial_failed|failed", "fetched_feed_count": <int>, "failed_feed_count": <int>, "new_entry_count": <int>, "duration_ms": <int>, "errors": [SyncError...] }
 ```
+
+Blocking `feeds.yaml` validation errors fail the command with `status = "error"` and
+`error.code = "CONFIG_ERROR"` before any fetch starts.
 
 `SyncError` の shape:
 
@@ -116,7 +124,7 @@ JSON ほど厳密な全文字列契約は持たないが、形式カテゴリと
 | Category | Commands | Format |
 | --- | --- | --- |
 | table | `list`, `feeds`, `tags` | タブ区切り、1レコード/行、ヘッダなし |
-| kv | `version`, `status`, `mark`, `view` metadata, `feeds --check` | `key: value`、1行1項目 |
+| kv | `version`, `status`, `mark`, `view` metadata, `sync --check` | `key: value`、1行1項目 |
 | log | `sync` | `sync:* key=value ...` |
 
 ### Common Rules
@@ -173,7 +181,7 @@ sync:feed-error index=<i>/<N> url=<feed_url> code=<FETCH_FAILED|PARSE_FAILED|ING
 - `entry_id`, `title`, `feed_title`, `feed_id` は独立した項目として出す
 - 本文がある場合は metadata block の後に空行を1つ出し、その後に raw text body をそのまま出す
 
-### `feeds --check`
+### `sync --check`
 
 - top-level summary は `kv` 形式で出す
 - `errors` / `warnings` の詳細は診断行として出す

@@ -133,7 +133,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     write_schema::<Envelope<VersionResponse>>("version.response.schema.json")?;
     write_schema::<Envelope<FeedListResponse>>("feeds.response.schema.json")?;
-    write_schema::<Envelope<ConfigCheckReport>>("config-check.response.schema.json")?;
+    write_schema::<Envelope<ConfigCheckReport>>("sync-check.response.schema.json")?;
     write_schema::<Envelope<SyncSummary>>("sync.response.schema.json")?;
     write_schema::<Envelope<StatusResponse>>("status.response.schema.json")?;
     write_schema::<Envelope<EntryListResponse>>("list.response.schema.json")?;
