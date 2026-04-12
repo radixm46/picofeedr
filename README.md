@@ -138,29 +138,29 @@ Storage can be configured in three ways:
 
 If you are just getting started, these are the commands you will usually use first:
 
-| Task | Command |
-| --- | --- |
-| Validate your sync configuration | `sync --check` |
-| Fetch latest entries | `sync` |
-| List saved entries | `list` |
-| View one saved entry | `view <entry-id>` |
-| Mark entries read or unread | `mark read ...` / `mark unread ...` |
-| Add or remove custom tags | `mark tag ...` |
+| Task                             | Command                             |
+| -------------------------------- | ----------------------------------- |
+| Validate your sync configuration | `sync --check`                      |
+| Fetch latest entries             | `sync`                              |
+| List saved entries               | `list`                              |
+| View one saved entry             | `view <entry-id>`                   |
+| Mark entries read or unread      | `mark read ...` / `mark unread ...` |
+| Add or remove custom tags        | `mark tag ...`                      |
 
 ## Commands
 
-| Command | Description |
-| --- | --- |
-| `feeds` | List feeds from the local feed catalog |
-| `sync` | Sync feeds and ingest new entries |
-| `list` | List entry summaries |
-| `view <entry-id>` | View entry detail by id |
-| `mark read <entry-id>...` | Remove the unread tag from entries |
-| `mark unread <entry-id>...` | Add the unread tag to entries |
-| `mark tag ...` | Add or remove custom tags |
-| `tags` | List tags stored in the database |
-| `status` | Show lightweight database status metadata |
-| `version` | Print version information |
+| Command                     | Description                               |
+| --------------------------- | ----------------------------------------- |
+| `feeds`                     | List feeds from the local feed catalog    |
+| `sync`                      | Sync feeds and ingest new entries         |
+| `list`                      | List entry summaries                      |
+| `view <entry-id>`           | View entry detail by id                   |
+| `mark read <entry-id>...`   | Remove the unread tag from entries        |
+| `mark unread <entry-id>...` | Add the unread tag to entries             |
+| `mark tag ...`              | Add or remove custom tags                 |
+| `tags`                      | List tags stored in the database          |
+| `status`                    | Show lightweight database status metadata |
+| `version`                   | Print version information                 |
 
 Examples:
 
@@ -184,15 +184,15 @@ For full command-line details, run `picofeedr --help` or see [`doc/spec/cli.md`]
 
 Important `config.toml` keys:
 
-| Key | Purpose |
-| --- | --- |
-| `unread_tag` | Tag used by `mark read` / `mark unread` |
-| `storage.root_dir` | Root directory containing `db.sqlite` and optional stored content |
-| `storage.content_store` | Content storage mode: `db`, `fs`, or `none` |
-| `feeds.source` | Path to `feeds.yaml` |
-| `cli.output` | Default output mode: `plain` or `json` |
-| `query.default_limit` | Default result limit for `list` |
-| `query.max_limit` | Maximum allowed limit for `list` |
+| Key                     | Purpose                                                           |
+| ----------------------- | ----------------------------------------------------------------- |
+| `unread_tag`            | Tag used by `mark read` / `mark unread`                           |
+| `storage.root_dir`      | Root directory containing `db.sqlite` and optional stored content |
+| `storage.content_store` | Content storage mode: `db`, `fs`, or `none`                       |
+| `feeds.source`          | Path to `feeds.yaml`                                              |
+| `cli.output`            | Default output mode: `plain` or `json`                            |
+| `query.default_limit`   | Default result limit for `list`                                   |
+| `query.max_limit`       | Maximum allowed limit for `list`                                  |
 
 Example `feeds.yaml` with groups and auto-tag rules:
 

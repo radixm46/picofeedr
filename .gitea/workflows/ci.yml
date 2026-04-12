@@ -27,3 +27,7 @@ jobs:
         run: git diff --exit-code -- doc/spec/schema
       - name: test
         run: cargo test
+      - name: install rumdl
+        run: cargo install rumdl
+      - name: check markdown
+        run: rumdl check --config .rumdl.toml README.md doc/

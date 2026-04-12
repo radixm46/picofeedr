@@ -121,11 +121,11 @@ JSON ほど厳密な全文字列契約は持たないが、形式カテゴリと
 
 ### Plain Categories
 
-| Category | Commands | Format |
-| --- | --- | --- |
-| table | `list`, `feeds`, `tags` | タブ区切り、1レコード/行、ヘッダなし |
-| kv | `version`, `status`, `mark`, `view` metadata, `sync --check` | `key: value`、1行1項目 |
-| log | `sync` | `sync:* key=value ...` |
+| Category | Commands                                                     | Format                               |
+| -------- | ------------------------------------------------------------ | ------------------------------------ |
+| table    | `list`, `feeds`, `tags`                                      | タブ区切り、1レコード/行、ヘッダなし |
+| kv       | `version`, `status`, `mark`, `view` metadata, `sync --check` | `key: value`、1行1項目               |
+| log      | `sync`                                                       | `sync:* key=value ...`               |
 
 ### Common Rules
 
