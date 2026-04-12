@@ -76,6 +76,9 @@
   - 例: `k_nEYNGhY1VhMY6HOx32gKp764cXqV8XUpAdM2Js3GBQA`
 - 旧形式（URL文字列そのもの等）の `feed_id` は移行用の一時状態であり、最終DBには残さない
 - `url/title/site_url/meta_json` などは表示・説明のための最小情報
+- `title` は config 由来の表示名として扱う
+- `author` / `site_url` は `sync` で最後に観測した非空 feed metadata のキャッシュとして扱う
+- metadata refresh では空値で既存値を消さない
 - `meta_json` には `feeds.yaml` の設定値（tags / auto_tags ルール）を保存しない
 
 ### 4.3 `entries`

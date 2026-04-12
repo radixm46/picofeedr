@@ -216,7 +216,22 @@ pub(crate) struct SyncResult {
     pub(crate) feed_url: String,
     pub(crate) index: usize,
     pub(crate) total_feeds: usize,
+    pub(crate) feed_metadata: FeedMetadata,
     pub(crate) entries: Vec<SyncEntry>,
+}
+
+/// Feed-level metadata observed during sync.
+#[derive(Debug, Default)]
+pub(crate) struct FeedMetadata {
+    pub(crate) author: Option<String>,
+    pub(crate) site_url: Option<String>,
+}
+
+impl FeedMetadata {
+    /// Returns true when there is at least one non-empty metadata field to persist.
+    pub(crate) fn has_values(&self) -> bool {
+        self.author.is_some() || self.site_url.is_some()
+    }
 }
 
 /// Normalized entry with tags and content payload.

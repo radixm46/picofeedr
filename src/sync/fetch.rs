@@ -8,7 +8,9 @@ use std::io::{Cursor, Read};
 use std::thread;
 use std::time::Duration;
 
-use super::model::{SyncError, SyncProgressEvent, SyncResult, SyncTarget, WorkerResult};
+use super::model::{
+    FeedMetadata, SyncError, SyncProgressEvent, SyncResult, SyncTarget, WorkerResult,
+};
 use super::normalize::normalize_entry;
 
 /// Feed fetch failure with retryability metadata.
@@ -193,6 +195,7 @@ fn fetch_and_parse(target: &SyncTarget, config: &AppConfig, agent: &ureq::Agent)
             };
         }
     };
+    let feed_metadata = extract_feed_metadata(&feed);
     let entries = match feed
         .entries
         .iter()
@@ -212,8 +215,45 @@ fn fetch_and_parse(target: &SyncTarget, config: &AppConfig, agent: &ureq::Agent)
             feed_url: target.url.clone(),
             index: target.index,
             total_feeds: target.total_feeds,
+            feed_metadata,
             entries,
         },
+    }
+}
+
+fn extract_feed_metadata(feed: &feed_rs::model::Feed) -> FeedMetadata {
+    FeedMetadata {
+        author: trim_to_option(feed.authors.first().map(|author| author.name.as_str())),
+        site_url: extract_site_url(feed),
+    }
+}
+
+fn extract_site_url(feed: &feed_rs::model::Feed) -> Option<String> {
+    feed.links
+        .iter()
+        .find(|link| {
+            trim_str_to_option(link.href.as_str()).is_some()
+                && link.rel.as_deref() == Some("alternate")
+        })
+        .or_else(|| {
+            feed.links.iter().find(|link| {
+                trim_str_to_option(link.href.as_str()).is_some()
+                    && !matches!(link.rel.as_deref(), Some("self"))
+            })
+        })
+        .and_then(|link| trim_str_to_option(link.href.as_str()))
+}
+
+fn trim_to_option(value: Option<&str>) -> Option<String> {
+    value.and_then(trim_str_to_option)
+}
+
+fn trim_str_to_option(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_owned())
     }
 }
 

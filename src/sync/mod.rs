@@ -176,11 +176,14 @@ fn build_sync_targets(feeds_config: &FeedsConfig) -> Result<Vec<SyncTarget>, App
 
 #[cfg(test)]
 mod tests {
-    use super::model::{PendingEntry, SyncEntry, SyncResult};
-    use super::{build_sync_targets, derive_sync_status, ingest_sync_result, prepare_sync_ingest};
+    use super::model::{FeedMetadata, PendingEntry, SyncEntry, SyncResult};
+    use super::{
+        build_sync_targets, derive_sync_status, ingest_sync_result, prepare_sync_ingest, run_sync,
+    };
     use crate::config::AppConfig;
     use crate::config::feeds::FeedsConfig;
     use crate::db::sqlite::SqliteStore;
+    use std::fs;
     use tempfile::TempDir;
 
     fn escape_path(path: &std::path::Path) -> String {
@@ -224,6 +227,67 @@ retry_delay = 0
         (config_path, feeds_path)
     }
 
+    fn write_single_feed_config_files(
+        temp: &TempDir,
+        feed_url: &str,
+        title: &str,
+    ) -> (std::path::PathBuf, std::path::PathBuf) {
+        let feeds_path = temp.path().join("feeds.yaml");
+        let config_path = temp.path().join("config.toml");
+        let feeds_yaml = format!(
+            "picofeedr:\n  feeds:\n    - url: \"{feed_url}\"\n      title: \"{title}\"\n      tags: [tech]\n"
+        );
+        fs::write(&feeds_path, feeds_yaml).expect("write feeds");
+
+        let config_toml = format!(
+            r#"
+[feeds]
+source = "{}"
+
+[storage]
+root_dir = "{}"
+
+[sync]
+parallel = 1
+timeout = 1
+user_agent = "picofeedr-test"
+retry_count = 0
+retry_delay = 0
+"#,
+            escape_path(&feeds_path),
+            escape_path(temp.path()),
+        );
+        fs::write(&config_path, config_toml).expect("write config");
+        (config_path, feeds_path)
+    }
+
+    fn write_atom_feed(
+        path: &std::path::Path,
+        remote_title: &str,
+        author: Option<&str>,
+        site_url: Option<&str>,
+    ) {
+        let author_xml = author
+            .map(|name| format!("<author><name>{name}</name></author>"))
+            .unwrap_or_default();
+        let alternate_xml = site_url
+            .map(|url| format!(r#"<link href="{url}" rel="alternate" />"#))
+            .unwrap_or_default();
+        let feed_xml = format!(
+            r#"<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>{remote_title}</title>
+  <id>https://example.com/feed</id>
+  <updated>2026-04-12T00:00:00Z</updated>
+  {author_xml}
+  {alternate_xml}
+  <link href="https://example.com/feed.xml" rel="self" />
+</feed>
+"#
+        );
+        fs::write(path, feed_xml).expect("write atom feed");
+    }
+
     fn make_result(feed_id: &str, entry_id: &str) -> SyncResult {
         SyncResult {
             feed_id: feed_id.to_string(),
@@ -231,6 +295,7 @@ retry_delay = 0
             feed_url: format!("https://example.com/{feed_id}.xml"),
             index: 1,
             total_feeds: 1,
+            feed_metadata: FeedMetadata::default(),
             entries: vec![SyncEntry {
                 entry: PendingEntry {
                     entry_id: entry_id.to_string(),
@@ -346,5 +411,69 @@ retry_delay = 0
         for target in &targets {
             assert!(feed_pks_by_feed_id.contains_key(&target.feed_id));
         }
+    }
+
+    #[test]
+    fn run_sync_populates_feed_metadata_cache_without_overwriting_config_title() {
+        let temp = TempDir::new().expect("temp dir");
+        let feed_path = temp.path().join("feed.xml");
+        write_atom_feed(
+            &feed_path,
+            "Remote Title",
+            Some("Remote Author"),
+            Some("https://example.com/site"),
+        );
+        let feed_url = format!("file://{}", feed_path.to_string_lossy());
+        let (config_path, feeds_path) =
+            write_single_feed_config_files(&temp, &feed_url, "Configured Title");
+        let config = AppConfig::load(Some(config_path)).expect("load config");
+        let feeds_config = FeedsConfig::load(&feeds_path).expect("load feeds");
+
+        let mut store = SqliteStore::open(&config.database.path).expect("open store");
+        store.migrate().expect("migrate");
+        let summary = run_sync(&mut store, &config, &feeds_config).expect("run sync");
+        assert_eq!(summary.new_entry_count, 0);
+
+        let feeds = store.list_feeds().expect("list feeds");
+        assert_eq!(feeds.len(), 1);
+        assert_eq!(feeds[0].title.as_deref(), Some("Configured Title"));
+        assert_eq!(feeds[0].author.as_deref(), Some("Remote Author"));
+        assert_eq!(
+            feeds[0].site_url.as_deref(),
+            Some("https://example.com/site")
+        );
+    }
+
+    #[test]
+    fn run_sync_keeps_existing_feed_metadata_when_latest_fetch_has_empty_values() {
+        let temp = TempDir::new().expect("temp dir");
+        let feed_path = temp.path().join("feed.xml");
+        let feed_url = format!("file://{}", feed_path.to_string_lossy());
+        let (config_path, feeds_path) =
+            write_single_feed_config_files(&temp, &feed_url, "Configured Title");
+        let config = AppConfig::load(Some(config_path)).expect("load config");
+        let feeds_config = FeedsConfig::load(&feeds_path).expect("load feeds");
+        let mut store = SqliteStore::open(&config.database.path).expect("open store");
+        store.migrate().expect("migrate");
+
+        write_atom_feed(
+            &feed_path,
+            "Remote Title",
+            Some("Remote Author"),
+            Some("https://example.com/site"),
+        );
+        run_sync(&mut store, &config, &feeds_config).expect("initial sync");
+
+        write_atom_feed(&feed_path, "Remote Title", None, None);
+        run_sync(&mut store, &config, &feeds_config).expect("second sync");
+
+        let feeds = store.list_feeds().expect("list feeds");
+        assert_eq!(feeds.len(), 1);
+        assert_eq!(feeds[0].author.as_deref(), Some("Remote Author"));
+        assert_eq!(
+            feeds[0].site_url.as_deref(),
+            Some("https://example.com/site")
+        );
+        assert_eq!(feeds[0].title.as_deref(), Some("Configured Title"));
     }
 }

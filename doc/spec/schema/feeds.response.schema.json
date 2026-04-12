@@ -91,7 +91,7 @@
       "description": "Feed list item for JSON output.",
       "properties": {
         "author": {
-          "description": "Optional author.",
+          "description": "Last observed feed author.",
           "type": [
             "string",
             "null"
@@ -102,7 +102,7 @@
           "type": "string"
         },
         "site_url": {
-          "description": "Optional site URL.",
+          "description": "Last observed feed site URL.",
           "type": [
             "string",
             "null"
@@ -116,7 +116,7 @@
           "type": "array"
         },
         "title": {
-          "description": "Optional title.",
+          "description": "Optional title from config.",
           "type": [
             "string",
             "null"

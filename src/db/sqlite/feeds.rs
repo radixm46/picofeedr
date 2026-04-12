@@ -49,6 +49,43 @@ pub(crate) fn upsert_feed_with_conn(
     Ok(())
 }
 
+/// Inserts or updates config-owned feed fields without overwriting observed metadata.
+pub(crate) fn reconcile_feed_with_conn(
+    conn: &Connection,
+    feed: &FeedInput,
+    now: i64,
+) -> Result<(), AppError> {
+    conn.execute(
+        q::UPSERT_FEED_FROM_CONFIG,
+        params![
+            feed.feed_id,
+            feed.url,
+            feed.title,
+            feed.author,
+            feed.site_url,
+            feed.meta_json,
+            now,
+            now
+        ],
+    )?;
+    Ok(())
+}
+
+/// Refreshes persisted feed metadata with non-empty observed values.
+pub(crate) fn refresh_feed_metadata_with_conn(
+    conn: &Connection,
+    feed_pk: i64,
+    author: Option<&str>,
+    site_url: Option<&str>,
+    now: i64,
+) -> Result<(), AppError> {
+    conn.execute(
+        q::UPDATE_FEED_METADATA,
+        params![author, site_url, now, feed_pk],
+    )?;
+    Ok(())
+}
+
 /// Fetches feed primary keys by feed_id using chunked IN queries.
 pub(crate) fn find_feed_pks_by_ids_with_conn(
     conn: &Connection,

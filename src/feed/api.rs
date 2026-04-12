@@ -22,11 +22,11 @@ pub struct FeedListItem {
     pub feed_id: String,
     /// Feed URL.
     pub url: String,
-    /// Optional title.
+    /// Optional title from config.
     pub title: Option<String>,
-    /// Optional site URL.
+    /// Last observed feed site URL.
     pub site_url: Option<String>,
-    /// Optional author.
+    /// Last observed feed author.
     pub author: Option<String>,
     /// Tags from feeds.yaml.
     pub tags: Vec<String>,

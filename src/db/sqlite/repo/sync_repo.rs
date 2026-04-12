@@ -6,6 +6,7 @@ use crate::db::sqlite::{entries, meta};
 use crate::error::AppError;
 use crate::sync::content::{remove_content_fs, write_content_fs};
 use crate::sync::model::SyncResult;
+use crate::time::current_epoch;
 use rusqlite::Connection;
 
 /// Read-only repository for sync metadata queries.
@@ -53,6 +54,9 @@ impl<'a> SyncWriteRepo<'a> {
         feed_pk: i64,
         result: SyncResult,
     ) -> Result<usize, AppError> {
+        let now = current_epoch();
+        let write_repo = crate::db::sqlite::repo::FeedWriteRepo::new(self.conn);
+        write_repo.refresh_feed_metadata(feed_pk, &result.feed_metadata, now)?;
         let mut ingest = entries::IngestContext::new(self.conn)?;
         let mut new_entries = 0;
         for entry in result.entries {

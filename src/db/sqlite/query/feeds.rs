@@ -17,6 +17,25 @@ ON CONFLICT(feed_id) DO UPDATE SET
    updated_at = excluded.updated_at
 "#;
 
+/// Upserts feed config fields without clobbering observed metadata.
+pub(crate) const UPSERT_FEED_FROM_CONFIG: &str = r#"
+INSERT INTO feeds (feed_id, url, title, author, site_url, meta_json, created_at, updated_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+ON CONFLICT(feed_id) DO UPDATE SET
+   url = excluded.url,
+   title = excluded.title,
+   updated_at = excluded.updated_at
+"#;
+
+/// Refreshes observed feed metadata on a known feed row.
+pub(crate) const UPDATE_FEED_METADATA: &str = r#"
+UPDATE feeds
+SET author = COALESCE(?1, author),
+    site_url = COALESCE(?2, site_url),
+    updated_at = ?3
+WHERE id = ?4
+"#;
+
 /// Finds feed primary keys by feed key for a dynamic IN list.
 pub(crate) fn select_feed_pks_by_ids(placeholders: &str) -> String {
     format!("SELECT feed_id, id FROM feeds WHERE feed_id IN ({placeholders})")
