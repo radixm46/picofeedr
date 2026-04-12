@@ -223,6 +223,7 @@ fn fetch_and_parse(target: &SyncTarget, config: &AppConfig, agent: &ureq::Agent)
 
 fn extract_feed_metadata(feed: &feed_rs::model::Feed) -> FeedMetadata {
     FeedMetadata {
+        title: trim_to_option(feed.title.as_ref().map(|title| title.content.as_str())),
         author: trim_to_option(feed.authors.first().map(|author| author.name.as_str())),
         site_url: extract_site_url(feed),
     }

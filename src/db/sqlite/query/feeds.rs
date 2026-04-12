@@ -23,17 +23,18 @@ INSERT INTO feeds (feed_id, url, title, author, site_url, meta_json, created_at,
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
 ON CONFLICT(feed_id) DO UPDATE SET
    url = excluded.url,
-   title = excluded.title,
+   title = COALESCE(excluded.title, title),
    updated_at = excluded.updated_at
 "#;
 
 /// Refreshes observed feed metadata on a known feed row.
 pub(crate) const UPDATE_FEED_METADATA: &str = r#"
 UPDATE feeds
-SET author = COALESCE(?1, author),
-    site_url = COALESCE(?2, site_url),
-    updated_at = ?3
-WHERE id = ?4
+SET title = COALESCE(title, ?1),
+    author = COALESCE(?2, author),
+    site_url = COALESCE(?3, site_url),
+    updated_at = ?4
+WHERE id = ?5
 "#;
 
 /// Finds feed primary keys by feed key for a dynamic IN list.

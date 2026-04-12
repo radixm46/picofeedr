@@ -230,12 +230,15 @@ retry_delay = 0
     fn write_single_feed_config_files(
         temp: &TempDir,
         feed_url: &str,
-        title: &str,
+        title: Option<&str>,
     ) -> (std::path::PathBuf, std::path::PathBuf) {
         let feeds_path = temp.path().join("feeds.yaml");
         let config_path = temp.path().join("config.toml");
+        let title_line = title
+            .map(|title| format!("      title: \"{title}\"\n"))
+            .unwrap_or_default();
         let feeds_yaml = format!(
-            "picofeedr:\n  feeds:\n    - url: \"{feed_url}\"\n      title: \"{title}\"\n      tags: [tech]\n"
+            "picofeedr:\n  feeds:\n    - url: \"{feed_url}\"\n{title_line}      tags: [tech]\n"
         );
         fs::write(&feeds_path, feeds_yaml).expect("write feeds");
 
@@ -425,7 +428,7 @@ retry_delay = 0
         );
         let feed_url = format!("file://{}", feed_path.to_string_lossy());
         let (config_path, feeds_path) =
-            write_single_feed_config_files(&temp, &feed_url, "Configured Title");
+            write_single_feed_config_files(&temp, &feed_url, Some("Configured Title"));
         let config = AppConfig::load(Some(config_path)).expect("load config");
         let feeds_config = FeedsConfig::load(&feeds_path).expect("load feeds");
 
@@ -450,7 +453,7 @@ retry_delay = 0
         let feed_path = temp.path().join("feed.xml");
         let feed_url = format!("file://{}", feed_path.to_string_lossy());
         let (config_path, feeds_path) =
-            write_single_feed_config_files(&temp, &feed_url, "Configured Title");
+            write_single_feed_config_files(&temp, &feed_url, Some("Configured Title"));
         let config = AppConfig::load(Some(config_path)).expect("load config");
         let feeds_config = FeedsConfig::load(&feeds_path).expect("load feeds");
         let mut store = SqliteStore::open(&config.database.path).expect("open store");
@@ -475,5 +478,61 @@ retry_delay = 0
             Some("https://example.com/site")
         );
         assert_eq!(feeds[0].title.as_deref(), Some("Configured Title"));
+    }
+
+    #[test]
+    fn run_sync_fills_missing_config_title_from_observed_feed_title() {
+        let temp = TempDir::new().expect("temp dir");
+        let feed_path = temp.path().join("feed.xml");
+        write_atom_feed(
+            &feed_path,
+            "Remote Title",
+            Some("Remote Author"),
+            Some("https://example.com/site"),
+        );
+        let feed_url = format!("file://{}", feed_path.to_string_lossy());
+        let (config_path, feeds_path) = write_single_feed_config_files(&temp, &feed_url, None);
+        let config = AppConfig::load(Some(config_path)).expect("load config");
+        let feeds_config = FeedsConfig::load(&feeds_path).expect("load feeds");
+
+        let mut store = SqliteStore::open(&config.database.path).expect("open store");
+        store.migrate().expect("migrate");
+        run_sync(&mut store, &config, &feeds_config).expect("run sync");
+
+        let feeds = store.list_feeds().expect("list feeds");
+        assert_eq!(feeds.len(), 1);
+        assert_eq!(feeds[0].title.as_deref(), Some("Remote Title"));
+    }
+
+    #[test]
+    fn run_sync_keeps_existing_fallback_title_when_latest_fetch_has_empty_title() {
+        let temp = TempDir::new().expect("temp dir");
+        let feed_path = temp.path().join("feed.xml");
+        let feed_url = format!("file://{}", feed_path.to_string_lossy());
+        let (config_path, feeds_path) = write_single_feed_config_files(&temp, &feed_url, None);
+        let config = AppConfig::load(Some(config_path)).expect("load config");
+        let feeds_config = FeedsConfig::load(&feeds_path).expect("load feeds");
+        let mut store = SqliteStore::open(&config.database.path).expect("open store");
+        store.migrate().expect("migrate");
+
+        write_atom_feed(
+            &feed_path,
+            "Remote Title",
+            Some("Remote Author"),
+            Some("https://example.com/site"),
+        );
+        run_sync(&mut store, &config, &feeds_config).expect("initial sync");
+
+        write_atom_feed(
+            &feed_path,
+            "",
+            Some("Remote Author"),
+            Some("https://example.com/site"),
+        );
+        run_sync(&mut store, &config, &feeds_config).expect("second sync");
+
+        let feeds = store.list_feeds().expect("list feeds");
+        assert_eq!(feeds.len(), 1);
+        assert_eq!(feeds[0].title.as_deref(), Some("Remote Title"));
     }
 }

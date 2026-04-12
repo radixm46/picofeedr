@@ -65,6 +65,7 @@ impl<'a> FeedWriteRepo<'a> {
         feeds::refresh_feed_metadata_with_conn(
             self.conn,
             feed_pk,
+            metadata.title.as_deref(),
             metadata.author.as_deref(),
             metadata.site_url.as_deref(),
             now,

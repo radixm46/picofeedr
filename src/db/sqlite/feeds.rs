@@ -75,13 +75,14 @@ pub(crate) fn reconcile_feed_with_conn(
 pub(crate) fn refresh_feed_metadata_with_conn(
     conn: &Connection,
     feed_pk: i64,
+    title: Option<&str>,
     author: Option<&str>,
     site_url: Option<&str>,
     now: i64,
 ) -> Result<(), AppError> {
     conn.execute(
         q::UPDATE_FEED_METADATA,
-        params![author, site_url, now, feed_pk],
+        params![title, author, site_url, now, feed_pk],
     )?;
     Ok(())
 }

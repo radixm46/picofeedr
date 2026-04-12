@@ -12,7 +12,7 @@ pub struct FeedRow {
     pub feed_id: String,
     /// Feed URL.
     pub url: String,
-    /// Optional title from config.
+    /// Config title when present, otherwise last observed non-empty feed title.
     pub title: Option<String>,
     /// Last observed feed author.
     pub author: Option<String>,
@@ -27,7 +27,7 @@ pub struct FeedInput {
     pub feed_id: String,
     /// Feed URL.
     pub url: String,
-    /// Optional title from config.
+    /// Config title when present, otherwise last observed non-empty feed title.
     pub title: Option<String>,
     /// Last observed feed author.
     pub author: Option<String>,

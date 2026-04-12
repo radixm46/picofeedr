@@ -22,7 +22,7 @@ pub struct FeedListItem {
     pub feed_id: String,
     /// Feed URL.
     pub url: String,
-    /// Optional title from config.
+    /// Config title when present, otherwise last observed non-empty feed title.
     pub title: Option<String>,
     /// Last observed feed site URL.
     pub site_url: Option<String>,

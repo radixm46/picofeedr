@@ -169,7 +169,7 @@ sync:feed-error index=<i>/<N> url=<feed_url> code=<FETCH_FAILED|PARSE_FAILED|ING
 - 1 feed につき1行を出力する
 - 既定列は `title`, `url`, `site_url`, `author`, `tags`
 - `--id` 指定時は末尾列として `feed_id` を追加する
-- `title` は config 由来の表示名として扱う
+- `title` は config の表示名を優先し、未設定時のみ `sync` で最後に観測した非空 feed title を fallback として返す
 - `site_url` / `author` は `sync` で最後に観測した非空 metadata を返す
 - `feeds` コマンド自身は metadata refresh のための fetch を行わない
 

@@ -116,7 +116,7 @@
           "type": "array"
         },
         "title": {
-          "description": "Optional title from config.",
+          "description": "Config title when present, otherwise last observed non-empty feed title.",
           "type": [
             "string",
             "null"

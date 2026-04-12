@@ -223,6 +223,7 @@ pub(crate) struct SyncResult {
 /// Feed-level metadata observed during sync.
 #[derive(Debug, Default)]
 pub(crate) struct FeedMetadata {
+    pub(crate) title: Option<String>,
     pub(crate) author: Option<String>,
     pub(crate) site_url: Option<String>,
 }
@@ -230,7 +231,7 @@ pub(crate) struct FeedMetadata {
 impl FeedMetadata {
     /// Returns true when there is at least one non-empty metadata field to persist.
     pub(crate) fn has_values(&self) -> bool {
-        self.author.is_some() || self.site_url.is_some()
+        self.title.is_some() || self.author.is_some() || self.site_url.is_some()
     }
 }
 
