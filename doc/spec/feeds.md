@@ -43,6 +43,13 @@ Each item in a group `feeds` list must be a mapping with:
 
 The loader trims surrounding whitespace from `url`.
 
+Currently supported feed source URL schemes are:
+
+- `http://`
+- `https://`
+- `gopher://`
+- `file://`
+
 ## Flattening Contract
 
 - the group tree is flattened into a linear feed list
@@ -81,6 +88,8 @@ when blocking errors are present.
 ## Sync-Relevant Behavior
 
 - sync targets are built from the flattened `feeds` list only
+- `http://`, `https://`, `gopher://`, and `file://` source URLs are fetchable
+- `gopher://` sources are fetched as raw feed documents and parsed by the same RSS/Atom parser used for HTTP/file sources
 - URLs removed from `feeds.yaml` are not fetched
 - historical DB rows may remain after a feed URL is removed from `feeds.yaml`
 

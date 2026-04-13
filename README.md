@@ -211,7 +211,11 @@ picofeedr:
     feeds:
       - title: Platform Blog
         url: https://feeds.example.invalid/tech/platform.xml
+      - title: Retro Blog
+        url: gopher://feeds.example.invalid/0/retro/blog.xml
 ```
+
+Feed source URLs may use `http://`, `https://`, `gopher://`, or `file://`.
 
 Detailed specifications:
 
