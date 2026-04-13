@@ -25,6 +25,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt"] }
 ureq = { version = "3.3", features = ["rustls"] }
 time = { version = "0.3", features = ["local-offset", "macros", "parsing"] }
+url = "2"
 
 [dev-dependencies]
 assert_cmd = "2"

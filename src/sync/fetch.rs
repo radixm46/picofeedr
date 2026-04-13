@@ -5,8 +5,10 @@ use crate::error::AppError;
 use crossbeam_channel::{Receiver, Sender, bounded, select, unbounded};
 use std::fs;
 use std::io::{Cursor, Read};
+use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
+use url::Url;
 
 use super::model::{
     FeedMetadata, SyncError, SyncProgressEvent, SyncResult, SyncTarget, WorkerResult,
@@ -18,6 +20,12 @@ use super::normalize::normalize_entry;
 struct FetchError {
     message: String,
     retryable: bool,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum FeedSource {
+    Http(String),
+    File(PathBuf),
 }
 
 /// Fetches and parses feeds in parallel.
@@ -318,41 +326,73 @@ fn read_feed_file(path: &str, sync: &SyncConfig) -> Result<Vec<u8>, FetchError> 
     read_limited_bytes(file, sync.max_feed_bytes, "Failed to read feed file", false)
 }
 
+fn read_feed_file_path(path: &std::path::Path, sync: &SyncConfig) -> Result<Vec<u8>, FetchError> {
+    let path_str = path.to_string_lossy();
+    read_feed_file(&path_str, sync)
+}
+
+fn parse_feed_source(url: &str) -> Result<FeedSource, FetchError> {
+    let parsed = Url::parse(url).map_err(|error| FetchError {
+        message: format!("Invalid feed URL: {error}"),
+        retryable: false,
+    })?;
+    match parsed.scheme() {
+        "http" | "https" => Ok(FeedSource::Http(url.to_string())),
+        "file" => {
+            let path = parsed.to_file_path().map_err(|_| FetchError {
+                message: "Invalid file URL".to_string(),
+                retryable: false,
+            })?;
+            Ok(FeedSource::File(path))
+        }
+        scheme => Err(FetchError {
+            message: format!("Unsupported feed URL scheme: {scheme}"),
+            retryable: false,
+        }),
+    }
+}
+
 /// Fetches raw feed bytes with retry support.
 fn fetch_feed_bytes(
     url: &str,
     sync: &SyncConfig,
     agent: &ureq::Agent,
 ) -> Result<Vec<u8>, FetchError> {
-    if let Some(path) = url.strip_prefix("file://") {
-        return read_feed_file(path, sync);
-    }
-    for attempt in 0..=sync.retry_count {
-        let response = agent.get(url).header("User-Agent", &sync.user_agent).call();
-        match response {
-            Ok(mut response) => {
-                return read_limited_bytes(
-                    response.body_mut().as_reader(),
-                    sync.max_feed_bytes,
-                    "Failed to read feed body",
-                    true,
-                );
-            }
-            Err(error) => {
-                if matches!(&error, ureq::Error::StatusCode(code) if (400..500).contains(code)) {
-                    return Err(FetchError {
-                        message: trim_url_prefix(url, error.to_string()),
-                        retryable: false,
-                    });
-                }
-                if attempt >= sync.retry_count {
-                    return Err(FetchError {
-                        message: trim_url_prefix(url, error.to_string()),
-                        retryable: true,
-                    });
-                }
-                if sync.retry_delay_secs > 0 {
-                    thread::sleep(Duration::from_secs(sync.retry_delay_secs));
+    match parse_feed_source(url)? {
+        FeedSource::File(path) => return read_feed_file_path(&path, sync),
+        FeedSource::Http(parsed_url) => {
+            for attempt in 0..=sync.retry_count {
+                let response = agent
+                    .get(&parsed_url)
+                    .header("User-Agent", &sync.user_agent)
+                    .call();
+                match response {
+                    Ok(mut response) => {
+                        return read_limited_bytes(
+                            response.body_mut().as_reader(),
+                            sync.max_feed_bytes,
+                            "Failed to read feed body",
+                            true,
+                        );
+                    }
+                    Err(error) => {
+                        if matches!(&error, ureq::Error::StatusCode(code) if (400..500).contains(code))
+                        {
+                            return Err(FetchError {
+                                message: trim_url_prefix(&parsed_url, error.to_string()),
+                                retryable: false,
+                            });
+                        }
+                        if attempt >= sync.retry_count {
+                            return Err(FetchError {
+                                message: trim_url_prefix(&parsed_url, error.to_string()),
+                                retryable: true,
+                            });
+                        }
+                        if sync.retry_delay_secs > 0 {
+                            thread::sleep(Duration::from_secs(sync.retry_delay_secs));
+                        }
+                    }
                 }
             }
         }
@@ -373,11 +413,12 @@ fn trim_url_prefix(url: &str, message: String) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_agent, fetch_feed_bytes};
+    use super::{FeedSource, build_agent, fetch_feed_bytes, parse_feed_source};
     use crate::config::SyncConfig;
     use std::fs;
     use std::io::{Read, Write};
     use std::net::TcpListener;
+    use std::path::PathBuf;
     use std::thread;
     use tempfile::TempDir;
 
@@ -407,6 +448,29 @@ mod tests {
             stream.write_all(body).expect("write body");
         });
         (format!("http://{addr}/feed.xml"), server)
+    }
+
+    #[test]
+    fn parse_feed_source_parses_http_url() {
+        let source = parse_feed_source("https://example.com/feed.xml").expect("source");
+        assert_eq!(
+            source,
+            FeedSource::Http("https://example.com/feed.xml".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_feed_source_parses_file_url() {
+        let path = PathBuf::from("/tmp/feed.xml");
+        let source = parse_feed_source("file:///tmp/feed.xml").expect("source");
+        assert_eq!(source, FeedSource::File(path));
+    }
+
+    #[test]
+    fn parse_feed_source_rejects_unsupported_scheme() {
+        let error = parse_feed_source("ftp://example.com/feed.xml").expect_err("error");
+        assert!(!error.retryable);
+        assert_eq!(error.message, "Unsupported feed URL scheme: ftp");
     }
 
     #[test]
