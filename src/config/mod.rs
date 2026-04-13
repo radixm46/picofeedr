@@ -7,6 +7,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::ffi::OsStr;
 use std::fs;
+use std::io;
 use std::path::{Component, Path, PathBuf};
 
 /// Application configuration derived from config.toml.
@@ -117,21 +118,21 @@ pub enum ContentStore {
 }
 
 /// Raw config.toml representation.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 struct AppConfigRaw {
     unread_tag: Option<String>,
-    feeds: FeedsSourceConfigRaw,
+    feeds: Option<FeedsSourceConfigRaw>,
     sync: Option<SyncConfigRaw>,
-    storage: StorageConfigRaw,
+    storage: Option<StorageConfigRaw>,
     query: Option<QueryConfigRaw>,
     cli: Option<CliConfigRaw>,
     log: Option<LogConfigRaw>,
 }
 
 /// Raw feeds source config representation.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 struct FeedsSourceConfigRaw {
-    source: String,
+    source: Option<String>,
 }
 
 /// Raw sync config representation.
@@ -146,9 +147,9 @@ struct SyncConfigRaw {
 }
 
 /// Raw storage config representation.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 struct StorageConfigRaw {
-    root_dir: String,
+    root_dir: Option<String>,
     content_store: Option<String>,
 }
 
@@ -174,33 +175,10 @@ struct LogConfigRaw {
 impl AppConfig {
     /// Loads configuration from the default path or an override path.
     pub fn load(path_override: Option<PathBuf>) -> Result<Self, AppError> {
-        let config_path = resolve_config_path(path_override)?;
-        let content = fs::read_to_string(&config_path).map_err(|error| {
-            AppError::config_with_details(
-                format!("Failed to read config: {error}"),
-                error_details([
-                    (
-                        "path",
-                        Value::from(config_path.to_string_lossy().to_string()),
-                    ),
-                    ("hint", Value::from("failed_to_read_config")),
-                ]),
-            )
-        })?;
-        let raw: AppConfigRaw = toml::from_str(&content).map_err(|error| {
-            AppError::config_with_details(
-                error.to_string(),
-                error_details([
-                    (
-                        "path",
-                        Value::from(config_path.to_string_lossy().to_string()),
-                    ),
-                    ("hint", Value::from("invalid_toml")),
-                ]),
-            )
-        })?;
+        let config_path = resolve_config_path(path_override.clone())?;
+        let raw = load_raw_config(&config_path, path_override.is_some())?;
         let unread_tag = raw.unread_tag.unwrap_or_else(default_unread_tag);
-        let feeds_path = expand_path(&raw.feeds.source)?;
+        let feeds = FeedsSourceConfig::from_raw(raw.feeds)?;
         let sync = SyncConfig::from_raw(raw.sync)?;
         let storage = StorageConfig::from_raw(raw.storage)?;
         let query = QueryConfig::from_raw(raw.query)?;
@@ -211,7 +189,7 @@ impl AppConfig {
             database: DatabaseConfig {
                 path: storage.root_dir.join("db.sqlite"),
             },
-            feeds: FeedsSourceConfig { source: feeds_path },
+            feeds,
             sync,
             storage,
             query,
@@ -236,6 +214,40 @@ fn resolve_config_path(path_override: Option<PathBuf>) -> Result<PathBuf, AppErr
         return Ok(expand_path_buf(path));
     }
     expand_path("~/.config/picofeedr/config.toml")
+}
+
+fn load_raw_config(config_path: &Path, explicit_path: bool) -> Result<AppConfigRaw, AppError> {
+    let content = match fs::read_to_string(config_path) {
+        Ok(content) => content,
+        Err(error) if !explicit_path && error.kind() == io::ErrorKind::NotFound => {
+            return Ok(AppConfigRaw::default());
+        }
+        Err(error) => {
+            return Err(AppError::config_with_details(
+                format!("Failed to read config: {error}"),
+                error_details([
+                    (
+                        "path",
+                        Value::from(config_path.to_string_lossy().to_string()),
+                    ),
+                    ("hint", Value::from("failed_to_read_config")),
+                ]),
+            ));
+        }
+    };
+
+    toml::from_str(&content).map_err(|error| {
+        AppError::config_with_details(
+            error.to_string(),
+            error_details([
+                (
+                    "path",
+                    Value::from(config_path.to_string_lossy().to_string()),
+                ),
+                ("hint", Value::from("invalid_toml")),
+            ]),
+        )
+    })
 }
 
 /// Expands ~ in paths and returns a PathBuf.
@@ -279,6 +291,23 @@ fn default_unread_tag() -> String {
     "unread".to_string()
 }
 
+fn default_feeds_source() -> &'static str {
+    "~/.config/picofeedr/feeds.yaml"
+}
+
+fn default_storage_root() -> &'static str {
+    "~/.local/share/picofeedr"
+}
+
+impl FeedsSourceConfig {
+    /// Builds a FeedsSourceConfig from optional raw config.
+    fn from_raw(raw: Option<FeedsSourceConfigRaw>) -> Result<Self, AppError> {
+        let raw = raw.unwrap_or_default();
+        let source = expand_path(raw.source.as_deref().unwrap_or(default_feeds_source()))?;
+        Ok(Self { source })
+    }
+}
+
 impl SyncConfig {
     /// Builds a SyncConfig from optional raw config.
     fn from_raw(raw: Option<SyncConfigRaw>) -> Result<Self, AppError> {
@@ -318,9 +347,10 @@ impl SyncConfig {
 
 impl StorageConfig {
     /// Builds a StorageConfig from raw config.
-    fn from_raw(raw: StorageConfigRaw) -> Result<Self, AppError> {
+    fn from_raw(raw: Option<StorageConfigRaw>) -> Result<Self, AppError> {
+        let raw = raw.unwrap_or_default();
         let store = parse_content_store(raw.content_store.as_deref())?;
-        let root_dir = expand_path(&raw.root_dir)?;
+        let root_dir = expand_path(raw.root_dir.as_deref().unwrap_or(default_storage_root()))?;
         let data_dir = root_dir.join("data");
         Ok(Self {
             root_dir,

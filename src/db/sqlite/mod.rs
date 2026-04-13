@@ -14,6 +14,7 @@ use crate::db::sqlite::repo::{
 };
 use crate::error::AppError;
 use rusqlite::Connection;
+use std::fs;
 use std::path::Path;
 use std::time::Duration;
 
@@ -74,6 +75,9 @@ pub struct SqliteStore {
 impl SqliteStore {
     /// Opens a SQLite database at the provided path.
     pub fn open(path: &Path) -> Result<Self, AppError> {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
         let conn = Connection::open(path)?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
         conn.pragma_update(None, "journal_mode", "WAL")?;

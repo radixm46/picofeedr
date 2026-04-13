@@ -3,17 +3,8 @@
 ## C1. 初期セットアップ
 
 ```bash
-# 1. 設定ファイル作成
+# 1. 設定ディレクトリ作成
 mkdir -p ~/.config/picofeedr
-cat > ~/.config/picofeedr/config.toml <<'EOF'
-unread_tag = "unread"
-
-[feeds]
-source = "~/.config/picofeedr/feeds.yaml"
-
-[storage]
-root_dir = "~/.local/share/picofeedr"
-EOF
 
 cat > ~/.config/picofeedr/feeds.yaml <<'EOF'
 picofeedr:
@@ -22,6 +13,17 @@ picofeedr:
     feeds:
       - url: https://example.com/feed.xml
         title: Example Feed
+EOF
+
+# 任意: config.toml で既定値を上書き
+cat > ~/.config/picofeedr/config.toml <<'EOF'
+unread_tag = "unread"
+
+[feeds]
+source = "~/.config/picofeedr/feeds.yaml"
+
+[storage]
+root_dir = "~/.local/share/picofeedr"
 EOF
 
 # 2. feeds.yaml 編集

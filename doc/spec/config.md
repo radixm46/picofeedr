@@ -7,12 +7,13 @@
 
 ## Files
 
-- `config.toml`: CLI動作設定
+- `config.toml`: CLI動作設定（省略可）
 - `feeds.yaml`: フィード定義と自動タグ規則
 
 ## `config.toml` Contract
 
 `config.toml` はアプリケーションの動作方法を定義する。  
+省略時は実装既定値を使う。  
 CLIフラグが同等の設定項目を持つ場合、CLIフラグを優先する。
 
 ### Example
@@ -49,10 +50,29 @@ level = "info"
 
 - `unread_tag: string`
 
+`config.toml` が存在しない場合の既定値:
+
+- `unread_tag = "unread"`
+- `feeds.source = "~/.config/picofeedr/feeds.yaml"`
+- `storage.root_dir = "~/.local/share/picofeedr"`
+- `storage.content_store = "db"`
+- `sync.parallel = 5`
+- `sync.timeout = 30`
+- `sync.max_feed_bytes = 2097152`
+- `sync.user_agent = "picofeedr/<version>"`
+- `sync.retry_count = 3`
+- `sync.retry_delay = 5`
+- `query.default_limit = 100`
+- `query.max_limit = 1000`
+- `cli.output = "plain"`
+- `log.level = "info"`
+
 ### `[storage]`
 
 - `root_dir: path`
 - `content_store: "db" | "fs" | "none"`
+
+`[storage]` セクション自体を省略した場合も既定値を使う。
 
 `storage.root_dir` から `db.sqlite` と `data/` を導出する。  
 DBパスは `storage.root_dir/db.sqlite`、ファイル保存先は `storage.root_dir/data`。
@@ -83,6 +103,7 @@ DBパスは `storage.root_dir/db.sqlite`、ファイル保存先は `storage.roo
 - `source: path`
 
 `feeds.source` は `feeds.yaml` のパス。
+`[feeds]` セクション自体を省略した場合は `~/.config/picofeedr/feeds.yaml` を使う。
 
 ### `[cli]`
 

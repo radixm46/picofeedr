@@ -1,4 +1,5 @@
 use super::*;
+use std::path::PathBuf;
 
 /// Case definition for fatal configuration envelope validation.
 struct FatalEnvelopeCase {
@@ -60,6 +61,34 @@ fn sync_json_cmd(config_path: &str, db_path: &str) -> assert_cmd::Command {
     cmd
 }
 
+fn write_default_home_feeds(temp: &TempDir) -> (PathBuf, PathBuf, PathBuf) {
+    let home = temp.path().to_path_buf();
+    let config_dir = home.join(".config").join("picofeedr");
+    fs::create_dir_all(&config_dir).expect("create config dir");
+
+    let feed_path = home.join("sample-feed.xml");
+    fs::write(
+        &feed_path,
+        sample_feed_xml("default-home", "Default Home Feed"),
+    )
+    .expect("write feed");
+
+    let feeds_path = config_dir.join("feeds.yaml");
+    let feeds = format!(
+        r#"picofeedr:
+  group:
+    feeds:
+      - url: file://{}
+        title: Default Home Feed
+"#,
+        feed_path.display()
+    );
+    fs::write(&feeds_path, feeds).expect("write feeds");
+
+    let storage_root = home.join(".local").join("share").join("picofeedr");
+    (home, feeds_path, storage_root)
+}
+
 #[test]
 fn config_check_returns_validation_report() {
     let temp = TempDir::new().expect("tempdir");
@@ -77,6 +106,86 @@ fn config_check_returns_validation_report() {
     assert!(data["errors"].as_array().expect("errors").is_empty());
     assert!(data["warnings"].as_array().expect("warnings").is_empty());
     assert_eq!(data["checked_feeds"], 1);
+}
+
+#[test]
+fn config_check_uses_default_paths_without_config_file() {
+    let temp = TempDir::new().expect("tempdir");
+    let (home, feeds_path, storage_root) = write_default_home_feeds(&temp);
+    assert!(feeds_path.exists());
+    assert!(
+        !home
+            .join(".config")
+            .join("picofeedr")
+            .join("config.toml")
+            .exists()
+    );
+    assert!(!storage_root.exists());
+
+    let output = picofeedr_cmd_json()
+        .env("HOME", &home)
+        .arg("sync")
+        .arg("--check")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let data = extract_ok_data(&output);
+    assert_eq!(data["valid"], true);
+    assert_eq!(data["checked_feeds"], 1);
+    assert!(!storage_root.exists());
+}
+
+#[test]
+fn sync_uses_default_paths_without_config_file() {
+    let temp = TempDir::new().expect("tempdir");
+    let (home, feeds_path, storage_root) = write_default_home_feeds(&temp);
+    assert!(feeds_path.exists());
+    assert!(
+        !home
+            .join(".config")
+            .join("picofeedr")
+            .join("config.toml")
+            .exists()
+    );
+
+    let output = picofeedr_cmd_json()
+        .env("HOME", &home)
+        .arg("sync")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let data = extract_ok_data(&output);
+    assert_eq!(data["status"], "completed");
+    assert_eq!(data["fetched_feed_count"], 1);
+    assert_eq!(data["failed_feed_count"], 0);
+    assert_eq!(data["new_entry_count"], 1);
+    assert!(storage_root.join("db.sqlite").exists());
+}
+
+#[test]
+fn explicit_missing_config_path_still_fails() {
+    let temp = TempDir::new().expect("tempdir");
+    let missing_config = temp.path().join("missing.toml");
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&missing_config)
+        .arg("tags")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    assert_error_envelope(&output, "CONFIG_ERROR", false);
+    let details = extract_error_details(&output);
+    assert_eq!(details["hint"], "failed_to_read_config");
 }
 
 #[test]

@@ -524,6 +524,27 @@ fn storage_root_override_updates_fs_storage_root() {
 }
 
 #[test]
+fn sync_creates_missing_storage_root_for_override() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files_fs(&temp);
+    let override_root = temp.path().join("missing").join("override-root");
+    assert!(!override_root.exists());
+
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(&override_root)
+        .arg("sync")
+        .assert()
+        .success();
+
+    let override_db_path = override_root.join("db.sqlite");
+    assert!(override_root.is_dir());
+    assert!(override_db_path.exists());
+}
+
+#[test]
 fn sync_reports_partial_failed() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_failure_fixture_files(&temp);
