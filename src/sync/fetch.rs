@@ -10,6 +10,7 @@ use std::thread;
 use std::time::Duration;
 use url::Url;
 
+use super::gopher_transport::fetch_gopher_bytes;
 use super::model::{
     FeedMetadata, SyncError, SyncProgressEvent, SyncResult, SyncTarget, WorkerResult,
 };
@@ -17,15 +18,16 @@ use super::normalize::normalize_entry;
 
 /// Feed fetch failure with retryability metadata.
 #[derive(Debug)]
-struct FetchError {
-    message: String,
-    retryable: bool,
+pub(super) struct FetchError {
+    pub(super) message: String,
+    pub(super) retryable: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
 enum FeedSource {
     Http(String),
     File(PathBuf),
+    Gopher(String),
 }
 
 /// Fetches and parses feeds in parallel.
@@ -340,6 +342,7 @@ fn parse_feed_source(url: &str) -> Result<FeedSource, FetchError> {
             })?;
             Ok(FeedSource::File(path))
         }
+        "gopher" => Ok(FeedSource::Gopher(url.to_string())),
         scheme => Err(FetchError {
             message: format!("Unsupported feed URL scheme: {scheme}"),
             retryable: false,
@@ -355,6 +358,7 @@ fn fetch_feed_bytes(
 ) -> Result<Vec<u8>, FetchError> {
     match parse_feed_source(url)? {
         FeedSource::File(path) => return read_feed_file(&path, sync),
+        FeedSource::Gopher(parsed_url) => return fetch_gopher_bytes(&parsed_url, sync),
         FeedSource::Http(parsed_url) => {
             for attempt in 0..=sync.retry_count {
                 let response = agent

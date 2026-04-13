@@ -1,5 +1,28 @@
 use super::*;
 
+fn spawn_gopher_feed_server(body: &'static [u8]) -> (String, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
+    let addr = listener.local_addr().expect("local addr");
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept");
+        let mut request = Vec::new();
+        let mut buf = [0_u8; 64];
+        loop {
+            let read = stream.read(&mut buf).expect("read request");
+            if read == 0 {
+                break;
+            }
+            request.extend_from_slice(&buf[..read]);
+            if request.ends_with(b"\r\n") {
+                break;
+            }
+        }
+        assert_eq!(request, b"feed.xml\r\n");
+        stream.write_all(body).expect("write response");
+    });
+    (format!("gopher://{addr}/0feed.xml"), server)
+}
+
 #[test]
 fn sync_ingests_entries_and_tags() {
     let temp = TempDir::new().expect("tempdir");
@@ -82,6 +105,101 @@ fn sync_plain_summary_uses_single_log_line() {
     assert!(output.contains("new_entry_count=2"));
     assert!(output.contains("duration_ms="));
     assert!(output.contains("errors=0"));
+}
+
+#[test]
+fn sync_ingests_entries_from_gopher_feed() {
+    let temp = TempDir::new().expect("tempdir");
+    let feeds_path = temp.path().join("feeds.yaml");
+    let config_path = temp.path().join("config.toml");
+    let db_path = temp.path().join("db.sqlite");
+
+    let (feed_url, server_thread) = spawn_gopher_feed_server(
+        br#"<?xml version="1.0"?>
+<rss version="2.0">
+  <channel>
+    <title>Example Feed</title>
+    <link>https://example.com</link>
+    <description>Example Feed</description>
+    <item>
+      <guid>gopher-1</guid>
+      <title>From Gopher</title>
+      <link>https://example.com/gopher-1</link>
+      <pubDate>Mon, 01 Jan 2024 00:00:00 GMT</pubDate>
+      <description>Entry from gopher</description>
+    </item>
+  </channel>
+</rss>
+.
+"#,
+    );
+    let feeds = format!(
+        "picofeedr:\n  tech:\n    tags: [tech]\n    feeds:\n      - url: {feed_url}\n        title: Gopher Feed\n"
+    );
+    fs::write(&feeds_path, feeds).expect("write feeds");
+    let config = format!(
+        "unread_tag = \"unread\"\n\n[feeds]\nsource = \"{}\"\n\n[storage]\nroot_dir = \"{}\"\n\n[sync]\ntimeout = 1\nretry_count = 0\nretry_delay = 0\n",
+        feeds_path.display(),
+        temp.path().display()
+    );
+    fs::write(&config_path, config).expect("write config");
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(config_path.display().to_string())
+        .arg("--storage-root")
+        .arg(db_root(db_path.to_str().expect("db path")))
+        .arg("sync")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    server_thread.join().expect("join gopher server thread");
+    let data = extract_ok_data(&output);
+    assert_eq!(data["status"], "completed");
+    assert_eq!(data["failed_feed_count"], 0);
+    assert_eq!(data["new_entry_count"], 1);
+}
+
+#[test]
+fn sync_reports_parse_error_for_gopher_directory_listing() {
+    let temp = TempDir::new().expect("tempdir");
+    let feeds_path = temp.path().join("feeds.yaml");
+    let config_path = temp.path().join("config.toml");
+    let db_path = temp.path().join("db.sqlite");
+
+    let (feed_url, server_thread) =
+        spawn_gopher_feed_server(b"0About\tselector\texample.com\t70\r\n.\r\n");
+    let feeds = format!(
+        "picofeedr:\n  tech:\n    tags: [tech]\n    feeds:\n      - url: {feed_url}\n        title: Gopher Menu\n"
+    );
+    fs::write(&feeds_path, feeds).expect("write feeds");
+    let config = format!(
+        "unread_tag = \"unread\"\n\n[feeds]\nsource = \"{}\"\n\n[storage]\nroot_dir = \"{}\"\n\n[sync]\ntimeout = 1\nretry_count = 0\nretry_delay = 0\n",
+        feeds_path.display(),
+        temp.path().display()
+    );
+    fs::write(&config_path, config).expect("write config");
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(config_path.display().to_string())
+        .arg("--storage-root")
+        .arg(db_root(db_path.to_str().expect("db path")))
+        .arg("sync")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    server_thread.join().expect("join gopher server thread");
+    let data = extract_ok_data(&output);
+    let errors = data["errors"].as_array().expect("errors");
+    assert_eq!(errors[0]["code"], "PARSE_FAILED");
+    assert_eq!(errors[0]["retryable"], false);
 }
 
 #[test]

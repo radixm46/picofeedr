@@ -3,6 +3,7 @@
 mod autotag;
 pub(crate) mod content;
 mod fetch;
+mod gopher_transport;
 pub(crate) mod model;
 mod normalize;
 
