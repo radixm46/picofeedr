@@ -300,7 +300,7 @@ fn read_limited_bytes<R: Read>(
     Ok(bytes)
 }
 
-fn read_feed_file(path: &str, sync: &SyncConfig) -> Result<Vec<u8>, FetchError> {
+fn read_feed_file(path: &std::path::Path, sync: &SyncConfig) -> Result<Vec<u8>, FetchError> {
     match fs::metadata(path) {
         Ok(metadata) if metadata.len() > sync.max_feed_bytes as u64 => {
             return Err(FetchError {
@@ -324,11 +324,6 @@ fn read_feed_file(path: &str, sync: &SyncConfig) -> Result<Vec<u8>, FetchError> 
         retryable: false,
     })?;
     read_limited_bytes(file, sync.max_feed_bytes, "Failed to read feed file", false)
-}
-
-fn read_feed_file_path(path: &std::path::Path, sync: &SyncConfig) -> Result<Vec<u8>, FetchError> {
-    let path_str = path.to_string_lossy();
-    read_feed_file(&path_str, sync)
 }
 
 fn parse_feed_source(url: &str) -> Result<FeedSource, FetchError> {
@@ -359,7 +354,7 @@ fn fetch_feed_bytes(
     agent: &ureq::Agent,
 ) -> Result<Vec<u8>, FetchError> {
     match parse_feed_source(url)? {
-        FeedSource::File(path) => return read_feed_file_path(&path, sync),
+        FeedSource::File(path) => return read_feed_file(&path, sync),
         FeedSource::Http(parsed_url) => {
             for attempt in 0..=sync.retry_count {
                 let response = agent
@@ -421,6 +416,7 @@ mod tests {
     use std::path::PathBuf;
     use std::thread;
     use tempfile::TempDir;
+    use url::Url;
 
     fn test_sync_config() -> SyncConfig {
         SyncConfig {
@@ -478,7 +474,9 @@ mod tests {
         let temp = TempDir::new().expect("temp dir");
         let feed_path = temp.path().join("feed.xml");
         fs::write(&feed_path, "<rss></rss>").expect("write feed");
-        let url = format!("file://{}", feed_path.to_string_lossy());
+        let url = Url::from_file_path(&feed_path)
+            .expect("file url")
+            .to_string();
         let sync = test_sync_config();
         let agent = build_agent(&sync);
 
@@ -520,7 +518,9 @@ mod tests {
         let temp = TempDir::new().expect("temp dir");
         let feed_path = temp.path().join("feed.xml");
         fs::write(&feed_path, "<rss>123456789</rss>").expect("write feed");
-        let url = format!("file://{}", feed_path.to_string_lossy());
+        let url = Url::from_file_path(&feed_path)
+            .expect("file url")
+            .to_string();
         let mut sync = test_sync_config();
         sync.max_feed_bytes = 8;
         let agent = build_agent(&sync);
@@ -529,6 +529,30 @@ mod tests {
 
         assert!(!error.retryable);
         assert_eq!(error.message, "Feed body exceeds max_feed_bytes");
+    }
+
+    #[test]
+    fn fetch_feed_bytes_rejects_invalid_file_url() {
+        let sync = test_sync_config();
+        let agent = build_agent(&sync);
+
+        let error =
+            fetch_feed_bytes("file://example.com/feed.xml", &sync, &agent).expect_err("error");
+
+        assert!(!error.retryable);
+        assert_eq!(error.message, "Invalid file URL");
+    }
+
+    #[test]
+    fn fetch_feed_bytes_rejects_unsupported_scheme() {
+        let sync = test_sync_config();
+        let agent = build_agent(&sync);
+
+        let error =
+            fetch_feed_bytes("ftp://example.com/feed.xml", &sync, &agent).expect_err("error");
+
+        assert!(!error.retryable);
+        assert_eq!(error.message, "Unsupported feed URL scheme: ftp");
     }
 
     #[test]

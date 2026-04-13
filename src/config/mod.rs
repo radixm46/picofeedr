@@ -5,8 +5,9 @@ pub mod feeds;
 use crate::error::{AppError, error_details};
 use serde::Deserialize;
 use serde_json::Value;
+use std::ffi::OsStr;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 /// Application configuration derived from config.toml.
 #[derive(Debug, Clone)]
@@ -221,7 +222,7 @@ impl AppConfig {
 
     /// Overrides the storage root directory from CLI arguments.
     pub fn override_root_dir(&mut self, path: PathBuf) -> Result<(), AppError> {
-        let root_dir = expand_path(&path.to_string_lossy())?;
+        let root_dir = expand_path_buf(path);
         self.storage.root_dir = root_dir;
         self.storage.data_dir = self.storage.root_dir.join("data");
         self.database.path = self.storage.root_dir.join("db.sqlite");
@@ -232,7 +233,7 @@ impl AppConfig {
 /// Resolves the config.toml path with a default fallback.
 fn resolve_config_path(path_override: Option<PathBuf>) -> Result<PathBuf, AppError> {
     if let Some(path) = path_override {
-        return expand_path(&path.to_string_lossy());
+        return Ok(expand_path_buf(path));
     }
     expand_path("~/.config/picofeedr/config.toml")
 }
@@ -242,6 +243,35 @@ fn expand_path(raw: &str) -> Result<PathBuf, AppError> {
     let expanded = shellexpand::tilde(raw);
     let path = Path::new(expanded.as_ref()).to_path_buf();
     Ok(path)
+}
+
+/// Expands a leading `~` component without converting the path to UTF-8.
+fn expand_path_buf(path: PathBuf) -> PathBuf {
+    expand_tilde_component(path.as_path(), current_home_dir())
+}
+
+fn expand_tilde_component(path: &Path, home_dir: Option<PathBuf>) -> PathBuf {
+    let mut components = path.components();
+    match components.next() {
+        Some(Component::Normal(component)) if component == OsStr::new("~") => {
+            if let Some(home) = home_dir {
+                let mut expanded = home;
+                for component in components {
+                    expanded.push(component.as_os_str());
+                }
+                expanded
+            } else {
+                path.to_path_buf()
+            }
+        }
+        _ => path.to_path_buf(),
+    }
+}
+
+fn current_home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("USERPROFILE").map(PathBuf::from))
 }
 
 /// Returns the default unread tag name.
@@ -418,7 +448,39 @@ fn parse_log_level(value: Option<&str>) -> Result<LogLevel, AppError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{SyncConfig, SyncConfigRaw};
+    use super::{
+        AppConfig, CliConfig, ContentStore, DatabaseConfig, FeedsSourceConfig, LogConfig, LogLevel,
+        QueryConfig, StorageConfig, SyncConfig, SyncConfigRaw, expand_tilde_component,
+    };
+    use std::path::PathBuf;
+
+    fn test_app_config() -> AppConfig {
+        AppConfig {
+            unread_tag: "unread".to_string(),
+            database: DatabaseConfig {
+                path: PathBuf::from("/tmp/db.sqlite"),
+            },
+            feeds: FeedsSourceConfig {
+                source: PathBuf::from("/tmp/feeds.yaml"),
+            },
+            sync: SyncConfig::from_raw(None).expect("sync defaults"),
+            storage: StorageConfig {
+                root_dir: PathBuf::from("/tmp/root"),
+                content_store: ContentStore::Fs,
+                data_dir: PathBuf::from("/tmp/root/data"),
+            },
+            query: QueryConfig {
+                default_limit: 100,
+                max_limit: 1000,
+            },
+            cli: CliConfig {
+                output: crate::cli::OutputFormat::Plain,
+            },
+            log: LogConfig {
+                level: LogLevel::Info,
+            },
+        }
+    }
 
     #[test]
     fn default_sync_user_agent_uses_package_version() {
@@ -449,5 +511,33 @@ mod tests {
 
         assert_eq!(error.code().as_str(), "CONFIG_ERROR");
         assert!(error.to_string().contains("sync.max_feed_bytes"));
+    }
+
+    #[test]
+    fn expand_path_buf_expands_leading_tilde_component() {
+        let home = PathBuf::from("/tmp/picofeedr-home");
+        let expanded =
+            expand_tilde_component(PathBuf::from("~/feeds").as_path(), Some(home.clone()));
+
+        assert_eq!(expanded, home.join("feeds"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn override_root_dir_preserves_non_utf8_paths() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+
+        let raw = OsString::from_vec(vec![0x66, 0x6f, 0x80, 0x6f]);
+        let root_dir = PathBuf::from(&raw);
+        let mut config = test_app_config();
+
+        config
+            .override_root_dir(root_dir.clone())
+            .expect("override root dir");
+
+        assert_eq!(config.storage.root_dir, root_dir);
+        assert_eq!(config.storage.data_dir, PathBuf::from(&raw).join("data"));
+        assert_eq!(config.database.path, PathBuf::from(&raw).join("db.sqlite"));
     }
 }
