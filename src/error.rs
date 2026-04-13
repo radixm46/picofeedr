@@ -260,6 +260,15 @@ impl AppError {
         }
     }
 
+    /// Creates an I/O error with details.
+    pub fn io_with_details(message: impl Into<String>, details: ErrorDetails) -> Self {
+        Self::Io {
+            message: message.into(),
+            details: Some(details),
+            source: None,
+        }
+    }
+
     /// Creates an I/O error with source.
     pub fn io_with_source(
         message: impl Into<String>,
@@ -268,6 +277,19 @@ impl AppError {
         Self::Io {
             message: message.into(),
             details: None,
+            source: Some(Box::new(source)),
+        }
+    }
+
+    /// Creates an I/O error with details and source.
+    pub fn io_with_details_and_source(
+        message: impl Into<String>,
+        details: ErrorDetails,
+        source: impl StdError + Send + Sync + 'static,
+    ) -> Self {
+        Self::Io {
+            message: message.into(),
+            details: Some(details),
             source: Some(Box::new(source)),
         }
     }

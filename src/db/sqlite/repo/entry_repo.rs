@@ -4,9 +4,10 @@ use crate::db::EntryContentStorage as Storage;
 use crate::db::sqlite::query::entries as q;
 use crate::db::sqlite::tags;
 use crate::entry::{EntryEnclosure, EntrySummary};
-use crate::error::AppError;
+use crate::error::{AppError, error_details};
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
+use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::fs;
 use std::io::ErrorKind;
@@ -322,11 +323,16 @@ impl<'a> EntryReadRepo<'a> {
                     Ok(path) => path,
                     Err(_) => return Ok((None, content_type)),
                 };
-                match fs::read_to_string(path) {
+                match fs::read_to_string(&path) {
                     Ok(content) => Ok((Some(content), content_type)),
                     Err(error) if error.kind() == ErrorKind::NotFound => Ok((None, content_type)),
-                    Err(error) => Err(AppError::io_with_source(
-                        "Failed to read entry content",
+                    Err(error) => Err(AppError::io_with_details_and_source(
+                        "Failed to read entry content from filesystem",
+                        error_details([
+                            ("path", JsonValue::from(path.to_string_lossy().to_string())),
+                            ("reference", JsonValue::from(reference)),
+                            ("hint", JsonValue::from("failed_to_read_entry_content")),
+                        ]),
                         error,
                     )),
                 }
@@ -468,6 +474,7 @@ mod tests {
     use crate::db::migrate;
     use crate::db::sqlite::feeds::upsert_feed_with_conn;
     use rusqlite::{Connection, params};
+    use serde_json::Value as JsonValue;
     use std::fs;
     use tempfile::TempDir;
 
@@ -617,7 +624,20 @@ mod tests {
             .expect_err("directory read should fail");
 
         assert_eq!(error.code().as_str(), "IO_ERROR");
-        assert!(error.to_string().contains("Failed to read entry content"));
+        let details = error.details().expect("details");
+        assert_eq!(details["hint"], "failed_to_read_entry_content");
+        assert!(
+            details
+                .get("reference")
+                .and_then(JsonValue::as_str)
+                .is_some_and(|value| !value.is_empty())
+        );
+        assert!(
+            details
+                .get("path")
+                .and_then(JsonValue::as_str)
+                .is_some_and(|value| !value.is_empty())
+        );
     }
 
     #[test]

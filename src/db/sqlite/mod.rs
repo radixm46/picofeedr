@@ -12,8 +12,9 @@ use crate::db::FeedRow;
 use crate::db::sqlite::repo::{
     EntryReadRepo, EntryWriteRepo, FeedReadRepo, FeedWriteRepo, SyncReadRepo, SyncWriteRepo,
 };
-use crate::error::AppError;
+use crate::error::{AppError, error_details};
 use rusqlite::Connection;
+use serde_json::Value;
 use std::fs;
 use std::path::Path;
 use std::time::Duration;
@@ -76,7 +77,17 @@ impl SqliteStore {
     /// Opens a SQLite database at the provided path.
     pub fn open(path: &Path) -> Result<Self, AppError> {
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
+            fs::create_dir_all(parent).map_err(|error| {
+                AppError::io_with_details_and_source(
+                    format!("Failed to create storage root directory: {error}"),
+                    error_details([
+                        ("path", Value::from(parent.to_string_lossy().to_string())),
+                        ("db_path", Value::from(path.to_string_lossy().to_string())),
+                        ("hint", Value::from("failed_to_create_storage_root")),
+                    ]),
+                    error,
+                )
+            })?;
         }
         let conn = Connection::open(path)?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
@@ -147,6 +158,8 @@ impl SqliteStore {
 #[cfg(test)]
 mod tests {
     use super::SqliteStore;
+    use serde_json::Value;
+    use std::fs;
     use tempfile::tempdir;
 
     /// Configures expected SQLite pragmas on open for runtime consistency.
@@ -180,5 +193,34 @@ mod tests {
             .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
             .expect("foreign_keys pragma");
         assert_eq!(foreign_keys, 1);
+    }
+
+    #[test]
+    fn open_returns_contextual_error_when_storage_root_creation_fails() {
+        let dir = tempdir().expect("tempdir");
+        let blocked = dir.path().join("blocked");
+        fs::write(&blocked, "not a directory").expect("write blocker file");
+        let db_path = blocked.join("db.sqlite");
+
+        let error = match SqliteStore::open(&db_path) {
+            Ok(_) => panic!("open should fail"),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.code().as_str(), "IO_ERROR");
+        let details = error.details().expect("details");
+        assert_eq!(details["hint"], "failed_to_create_storage_root");
+        assert!(
+            details
+                .get("path")
+                .and_then(Value::as_str)
+                .is_some_and(|value| !value.is_empty())
+        );
+        assert!(
+            details
+                .get("db_path")
+                .and_then(Value::as_str)
+                .is_some_and(|value| value.ends_with("db.sqlite"))
+        );
     }
 }

@@ -458,6 +458,37 @@ fn sync_fails_fast_on_invalid_title_regex() {
 }
 
 #[test]
+fn sync_validation_error_includes_summary_details() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_fixture_files(&temp);
+    let feeds = r#"picofeedr:
+  group:
+    feeds:
+      - url: ""
+        title: Empty URL
+"#;
+    fs::write(&paths.feeds_path, feeds).expect("rewrite feeds");
+
+    let output = sync_json_cmd(&paths.config_path, &paths.db_path)
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    assert_error_envelope(&output, "CONFIG_ERROR", false);
+    let details = extract_error_details(&output);
+    assert_eq!(details["hint"], "run_sync_check");
+    assert!(
+        details["error_count"]
+            .as_u64()
+            .is_some_and(|count| count >= 1)
+    );
+    assert!(details["first_issue_code"].as_str().is_some());
+    assert!(details["first_issue_path"].as_str().is_some());
+}
+
+#[test]
 fn feeds_and_sync_allow_warning_only_config() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_fixture_files(&temp);

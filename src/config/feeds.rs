@@ -168,8 +168,28 @@ impl FeedsConfig {
     pub fn ensure_valid_for_runtime(&self) -> Result<(), AppError> {
         let report = self.validate();
         if report.has_errors() {
-            return Err(AppError::config(
-                "feeds.yaml validation failed; run `picofeedr sync --check` for details",
+            let first_issue = report.errors.first();
+            return Err(AppError::config_with_details(
+                format!(
+                    "feeds.yaml validation failed with {} error(s); run `picofeedr sync --check` for details",
+                    report.errors.len()
+                ),
+                error_details([
+                    ("error_count", JsonValue::from(report.errors.len())),
+                    (
+                        "first_issue_code",
+                        first_issue
+                            .map(|issue| JsonValue::from(issue.code.clone()))
+                            .unwrap_or(JsonValue::Null),
+                    ),
+                    (
+                        "first_issue_path",
+                        first_issue
+                            .and_then(|issue| issue.path.clone().map(JsonValue::from))
+                            .unwrap_or(JsonValue::Null),
+                    ),
+                    ("hint", JsonValue::from("run_sync_check")),
+                ]),
             ));
         }
         Ok(())
