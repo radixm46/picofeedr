@@ -37,6 +37,6 @@ jobs:
         with:
           cache-on-failure: "true"
       - name: install rumdl
-        run: cargo install rumdl
+        run: cargo install --locked rumdl --version 0.1.74
       - name: check markdown
         run: rumdl check --config .rumdl.toml README.md doc/
