@@ -9,6 +9,7 @@
 - **UI差し替え可能**：Emacs/TUI/GUI等、任意のフロントがCLIを叩けば同じ機能を使える
 - **タグ中心設計**：unread含むすべての状態をタグで管理
   - 予約タグは `unread` のみ。`star` は通常タグとして扱う
+  - `manage_unread = false` のときは unread タグ自動付与を停止できる
 - **設定ファイル駆動**：取得対象・タグ継承・自動タグルールは **feeds.yaml が唯一の真実**
 - **DBの役割を限定**：SQLiteは「取得結果（entries/tags/content）」のみを保持する（YAMLの内容・ルール自体は保存しない）
 

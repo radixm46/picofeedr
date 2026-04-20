@@ -19,7 +19,7 @@
 
 ## Top-Level Rules
 
-- `unread` は `tag:<unread_tag>` のショートカット
+- `unread` は `unread_tag` のショートカット
 - `feed:` / `title:` / `after:` / `before:` はそれぞれ 1 回のみ指定可能
 - 同じ種類のトップレベルトークンを複数回使った場合は `INVALID_QUERY`
 - `after` と `before` を同時指定した場合は `after < before` を必須とする

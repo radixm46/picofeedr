@@ -83,7 +83,7 @@ fn build_fixture(entry_count: usize) -> BenchFixture {
 
     let query = EntryQuery::parse(
         Some("tag:unread -tag:news|later|junk|youtube|github after:2024-01-01 before:2025-01-01"),
-        "unread",
+        Some("unread"),
     )
     .expect("parse query");
 

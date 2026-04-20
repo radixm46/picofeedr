@@ -28,10 +28,10 @@ fn apply_mark_command(
 ) -> Result<usize, AppError> {
     match command {
         MarkCommand::Read { ids } => {
-            entry::mark_entries(store, ids, &[], std::slice::from_ref(&config.unread_tag))
+            entry::mark_entries(store, ids, &[], &[config.unread_tag().to_string()])
         }
         MarkCommand::Unread { ids } => {
-            entry::mark_entries(store, ids, std::slice::from_ref(&config.unread_tag), &[])
+            entry::mark_entries(store, ids, &[config.unread_tag().to_string()], &[])
         }
         MarkCommand::Tag { ids, add, remove } => {
             let add_tags = parse_tag_csv(add.as_deref());

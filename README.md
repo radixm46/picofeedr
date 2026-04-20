@@ -6,7 +6,7 @@ It is built for people who want to keep feed data on their own machine and work 
 ## Features
 
 - **Local-first**: Network access only during `sync`. All reading and state updates happen locally via SQLite
-- **Tag-centric design**: All state including unread is managed through tags
+- **Tag-centric design**: All state including unread is managed through tags, with unread tracking optionally disabled via config
 - **Config-driven**: Feed definitions and auto-tagging rules managed in a single `feeds.yaml`
 - **Multiple protocols**: Supports HTTP, HTTPS, Gopher, and local files (`file://`)
 - **CLI-based**: Works standalone or as a backend for other tools (e.g., Emacs)
@@ -72,6 +72,8 @@ picofeedr list --query unread
 | `feeds`                       | List feeds                       |
 | `status`                      | Show DB status metadata          |
 
+When `manage_unread = false`, automatic unread-tag assignment is disabled, but `unread` queries and `mark read` / `mark unread` still work as aliases for `unread_tag`.
+
 ### Query Syntax
 
 ```bash
@@ -82,7 +84,7 @@ picofeedr list --query 'title:"example"'
 ```
 
 Supported terms:
-- `unread` - unread entries
+- `unread` - unread entries (`tag:<unread_tag>` shorthand)
 - `tag:<expr>` - tag expression (AND/OR/NOT supported)
 - `title:"<text>"` - title search
 - `feed:<id>` or `feed:"<title>"` - filter by feed
@@ -115,6 +117,9 @@ See `doc/spec/config.md` and `doc/spec/feeds.md` for details.
 # Feed definitions (default: ~/.config/picofeedr/feeds.yaml)
 # [feeds]
 # source = "~/.config/picofeedr/feeds.yaml"
+
+# Whether unread tracking is enabled (default: true)
+# manage_unread = true
 
 # Tag name for unread entries (default: "unread")
 # unread_tag = "unread"

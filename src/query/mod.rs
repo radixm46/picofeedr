@@ -123,14 +123,14 @@ impl TagExpr {
 
 impl EntryQuery {
     /// Parses a query string into entry filters.
-    pub fn parse(raw: Option<&str>, unread_tag: &str) -> Result<Self, AppError> {
+    pub fn parse(raw: Option<&str>, unread_tag: Option<&str>) -> Result<Self, AppError> {
         let local_offset = UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC);
         Self::parse_with_now(raw, unread_tag, current_epoch(), local_offset)
     }
 
     fn parse_with_now(
         raw: Option<&str>,
-        unread_tag: &str,
+        unread_tag: Option<&str>,
         now_epoch_utc: i64,
         local_offset: UtcOffset,
     ) -> Result<Self, AppError> {
@@ -148,7 +148,9 @@ impl EntryQuery {
         while index < tokens.len() {
             let token = &tokens[index];
             if token == "unread" {
-                tag_terms.push(TagExpr::Tag(unread_tag.to_string()));
+                if let Some(unread_tag) = unread_tag {
+                    tag_terms.push(TagExpr::Tag(unread_tag.to_string()));
+                }
                 index += 1;
                 continue;
             }
@@ -395,13 +397,14 @@ mod tests {
 
     #[test]
     fn parse_feed_id_query() {
-        let query = EntryQuery::parse(Some("feed:123"), "unread").expect("query");
+        let query = EntryQuery::parse(Some("feed:123"), Some("unread")).expect("query");
         assert_eq!(query.feed, Some(FeedFilter::Id("123".to_string())));
     }
 
     #[test]
     fn parse_feed_title_query() {
-        let query = EntryQuery::parse(Some("feed:\"Example Feed\""), "unread").expect("query");
+        let query =
+            EntryQuery::parse(Some("feed:\"Example Feed\""), Some("unread")).expect("query");
         assert_eq!(
             query.feed,
             Some(FeedFilter::Title("Example Feed".to_string()))
@@ -410,26 +413,26 @@ mod tests {
 
     #[test]
     fn parse_title_query() {
-        let query = EntryQuery::parse(Some("title:\"First\""), "unread").expect("query");
+        let query = EntryQuery::parse(Some("title:\"First\""), Some("unread")).expect("query");
         assert_eq!(query.title.as_deref(), Some("First"));
     }
 
     #[test]
     fn rejects_duplicate_feed_tokens() {
-        let error = EntryQuery::parse(Some("feed:1 feed:2"), "unread").unwrap_err();
+        let error = EntryQuery::parse(Some("feed:1 feed:2"), Some("unread")).unwrap_err();
         assert_eq!(error.code().as_str(), "INVALID_QUERY");
     }
 
     #[test]
     fn rejects_duplicate_title_tokens() {
-        let error = EntryQuery::parse(Some("title:foo title:bar"), "unread").unwrap_err();
+        let error = EntryQuery::parse(Some("title:foo title:bar"), Some("unread")).unwrap_err();
         assert_eq!(error.code().as_str(), "INVALID_QUERY");
     }
 
     #[test]
     fn parse_date_bounds() {
-        let query =
-            EntryQuery::parse(Some("after:2026-01-01 before:2026-01-02"), "unread").expect("query");
+        let query = EntryQuery::parse(Some("after:2026-01-01 before:2026-01-02"), Some("unread"))
+            .expect("query");
         assert!(query.after.is_some());
         assert!(query.before.is_some());
         assert!(query.after.unwrap() < query.before.unwrap());
@@ -439,7 +442,7 @@ mod tests {
     fn parse_relative_date_bounds() {
         let query = EntryQuery::parse_with_now(
             Some("after:1m before:3d"),
-            "unread",
+            Some("unread"),
             fixed_now_utc(),
             fixed_jst(),
         )
@@ -458,7 +461,7 @@ mod tests {
     fn parse_relative_week_date_bounds() {
         let query = EntryQuery::parse_with_now(
             Some("after:1w before:3d"),
-            "unread",
+            Some("unread"),
             fixed_now_utc(),
             fixed_jst(),
         )
@@ -477,7 +480,7 @@ mod tests {
     fn parse_mixed_absolute_and_relative_date_bounds() {
         let query = EntryQuery::parse_with_now(
             Some("after:3m before:2026-01-01"),
-            "unread",
+            Some("unread"),
             fixed_now_utc(),
             fixed_jst(),
         )
@@ -496,7 +499,7 @@ mod tests {
     fn parse_absolute_date_bounds_use_local_midnight() {
         let query = EntryQuery::parse_with_now(
             Some("after:2026-01-01 before:2026-01-02"),
-            "unread",
+            Some("unread"),
             fixed_now_utc(),
             fixed_jst(),
         )
@@ -513,12 +516,20 @@ mod tests {
 
     #[test]
     fn parse_zero_relative_date_units_as_same_anchor() {
-        let after =
-            EntryQuery::parse_with_now(Some("after:0d"), "unread", fixed_now_utc(), fixed_jst())
-                .expect("query");
-        let before =
-            EntryQuery::parse_with_now(Some("before:0w"), "unread", fixed_now_utc(), fixed_jst())
-                .expect("query");
+        let after = EntryQuery::parse_with_now(
+            Some("after:0d"),
+            Some("unread"),
+            fixed_now_utc(),
+            fixed_jst(),
+        )
+        .expect("query");
+        let before = EntryQuery::parse_with_now(
+            Some("before:0w"),
+            Some("unread"),
+            fixed_now_utc(),
+            fixed_jst(),
+        )
+        .expect("query");
         let anchor = local_midnight_epoch(2026, Month::February, 26, fixed_jst());
         assert_eq!(after.after, Some(anchor));
         assert_eq!(before.before, Some(anchor));
@@ -526,9 +537,13 @@ mod tests {
 
     #[test]
     fn rejects_invalid_relative_date_unit() {
-        let error =
-            EntryQuery::parse_with_now(Some("after:3x"), "unread", fixed_now_utc(), fixed_jst())
-                .unwrap_err();
+        let error = EntryQuery::parse_with_now(
+            Some("after:3x"),
+            Some("unread"),
+            fixed_now_utc(),
+            fixed_jst(),
+        )
+        .unwrap_err();
         assert_eq!(error.code().as_str(), "INVALID_QUERY");
     }
 
@@ -536,7 +551,7 @@ mod tests {
     fn rejects_overflow_relative_duration() {
         let error = EntryQuery::parse_with_now(
             Some("after:2147483648y"),
-            "unread",
+            Some("unread"),
             fixed_now_utc(),
             fixed_jst(),
         )
@@ -546,22 +561,22 @@ mod tests {
 
     #[test]
     fn rejects_duplicate_after_tokens() {
-        let error =
-            EntryQuery::parse(Some("after:2026-01-01 after:2026-01-02"), "unread").unwrap_err();
+        let error = EntryQuery::parse(Some("after:2026-01-01 after:2026-01-02"), Some("unread"))
+            .unwrap_err();
         assert_eq!(error.code().as_str(), "INVALID_QUERY");
     }
 
     #[test]
     fn rejects_duplicate_before_tokens() {
-        let error =
-            EntryQuery::parse(Some("before:2026-01-01 before:2026-01-02"), "unread").unwrap_err();
+        let error = EntryQuery::parse(Some("before:2026-01-01 before:2026-01-02"), Some("unread"))
+            .unwrap_err();
         assert_eq!(error.code().as_str(), "INVALID_QUERY");
     }
 
     #[test]
     fn rejects_invalid_date_range() {
-        let error =
-            EntryQuery::parse(Some("after:2026-01-02 before:2026-01-02"), "unread").unwrap_err();
+        let error = EntryQuery::parse(Some("after:2026-01-02 before:2026-01-02"), Some("unread"))
+            .unwrap_err();
         assert_eq!(error.code().as_str(), "INVALID_QUERY");
     }
 
@@ -569,7 +584,7 @@ mod tests {
     fn rejects_invalid_relative_date_range() {
         let error = EntryQuery::parse_with_now(
             Some("after:0d before:1y"),
-            "unread",
+            Some("unread"),
             fixed_now_utc(),
             fixed_jst(),
         )
@@ -579,7 +594,13 @@ mod tests {
 
     #[test]
     fn rejects_unknown_tokens() {
-        let error = EntryQuery::parse(Some("oops"), "unread").unwrap_err();
+        let error = EntryQuery::parse(Some("oops"), Some("unread")).unwrap_err();
         assert_eq!(error.code().as_str(), "INVALID_QUERY");
+    }
+
+    #[test]
+    fn unread_keyword_is_noop_when_unread_management_is_disabled() {
+        let query = EntryQuery::parse(Some("unread"), None).expect("query");
+        assert!(query.tag_expr.is_none());
     }
 }

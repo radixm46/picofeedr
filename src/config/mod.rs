@@ -13,6 +13,8 @@ use std::path::{Component, Path, PathBuf};
 /// Application configuration derived from config.toml.
 #[derive(Debug, Clone)]
 pub struct AppConfig {
+    /// Whether unread management is enabled.
+    pub manage_unread: bool,
     /// Name of the unread tag.
     pub unread_tag: String,
     /// Database configuration.
@@ -120,6 +122,7 @@ pub enum ContentStore {
 /// Raw config.toml representation.
 #[derive(Debug, Default, Deserialize)]
 struct AppConfigRaw {
+    manage_unread: Option<bool>,
     unread_tag: Option<String>,
     feeds: Option<FeedsSourceConfigRaw>,
     sync: Option<SyncConfigRaw>,
@@ -177,7 +180,8 @@ impl AppConfig {
     pub fn load(path_override: Option<PathBuf>) -> Result<Self, AppError> {
         let config_path = resolve_config_path(path_override.clone())?;
         let raw = load_raw_config(&config_path, path_override.is_some())?;
-        let unread_tag = raw.unread_tag.unwrap_or_else(default_unread_tag);
+        let manage_unread = raw.manage_unread.unwrap_or(default_manage_unread());
+        let unread_tag = normalize_unread_tag(raw.unread_tag)?;
         let feeds = FeedsSourceConfig::from_raw(raw.feeds)?;
         let sync = SyncConfig::from_raw(raw.sync)?;
         let storage = StorageConfig::from_raw(raw.storage)?;
@@ -185,6 +189,7 @@ impl AppConfig {
         let cli = CliConfig::from_raw(raw.cli)?;
         let log = LogConfig::from_raw(raw.log)?;
         Ok(Self {
+            manage_unread,
             unread_tag,
             database: DatabaseConfig {
                 path: storage.root_dir.join("db.sqlite"),
@@ -205,6 +210,16 @@ impl AppConfig {
         self.storage.data_dir = self.storage.root_dir.join("data");
         self.database.path = self.storage.root_dir.join("db.sqlite");
         Ok(())
+    }
+
+    /// Returns the configured unread tag name.
+    pub fn unread_tag(&self) -> &str {
+        self.unread_tag.as_str()
+    }
+
+    /// Returns the unread tag only when automatic unread assignment is enabled.
+    pub fn auto_unread_tag(&self) -> Option<&str> {
+        self.manage_unread.then_some(self.unread_tag.as_str())
     }
 }
 
@@ -287,8 +302,32 @@ fn current_home_dir() -> Option<PathBuf> {
 }
 
 /// Returns the default unread tag name.
-fn default_unread_tag() -> String {
-    "unread".to_string()
+fn default_unread_tag() -> &'static str {
+    "unread"
+}
+
+fn default_manage_unread() -> bool {
+    true
+}
+
+fn normalize_unread_tag(value: Option<String>) -> Result<String, AppError> {
+    match value {
+        None => Ok(default_unread_tag().to_string()),
+        Some(value) => {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                Err(AppError::config_with_details(
+                    "unread_tag must not be empty",
+                    error_details([
+                        ("path", Value::from("unread_tag")),
+                        ("hint", Value::from("set a non-empty unread_tag")),
+                    ]),
+                ))
+            } else {
+                Ok(trimmed.to_string())
+            }
+        }
+    }
 }
 
 fn default_feeds_source() -> &'static str {
@@ -486,6 +525,7 @@ mod tests {
 
     fn test_app_config() -> AppConfig {
         AppConfig {
+            manage_unread: true,
             unread_tag: "unread".to_string(),
             database: DatabaseConfig {
                 path: PathBuf::from("/tmp/db.sqlite"),

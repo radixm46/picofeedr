@@ -75,7 +75,7 @@ pub(crate) fn run_feeds_command(config: &config::AppConfig) -> Result<FeedListRe
     with_store(config, |store| {
         let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
         feeds_config.ensure_valid_for_runtime()?;
-        feed::reconcile_feeds(store, &feeds_config, &config.unread_tag)?;
+        feed::reconcile_feeds(store, &feeds_config, config.auto_unread_tag())?;
         let db_feeds = store.list_feeds()?;
         let feeds = feed::build_feed_list_response(&feeds_config, &db_feeds);
         store.bump_revision(current_epoch())?;

@@ -19,6 +19,7 @@ CLIフラグが同等の設定項目を持つ場合、CLIフラグを優先す�
 ### Example
 
 ```toml
+manage_unread = true
 unread_tag = "unread"
 
 [storage]
@@ -48,10 +49,12 @@ level = "info"
 
 ### Top-Level Keys
 
+- `manage_unread: boolean`
 - `unread_tag: string`
 
 `config.toml` が存在しない場合の既定値:
 
+- `manage_unread = true`
 - `unread_tag = "unread"`
 - `feeds.source = "~/.config/picofeedr/feeds.yaml"`
 - `storage.root_dir = "~/.local/share/picofeedr"`
@@ -66,6 +69,9 @@ level = "info"
 - `query.max_limit = 1000`
 - `cli.output = "plain"`
 - `log.level = "info"`
+
+`manage_unread = false` のときは unread タグの自動付与を無効化する。  
+`unread_tag` は `manage_unread` の値に関わらず non-empty を必須とする。
 
 ### `[storage]`
 

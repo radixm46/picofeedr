@@ -17,6 +17,7 @@ EOF
 
 # 任意: config.toml で既定値を上書き
 cat > ~/.config/picofeedr/config.toml <<'EOF'
+manage_unread = true
 unread_tag = "unread"
 
 [feeds]

@@ -99,6 +99,7 @@ pub struct ExclusiveDbLock {
 /// Builder for standard sync fixtures.
 pub struct SyncFixtureBuilder {
     root: PathBuf,
+    manage_unread: bool,
     unread_tag: String,
     default_limit: usize,
     max_limit: usize,
@@ -115,11 +116,18 @@ impl SyncFixtureBuilder {
     pub fn new(temp: &TempDir) -> Self {
         Self {
             root: temp.path().to_path_buf(),
+            manage_unread: true,
             unread_tag: "unread".to_string(),
             default_limit: 100,
             max_limit: 1000,
             content_store: ContentStore::Db,
         }
+    }
+
+    /// Enables or disables unread management.
+    pub fn manage_unread(mut self, manage_unread: bool) -> Self {
+        self.manage_unread = manage_unread;
+        self
     }
 
     /// Sets the unread tag used by query parsing.
@@ -158,6 +166,7 @@ impl SyncFixtureBuilder {
         let config = render_sync_config(
             &db_path,
             &feeds_path,
+            self.manage_unread,
             &self.unread_tag,
             self.default_limit,
             self.max_limit,
@@ -205,6 +214,7 @@ impl SyncFixtureBuilder {
         let config = render_sync_config(
             &db_path,
             &feeds_path,
+            self.manage_unread,
             &self.unread_tag,
             self.default_limit,
             self.max_limit,
@@ -289,6 +299,30 @@ pub fn write_sync_fixture_files_with_unread_tag(
         .build_db()
 }
 
+/// Writes sync fixture files with custom unread management behavior.
+pub fn write_sync_fixture_files_with_manage_unread(
+    temp: &TempDir,
+    manage_unread: bool,
+) -> SyncFixturePaths {
+    SyncFixtureBuilder::new(temp)
+        .manage_unread(manage_unread)
+        .content_store_db()
+        .build_db()
+}
+
+/// Writes sync fixture files with custom unread management and unread tag.
+pub fn write_sync_fixture_files_with_unread_settings(
+    temp: &TempDir,
+    manage_unread: bool,
+    unread_tag: &str,
+) -> SyncFixturePaths {
+    SyncFixtureBuilder::new(temp)
+        .manage_unread(manage_unread)
+        .unread_tag(unread_tag)
+        .content_store_db()
+        .build_db()
+}
+
 /// Writes sync fixture files with custom query limits.
 pub fn write_sync_fixture_files_with_query_limits(
     temp: &TempDir,
@@ -319,6 +353,7 @@ pub fn write_sync_failure_fixture_files(temp: &TempDir) -> SyncFixturePaths {
     let config = render_sync_config(
         &db_path,
         &feeds_path,
+        true,
         "unread",
         100,
         1000,
@@ -360,6 +395,7 @@ pub fn write_sync_all_failed_fixture_files(temp: &TempDir) -> SyncFixturePaths {
     let config = render_sync_config(
         &db_path,
         &feeds_path,
+        true,
         "unread",
         100,
         1000,
@@ -397,6 +433,7 @@ pub fn acquire_exclusive_db_lock(db_path: &str) -> ExclusiveDbLock {
 fn render_sync_config(
     db_path: &Path,
     feeds_path: &Path,
+    manage_unread: bool,
     unread_tag: &str,
     default_limit: usize,
     max_limit: usize,
@@ -411,7 +448,8 @@ fn render_sync_config(
         .expect("db path should include a parent directory");
 
     format!(
-        r#"unread_tag = "{unread_tag}"
+        r#"manage_unread = {manage_unread}
+unread_tag = "{unread_tag}"
 
 [feeds]
 source = "{}"

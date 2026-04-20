@@ -14,7 +14,7 @@ pub(crate) fn run_list_command(
     cursor: Option<&str>,
 ) -> Result<EntryListResponse, AppError> {
     with_store(config, |store| {
-        let query = EntryQuery::parse(query, &config.unread_tag)?;
+        let query = EntryQuery::parse(query, Some(config.unread_tag()))?;
         let sort = sort.unwrap_or(SortOrder::FirstSeenDesc);
         let limit = resolve_list_limit(limit, config.query)?;
         entry::list_entries(store, &query, sort, limit, cursor)

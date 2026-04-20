@@ -30,7 +30,8 @@ use support::assertions::{
 use support::fixtures::{
     acquire_exclusive_db_lock, write_fixture_files, write_sync_all_failed_fixture_files,
     write_sync_failure_fixture_files, write_sync_fixture_files, write_sync_fixture_files_fs,
-    write_sync_fixture_files_with_query_limits, write_sync_fixture_files_with_unread_tag,
+    write_sync_fixture_files_with_manage_unread, write_sync_fixture_files_with_query_limits,
+    write_sync_fixture_files_with_unread_settings, write_sync_fixture_files_with_unread_tag,
 };
 use tempfile::TempDir;
 

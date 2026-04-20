@@ -33,7 +33,9 @@ pub(crate) fn normalize_entry(
         title.as_deref().unwrap_or(""),
         &target.auto_tag_rules,
     ));
-    tags.push(config.unread_tag.clone());
+    if let Some(unread_tag) = config.auto_unread_tag() {
+        tags.push(unread_tag.to_string());
+    }
     let tags = dedupe_strings_preserve_order(tags);
 
     Ok(SyncEntry {

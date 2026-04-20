@@ -8,7 +8,7 @@ use crate::error::AppError;
 pub fn reconcile_feeds(
     store: &mut SqliteStore,
     config: &FeedsConfig,
-    unread_tag: &str,
+    unread_tag: Option<&str>,
 ) -> Result<(), AppError> {
     let tx = store.tx()?;
     tx.feed_write_repo().reconcile_feeds(config, unread_tag)?;

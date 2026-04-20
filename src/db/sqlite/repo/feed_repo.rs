@@ -78,7 +78,11 @@ impl<'a> FeedWriteRepo<'a> {
     }
 
     /// Ensures feeds and tags from config exist in SQLite.
-    pub fn reconcile_feeds(&self, config: &FeedsConfig, unread_tag: &str) -> Result<(), AppError> {
+    pub fn reconcile_feeds(
+        &self,
+        config: &FeedsConfig,
+        unread_tag: Option<&str>,
+    ) -> Result<(), AppError> {
         let now = current_epoch();
         let mut all_tags = config.all_tags();
         for rule in &config.auto_tags {
@@ -89,11 +93,10 @@ impl<'a> FeedWriteRepo<'a> {
                 all_tags.extend(rule.add_tags.iter().cloned());
             }
         }
-        for tag in dedupe_tag_names(
-            all_tags
-                .into_iter()
-                .chain(std::iter::once(unread_tag.to_string())),
-        ) {
+        let tag_iter = all_tags
+            .into_iter()
+            .chain(unread_tag.into_iter().map(str::to_string));
+        for tag in dedupe_tag_names(tag_iter) {
             self.ensure_tag(&tag)?;
         }
         for feed in &config.feeds {
@@ -156,7 +159,7 @@ mod tests {
         crate::db::sqlite::feeds::upsert_feed_with_conn(&conn, &existing, 1).expect("seed feed");
 
         FeedWriteRepo::new(&conn)
-            .reconcile_feeds(&config, "unread")
+            .reconcile_feeds(&config, Some("unread"))
             .expect("reconcile feeds");
 
         let feeds = list_feeds_with_conn(&conn).expect("list feeds");

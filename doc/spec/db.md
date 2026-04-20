@@ -134,9 +134,10 @@
 
 ### 5.1 未読管理（タグで実施）
 
-- CLI 本体設定に `unread_tag` を持つ（デフォルト `unread`）
-- 新規取得した entry には必ず `unread_tag` を付与
+- CLI 本体設定に `manage_unread` と `unread_tag` を持つ（既定値は `true` / `unread`）
+- `manage_unread = true` のとき、新規取得した entry には必ず `unread_tag` を付与
 - 既読化は `unread_tag` の削除
+- `manage_unread = false` のときは unread タグの自動付与を止める
 - 再取得・更新時に、既存エントリの未読状態（unreadタグ）をルール的に上書き・再付与しない
 
 ### 5.2 タグ検索・合成（検索syntaxで解決）

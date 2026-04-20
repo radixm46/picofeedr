@@ -152,6 +152,69 @@ fn list_snapshot_matches_status_metadata() {
 }
 
 #[test]
+fn list_json_uses_unread_tag_alias_when_management_is_disabled() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files_with_manage_unread(&temp, false);
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("list")
+        .arg("--query")
+        .arg("unread tag:tech")
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+
+    let stderr = String::from_utf8(output.stderr).expect("stderr utf8");
+    assert!(!stderr.contains("warning: unread query ignored"));
+    let data = extract_ok_data(&output.stdout);
+    assert_eq!(data["total_count"], 0);
+}
+
+#[test]
+fn list_plain_uses_unread_tag_alias_when_management_is_disabled() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files_with_manage_unread(&temp, false);
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let output = picofeedr_cmd_plain()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("list")
+        .arg("--query")
+        .arg("unread")
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+
+    let stderr = String::from_utf8(output.stderr).expect("stderr utf8");
+    assert!(!stderr.contains("warning: unread query ignored"));
+    assert!(stderr.contains("total_count: 0"));
+}
+
+#[test]
 fn list_filters_by_tag_expression() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);

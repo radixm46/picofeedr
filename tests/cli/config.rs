@@ -251,6 +251,77 @@ fn config_check_fails_on_empty_url() {
 }
 
 #[test]
+fn config_check_fails_on_blank_feed_tag() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_fixture_files(&temp);
+    let feeds = r#"picofeedr:
+  group:
+    feeds:
+      - url: https://example.com/feed
+        title: Example
+        tags: ["   "]
+"#;
+    fs::write(&paths.feeds_path, feeds).expect("rewrite feeds");
+
+    let output = sync_check_json_cmd(&paths.config_path, &paths.db_path)
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    let data = extract_ok_data(&output);
+    assert_envelope_status(&output, "warning");
+    assert_eq!(data["valid"], false);
+    let errors = data["errors"].as_array().expect("errors array");
+    assert!(
+        errors.iter().any(|issue| issue["code"] == "EMPTY_TAG_NAME"),
+        "expected EMPTY_TAG_NAME error"
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|issue| issue["path"] == "picofeedr.group.feeds[0].tags"),
+        "expected feed tag path"
+    );
+}
+
+#[test]
+fn config_check_fails_on_blank_auto_tag_value() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_fixture_files(&temp);
+    let feeds = r#"picofeedr:
+  group:
+    auto_tags:
+      - title_contains: [Steam]
+        add_tags: [" "]
+"#;
+    fs::write(&paths.feeds_path, feeds).expect("rewrite feeds");
+
+    let output = sync_check_json_cmd(&paths.config_path, &paths.db_path)
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    let data = extract_ok_data(&output);
+    assert_envelope_status(&output, "warning");
+    assert_eq!(data["valid"], false);
+    let errors = data["errors"].as_array().expect("errors array");
+    assert!(
+        errors.iter().any(|issue| issue["code"] == "EMPTY_TAG_NAME"),
+        "expected EMPTY_TAG_NAME error"
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|issue| issue["path"] == "picofeedr.group.auto_tags[0].add_tags"),
+        "expected auto tag path"
+    );
+}
+
+#[test]
 fn config_check_fails_on_invalid_title_regex() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_fixture_files(&temp);
@@ -455,6 +526,60 @@ fn sync_fails_fast_on_invalid_title_regex() {
         .clone();
 
     assert_error_envelope(&output, "CONFIG_ERROR", false);
+}
+
+#[test]
+fn sync_fails_fast_on_blank_feed_tag() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_fixture_files(&temp);
+    let feeds = r#"picofeedr:
+  group:
+    feeds:
+      - url: https://example.com/feed
+        title: Example
+        tags: ["   "]
+"#;
+    fs::write(&paths.feeds_path, feeds).expect("rewrite feeds");
+
+    let output = sync_json_cmd(&paths.config_path, &paths.db_path)
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    assert_error_envelope(&output, "CONFIG_ERROR", false);
+    let details = extract_error_details(&output);
+    assert_eq!(details["first_issue_code"], "EMPTY_TAG_NAME");
+    assert_eq!(details["first_issue_path"], "picofeedr.group.feeds[0].tags");
+}
+
+#[test]
+fn sync_fails_fast_on_blank_auto_tag_value() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_fixture_files(&temp);
+    let feeds = r#"picofeedr:
+  group:
+    auto_tags:
+      - title_contains: [Steam]
+        add_tags: [" "]
+"#;
+    fs::write(&paths.feeds_path, feeds).expect("rewrite feeds");
+
+    let output = sync_json_cmd(&paths.config_path, &paths.db_path)
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    assert_error_envelope(&output, "CONFIG_ERROR", false);
+    let details = extract_error_details(&output);
+    assert_eq!(details["first_issue_code"], "EMPTY_TAG_NAME");
+    assert_eq!(
+        details["first_issue_path"],
+        "picofeedr.group.auto_tags[0].add_tags"
+    );
 }
 
 #[test]
@@ -708,6 +833,128 @@ fn unread_token_respects_config_unread_tag() {
         assert!(tag_values.contains(&"fresh".to_string()));
         assert!(!tag_values.contains(&"unread".to_string()));
     }
+}
+
+#[test]
+fn unread_tag_is_trimmed_before_use() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files_with_unread_tag(&temp, " fresh ");
+
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("list")
+        .arg("--query")
+        .arg("unread")
+        .arg("--sort")
+        .arg("first_seen_desc")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let data = extract_ok_data(&output);
+    let items = data["items"].as_array().expect("items array");
+    assert_eq!(items.len(), 2);
+    for item in items {
+        let tags = item["tags"].as_array().expect("tags array");
+        let tag_values: Vec<String> = tags
+            .iter()
+            .map(|tag| tag.as_str().unwrap().to_string())
+            .collect();
+        assert!(tag_values.contains(&"fresh".to_string()));
+        assert!(!tag_values.contains(&" fresh ".to_string()));
+    }
+}
+
+#[test]
+fn unread_query_uses_unread_tag_alias_when_unread_management_is_disabled() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files_with_manage_unread(&temp, false);
+
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let unread = list_query_json(&paths.config_path, &paths.db_path, "unread");
+    assert_eq!(unread["total_count"], 0);
+
+    let items = unread["items"].as_array().expect("items array");
+    assert!(items.is_empty());
+}
+
+#[test]
+fn tags_command_does_not_create_empty_tag_when_unread_management_is_disabled() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files_with_manage_unread(&temp, false);
+
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("tags")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let data = extract_ok_data(&output);
+    let tags = data["tags"].as_array().expect("tags array");
+    assert!(
+        !tags
+            .iter()
+            .any(|tag| tag.as_str().is_some_and(str::is_empty))
+    );
+}
+
+#[test]
+fn blank_unread_tag_is_rejected_even_when_unread_management_is_disabled() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files_with_unread_settings(&temp, false, "");
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("tags")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    assert_error_envelope(&output, "CONFIG_ERROR", false);
+    let details = extract_error_details(&output);
+    assert_eq!(details["path"], "unread_tag");
 }
 
 #[test]

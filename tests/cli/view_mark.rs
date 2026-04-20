@@ -402,3 +402,78 @@ fn mark_tag_remove_fails_when_any_entry_is_missing() {
     let tech_after = list_query_json(&paths.config_path, &paths.db_path, "tag:tech");
     assert_eq!(tech_after["total_count"], 2);
 }
+
+#[test]
+fn mark_read_uses_unread_tag_alias_when_unread_management_is_disabled() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files_with_manage_unread(&temp, false);
+
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let all_items = list_query_json(&paths.config_path, &paths.db_path, "tag:tech");
+    let entry_ids = collect_item_ids(&all_items);
+    assert_eq!(entry_ids.len(), 2);
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("mark")
+        .arg("read")
+        .arg(entry_ids[0].clone())
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let data = extract_ok_data(&output);
+    assert_eq!(data["updated_entry_count"], 0);
+}
+
+#[test]
+fn mark_unread_uses_unread_tag_alias_when_unread_management_is_disabled() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files_with_manage_unread(&temp, false);
+
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let all_items = list_query_json(&paths.config_path, &paths.db_path, "tag:tech");
+    let entry_ids = collect_item_ids(&all_items);
+    assert_eq!(entry_ids.len(), 2);
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("mark")
+        .arg("unread")
+        .arg(entry_ids[0].clone())
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let data = extract_ok_data(&output);
+    assert_eq!(data["updated_entry_count"], 1);
+
+    let unread = list_query_json(&paths.config_path, &paths.db_path, "unread");
+    assert_eq!(unread["total_count"], 1);
+}

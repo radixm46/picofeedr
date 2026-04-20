@@ -74,7 +74,7 @@ fn prepare_sync_ingest(
 ) -> Result<HashMap<String, i64>, AppError> {
     let tx = store.tx()?;
     tx.feed_write_repo()
-        .reconcile_feeds(feeds_config, &config.unread_tag)?;
+        .reconcile_feeds(feeds_config, config.auto_unread_tag())?;
     tx.commit()?;
 
     let feed_ids = targets

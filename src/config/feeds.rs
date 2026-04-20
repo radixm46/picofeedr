@@ -19,6 +19,8 @@ pub struct FeedsConfig {
     pub feeds: Vec<FeedConfig>,
     /// Auto-tag rules defined in feeds.yaml.
     pub auto_tags: Vec<AutoTagRule>,
+    /// Tag lists with logical paths for validation reporting.
+    tag_lists: Vec<ScopedTagList>,
     /// Auto-tag rules with logical paths for validation reporting.
     auto_tag_rules: Vec<ScopedAutoTagRule>,
 }
@@ -63,6 +65,7 @@ impl FeedsConfig {
             )
         })?;
         let auto_tags = parse_auto_tags(feeds_map.get(Value::String("auto_tags".to_string())))?;
+        let mut tag_lists = Vec::new();
         let mut auto_tag_rules = Vec::new();
         let mut feeds = Vec::new();
         flatten_group(
@@ -71,11 +74,13 @@ impl FeedsConfig {
             &[],
             "picofeedr",
             &mut feeds,
+            &mut tag_lists,
             &mut auto_tag_rules,
         )?;
         Ok(Self {
             feeds,
             auto_tags,
+            tag_lists,
             auto_tag_rules,
         })
     }
@@ -107,12 +112,27 @@ impl FeedsConfig {
                 .entry(feed.url.clone())
                 .or_default()
                 .push(feed.path.clone());
+        }
 
-            for duplicated_tag in duplicated_tag_names(&feed.declared_tags) {
+        for scoped in &self.tag_lists {
+            if scoped.tags.iter().any(|tag| tag.is_empty()) {
+                errors.push(ValidationIssue {
+                    code: "EMPTY_TAG_NAME".to_string(),
+                    message: "tag name must not be empty".to_string(),
+                    path: Some(scoped.path.clone()),
+                });
+            }
+            let non_empty_tags = scoped
+                .tags
+                .iter()
+                .filter(|tag| !tag.is_empty())
+                .cloned()
+                .collect::<Vec<_>>();
+            for duplicated_tag in duplicated_tag_names(&non_empty_tags) {
                 warnings.push(ValidationIssue {
                     code: "DUPLICATE_FEED_TAG".to_string(),
                     message: format!("duplicated feed tag '{duplicated_tag}'"),
-                    path: Some(format!("{}.tags", feed.path)),
+                    path: Some(scoped.path.clone()),
                 });
             }
         }
@@ -135,6 +155,13 @@ impl FeedsConfig {
                 errors.push(ValidationIssue {
                     code: "INVALID_AUTO_TAG_RULE".to_string(),
                     message: "auto tag rule requires at least one add_tags value".to_string(),
+                    path: Some(format!("{}.add_tags", scoped.path)),
+                });
+            }
+            if scoped.rule.add_tags.iter().any(|tag| tag.is_empty()) {
+                errors.push(ValidationIssue {
+                    code: "EMPTY_TAG_NAME".to_string(),
+                    message: "tag name must not be empty".to_string(),
                     path: Some(format!("{}.add_tags", scoped.path)),
                 });
             }
@@ -235,6 +262,15 @@ struct ScopedAutoTagRule {
     rule: AutoTagRule,
 }
 
+/// Tag names scoped with a logical path.
+#[derive(Debug, Clone)]
+struct ScopedTagList {
+    /// Logical path for diagnostics.
+    path: String,
+    /// Tag names declared at the path.
+    tags: Vec<String>,
+}
+
 /// Static validation issue for feeds config check.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct ValidationIssue {
@@ -271,7 +307,12 @@ fn parse_auto_tags(value: Option<&Value>) -> Result<Vec<AutoTagRule>, AppError> 
     match value {
         None => Ok(Vec::new()),
         Some(value) => {
-            let rules: Vec<AutoTagRule> = serde_yaml_ng::from_value(value.clone())?;
+            let mut rules: Vec<AutoTagRule> = serde_yaml_ng::from_value(value.clone())?;
+            for rule in &mut rules {
+                for tag in &mut rule.add_tags {
+                    *tag = normalize_tag_name(tag);
+                }
+            }
             Ok(rules)
         }
     }
@@ -284,6 +325,7 @@ fn flatten_group(
     inherited_auto_tags: &[AutoTagRule],
     current_path: &str,
     out: &mut Vec<FeedConfig>,
+    tag_lists: &mut Vec<ScopedTagList>,
     auto_tag_rules: &mut Vec<ScopedAutoTagRule>,
 ) -> Result<(), AppError> {
     let map = value
@@ -295,6 +337,12 @@ fn flatten_group(
         .map(parse_tag_list)
         .transpose()?
         .unwrap_or_default();
+    if map.get(Value::String("tags".to_string())).is_some() {
+        tag_lists.push(ScopedTagList {
+            path: format!("{current_path}.tags"),
+            tags: group_tags.clone(),
+        });
+    }
     let group_auto_tags = parse_auto_tags(map.get(Value::String("auto_tags".to_string())))?;
     append_scoped_rules(
         &format!("{current_path}.auto_tags"),
@@ -326,6 +374,12 @@ fn flatten_group(
                 .map(parse_tag_list)
                 .transpose()?
                 .unwrap_or_default();
+            if feed_map.get(Value::String("tags".to_string())).is_some() {
+                tag_lists.push(ScopedTagList {
+                    path: format!("{current_path}.feeds[{index}].tags"),
+                    tags: feed_tags.clone(),
+                });
+            }
             let tags = merge_tags(&merged_tags, &feed_tags);
             out.push(FeedConfig {
                 url: url_value.trim().to_string(),
@@ -353,6 +407,7 @@ fn flatten_group(
             &merged_auto_tags,
             &nested_path,
             out,
+            tag_lists,
             auto_tag_rules,
         )?;
     }
@@ -366,9 +421,13 @@ fn parse_tag_list(values: &Vec<Value>) -> Result<Vec<String>, AppError> {
         let tag = value
             .as_str()
             .ok_or_else(|| AppError::config("tag must be a string"))?;
-        tags.push(tag.to_string());
+        tags.push(normalize_tag_name(tag));
     }
     Ok(tags)
+}
+
+fn normalize_tag_name(tag: &str) -> String {
+    tag.trim().to_string()
 }
 
 /// Merges two tag lists while preserving order and uniqueness.
