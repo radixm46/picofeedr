@@ -5,9 +5,10 @@
 
 use crate::db::sqlite::query::sync;
 use crate::error::AppError;
+use crate::time::current_epoch;
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 
 /// Database-wide status metadata used by `status` and list snapshots.
 #[derive(Debug, Clone)]
@@ -48,6 +49,20 @@ impl From<StoredSystemMeta> for SystemMeta {
             sync_status: value.sync_status,
         }
     }
+}
+
+/// Ensures `es_meta` contains the initial metadata row.
+pub(crate) fn initialize_meta_with_conn(conn: &Connection) -> Result<(), AppError> {
+    let exists: i64 = conn.query_row(sync::COUNT_META_ROWS, [], |row| row.get(0))?;
+    if exists == 0 {
+        let meta_json = json!({
+            "created_at": current_epoch(),
+            "app_id": "picofeedr"
+        })
+        .to_string();
+        conn.execute(sync::INSERT_META_ROW, params![meta_json])?;
+    }
+    Ok(())
 }
 
 /// Loads system metadata from `es_meta.meta_json`.
@@ -110,7 +125,10 @@ fn parse_meta(meta_json: &str) -> Result<SystemMeta, AppError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{bump_revision_with_conn, read_meta_with_conn, update_sync_with_conn};
+    use super::{
+        bump_revision_with_conn, initialize_meta_with_conn, read_meta_with_conn,
+        update_sync_with_conn,
+    };
     use crate::db::sqlite::query::sync;
     use rusqlite::{Connection, params};
     use serde_json::{Value, json};
@@ -175,5 +193,27 @@ mod tests {
             stored,
             json!({"revision": 7, "sync_at": 99, "sync_status": "partial", "custom": {"keep": true}})
         );
+    }
+
+    #[test]
+    fn initialize_meta_with_conn_inserts_default_row_once() {
+        let conn = Connection::open_in_memory().expect("in-memory db");
+        conn.execute(
+            "CREATE TABLE es_meta (id INTEGER PRIMARY KEY, meta_json TEXT NOT NULL)",
+            [],
+        )
+        .expect("create meta table");
+
+        initialize_meta_with_conn(&conn).expect("initialize meta");
+        initialize_meta_with_conn(&conn).expect("initialize meta idempotently");
+
+        let stored = load_raw_meta_json(&conn);
+        assert_eq!(stored["app_id"], "picofeedr");
+        assert!(stored["created_at"].as_i64().is_some());
+
+        let row_count: i64 = conn
+            .query_row(sync::COUNT_META_ROWS, [], |row| row.get(0))
+            .expect("count meta rows");
+        assert_eq!(row_count, 1);
     }
 }

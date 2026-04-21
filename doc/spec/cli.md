@@ -39,6 +39,8 @@
 { "api_version": "<string>", "db_schema_version": <int>, "build": "<string>" }
 ```
 
+- `db_schema_version` はこの binary の current schema version を返す
+
 ### `feeds`
 
 ```json
@@ -78,6 +80,8 @@ Blocking `feeds.yaml` validation errors fail the command with `status = "error"`
 ```json
 { "revision": <int>, "last_write_at": <epoch|null>, "db_schema_version": <int>, "api_version": "<string>", "last_sync_at": <epoch|null>, "last_sync_status": "completed|partial_failed|failed|null" }
 ```
+
+- `db_schema_version` は実 DB の current schema version を返す
 
 ### `list`
 

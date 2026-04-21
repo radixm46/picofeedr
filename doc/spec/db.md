@@ -66,7 +66,7 @@
 ### 4.1 `es_meta`
 
 - 単一行の JSON メタ
-- `schema_version`、作成日時、アプリID、将来のマイグレーション履歴など
+- `revision` / `updated_at` / `sync_at` / `sync_status` などのアプリ運用メタを保持する
 
 ### 4.2 `feeds`
 
@@ -110,7 +110,7 @@
 
 > 注：`fs` の置き場所（rootディレクトリ）やパス導出ルールはレコードに持たず、CLI本体設定で与える。
 
-> 注：`storage` と `ref/content` の整合はアプリ側または CHECK 制約で担保する（例：`fs` なら `ref` 必須・`content` は空、`db` なら逆）。
+> 注：`storage` は DB 側で `db|fs|none` のみを許容する。`ref/content` のより細かい整合は当面アプリ側で担保する（例：`fs` なら `ref` 必須・`content` は空、`db` なら逆）。
 
 ### 4.5 `tags` / `entry_tags`
 
@@ -124,7 +124,14 @@
 
 ## 5. 運用想定
 
-### 5.0 IDエンコードの互換契約
+### 5.0 スキーマバージョン管理
+
+- SQLite schema version は `PRAGMA user_version` に保持する
+- 起動時に `user_version` を確認し、必要なら current schema version まで migration を順次適用する
+- `status.db_schema_version` は実 DB の `user_version` を返す
+- `version.db_schema_version` は CLI がサポートする最新 schema version を返す
+
+### 5.1 IDエンコードの互換契約
 
 - `feed_id` / `entry_id` のエンコードは `k_ + base64url_nopad(sha256(...))` で固定する
 - 互換性のため、IDのバイト列入力は UTF-8 とする
@@ -132,7 +139,7 @@
 - `k_` 接頭辞は「ハッシュ由来のopaque ID」であることを示す識別子として予約する
 - 公開IDは opaque として扱う契約を維持する（クライアントは分解・再生成を前提にしない）
 
-### 5.1 未読管理（タグで実施）
+### 5.2 未読管理（タグで実施）
 
 - CLI 本体設定に `manage_unread` と `unread_tag` を持つ（既定値は `true` / `unread`）
 - `manage_unread = true` のとき、新規取得した entry には必ず `unread_tag` を付与
@@ -140,27 +147,27 @@
 - `manage_unread = false` のときは unread タグの自動付与を止める
 - 再取得・更新時に、既存エントリの未読状態（unreadタグ）をルール的に上書き・再付与しない
 
-### 5.2 タグ検索・合成（検索syntaxで解決）
+### 5.3 タグ検索・合成（検索syntaxで解決）
 
 - DBはタグ階層を持たず、検索syntaxでグルーピングする
 - 例：`group/tag1 group/tag2` を OR 合成して一覧取得
 - 例：`group/*` を `tags.name LIKE 'group/%'` として展開
 - AND/NOT などは将来拡張（例：`+tag` `-tag`）
 
-### 5.3 時刻の扱い
+### 5.4 時刻の扱い
 
 - `published_at`/`updated_at` 欠損を許容する（RSSでは pubDate が任意、壊れたフィードも多い）
 - 安定した並び替えや新着判定は `first_seen_at` を併用
 - 「公開日が無いので published_at に受信時刻を代入する」方式は、意味の混線を起こしやすいので採用しない
 
-### 5.4 同期・バックアップ
+### 5.5 同期・バックアップ
 
 - 想定：SQLite の単一DBファイルをクラウドストレージ側で同期・世代管理してもらう（アプリ側で特別な復元機構を前提にしない）
 - 本文をファイルツリーに置くことで、DBファイルの肥大化を抑えやすい（クラウド同期の負荷も下げやすい）
 - DBは索引・状態（タグ）を含むため、破損・巻き戻りで過去エントリや未読状態が失われる可能性は受け入れる
 - 同期の安定性のため、運用上は WAL/同期モードに注意（例：WAL の `-wal/-shm` を同時に同期できるかを確認）
 
-### 5.5 移行後DBの期待不変条件
+### 5.6 移行後DBの期待不変条件
 
 他システムから移行した後、`sync` 実行前に次を満たしていることを期待する。
 

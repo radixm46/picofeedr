@@ -9,8 +9,8 @@ CREATE TABLE IF NOT EXISTS es_meta (
 
 CREATE TABLE IF NOT EXISTS feeds (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    feed_id TEXT NOT NULL UNIQUE,
-    url TEXT NOT NULL,
+    feed_id TEXT NOT NULL UNIQUE CHECK(feed_id <> ''),
+    url TEXT NOT NULL CHECK(url <> ''),
     title TEXT,
     author TEXT,
     site_url TEXT,
@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS feeds (
 
 CREATE TABLE IF NOT EXISTS entries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    entry_id TEXT NOT NULL UNIQUE,
+    entry_id TEXT NOT NULL UNIQUE CHECK(entry_id <> ''),
     feed_pk INTEGER NOT NULL,
     link TEXT,
     title TEXT,
@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS entry_enclosures (
 
 CREATE TABLE IF NOT EXISTS entry_contents (
     entry_pk INTEGER PRIMARY KEY,
-    storage TEXT NOT NULL,
+    storage TEXT NOT NULL CHECK(storage IN ('db', 'fs', 'none')),
     ref TEXT,
     content_type TEXT,
     content TEXT,
@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS entry_contents (
 
 CREATE TABLE IF NOT EXISTS tags (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE
+    name TEXT NOT NULL UNIQUE CHECK(name <> '')
 );
 
 CREATE TABLE IF NOT EXISTS entry_tags (

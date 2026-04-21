@@ -12,11 +12,11 @@ Project cli_feed_index_v2 {
 
 Table es_meta {
     Note: '''
-    Single-row meta as JSON for application-owned schema control.
+    Single-row meta as JSON for application-owned runtime status.
     Keep it boring and reliable.
     '''
     id integer [pk] // always 1 (enforce in app)
-    meta_json text [not null] // JSON object (schema_version, created_at, app_id, migrations, etc)
+    meta_json text [not null] // JSON object for application-owned runtime status metadata
     indexes { (id) }
 }
 
@@ -26,8 +26,8 @@ Table feeds {
     Not a "subscription list".
     '''
     id integer [pk, increment]
-    feed_id text [not null, unique] // app-defined stable id (e.g., normalized URL or hash)
-    url text [not null]              // fetch/canonical URL you want to show as source
+    feed_id text [not null, unique] // non-empty app-defined stable id (e.g., normalized URL or hash)
+    url text [not null]              // non-empty fetch/canonical URL you want to show as source
     title text
     author text
     site_url text
@@ -44,7 +44,7 @@ Table entries {
     - published_at can be NULL; use first_seen_at as a stable timeline fallback.
     '''
     id integer [pk, increment]
-    entry_id text [not null, unique]  // app-defined stable id derived from canonical source identity
+    entry_id text [not null, unique]  // non-empty app-defined stable id derived from canonical source identity
     feed_pk integer [not null]
 
     link text                          // may be null in some feeds
@@ -88,7 +88,7 @@ Table entry_contents {
     DB is not obligated to store full content; it may store content in SQLite or refer to a hash-addressed file store.
     '''
     entry_pk integer [pk]              // also FK to entries.id
-    storage text [not null]            // 'none' | 'db' | 'fs' (enforce in app)
+    storage text [not null]            // 'none' | 'db' | 'fs' (enforced in DB)
     ref text                           // hash key (e.g. sha256 hex) when storage='fs' (nullable)
     content_type text                  // 'text/html', 'text/plain', ...
     content text                       // only when storage='db'
@@ -116,7 +116,7 @@ Table tags {
     This table may be derived/rebuilt from entry_tags, but entry_tags is the source of truth for assignments.
     '''
     id integer [pk, increment]
-    name text [unique, not null]
+    name text [unique, not null] // non-empty
 }
 
 Ref: feeds.id > entries.feed_pk [delete: restrict]

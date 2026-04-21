@@ -327,6 +327,15 @@ impl AppError {
         }
     }
 
+    /// Creates a database error with details.
+    pub fn db_with_details(message: impl Into<String>, details: ErrorDetails) -> Self {
+        Self::Db {
+            message: message.into(),
+            details: Some(details),
+            source: None,
+        }
+    }
+
     /// Creates a locked database error with details and source.
     pub fn db_locked_with_details(
         message: impl Into<String>,

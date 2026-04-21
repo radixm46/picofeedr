@@ -10,7 +10,6 @@ use picofeedr::TagManager;
 use picofeedr::cli::{Cli, Command};
 use picofeedr::config;
 use picofeedr::current_epoch;
-use picofeedr::db;
 use picofeedr::entry::{self, EntryDetail};
 use picofeedr::error::AppError;
 use picofeedr::feed::{self, FeedListResponse};
@@ -62,10 +61,11 @@ pub(crate) fn run_tags_command(config: &config::AppConfig) -> Result<TagListResp
 
 pub(crate) fn run_status_command(config: &config::AppConfig) -> Result<StatusResponse, AppError> {
     with_store(config, |store| {
+        let db_schema_version = store.schema_version()?;
         let meta = store.read_system_meta()?;
         Ok(StatusResponse::from_system_meta(
             &meta,
-            db::migrate::current_schema_version(),
+            db_schema_version,
             env!("CARGO_PKG_VERSION"),
         ))
     })

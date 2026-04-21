@@ -19,7 +19,7 @@ use std::fs;
 use std::path::Path;
 use std::time::Duration;
 
-pub(crate) use meta::SystemMeta;
+pub(crate) use meta::{SystemMeta, initialize_meta_with_conn};
 
 /// Transaction wrapper exposing repository APIs.
 pub struct Tx<'conn> {
@@ -121,6 +121,11 @@ impl SqliteStore {
     /// Applies schema migrations.
     pub fn migrate(&self) -> Result<(), AppError> {
         crate::db::migrate::migrate(&self.conn)
+    }
+
+    /// Returns the on-disk SQLite schema version.
+    pub fn schema_version(&self) -> Result<i64, AppError> {
+        crate::db::migrate::read_schema_version(&self.conn)
     }
 
     /// Returns all feeds stored in the database.
