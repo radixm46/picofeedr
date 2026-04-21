@@ -143,12 +143,6 @@ impl SyncFixtureBuilder {
         self
     }
 
-    /// Stores entry content in the database.
-    pub fn content_store_db(mut self) -> Self {
-        self.content_store = ContentStore::Db;
-        self
-    }
-
     /// Stores entry content in the filesystem.
     pub fn content_store_fs(mut self) -> Self {
         self.content_store = ContentStore::Fs;
@@ -285,56 +279,7 @@ root_dir = "{}"
 
 /// Writes default sync fixture files with DB content storage.
 pub fn write_sync_fixture_files(temp: &TempDir) -> SyncFixturePaths {
-    SyncFixtureBuilder::new(temp).content_store_db().build_db()
-}
-
-/// Writes sync fixture files with custom unread tag.
-pub fn write_sync_fixture_files_with_unread_tag(
-    temp: &TempDir,
-    unread_tag: &str,
-) -> SyncFixturePaths {
-    SyncFixtureBuilder::new(temp)
-        .unread_tag(unread_tag)
-        .content_store_db()
-        .build_db()
-}
-
-/// Writes sync fixture files with custom unread management behavior.
-pub fn write_sync_fixture_files_with_manage_unread(
-    temp: &TempDir,
-    manage_unread: bool,
-) -> SyncFixturePaths {
-    SyncFixtureBuilder::new(temp)
-        .manage_unread(manage_unread)
-        .content_store_db()
-        .build_db()
-}
-
-/// Writes sync fixture files with custom unread management and unread tag.
-pub fn write_sync_fixture_files_with_unread_settings(
-    temp: &TempDir,
-    manage_unread: bool,
-    unread_tag: &str,
-) -> SyncFixturePaths {
-    SyncFixtureBuilder::new(temp)
-        .manage_unread(manage_unread)
-        .unread_tag(unread_tag)
-        .content_store_db()
-        .build_db()
-}
-
-/// Writes sync fixture files with custom query limits.
-pub fn write_sync_fixture_files_with_query_limits(
-    temp: &TempDir,
-    unread_tag: &str,
-    default_limit: usize,
-    max_limit: usize,
-) -> SyncFixturePaths {
-    SyncFixtureBuilder::new(temp)
-        .unread_tag(unread_tag)
-        .query_limits(default_limit, max_limit)
-        .content_store_db()
-        .build_db()
+    SyncFixtureBuilder::new(temp).build_db()
 }
 
 /// Writes sync fixture files for filesystem content storage.

@@ -28,10 +28,9 @@ use support::assertions::{
     extract_error_details, extract_error_payload, extract_ok_data,
 };
 use support::fixtures::{
-    acquire_exclusive_db_lock, write_fixture_files, write_sync_all_failed_fixture_files,
-    write_sync_failure_fixture_files, write_sync_fixture_files, write_sync_fixture_files_fs,
-    write_sync_fixture_files_with_manage_unread, write_sync_fixture_files_with_query_limits,
-    write_sync_fixture_files_with_unread_settings, write_sync_fixture_files_with_unread_tag,
+    FixturePaths, SyncFixtureBuilder, SyncFixturePaths, acquire_exclusive_db_lock,
+    write_fixture_files, write_sync_all_failed_fixture_files, write_sync_failure_fixture_files,
+    write_sync_fixture_files, write_sync_fixture_files_fs,
 };
 use tempfile::TempDir;
 
@@ -47,6 +46,27 @@ fn picofeedr_cmd_plain() -> assert_cmd::Command {
     let mut cmd = cargo_bin_cmd!("picofeedr");
     cmd.arg("--output").arg("plain");
     cmd
+}
+
+/// Runs a successful sync for fixture paths.
+fn sync_fixture_ok(paths: &SyncFixturePaths) {
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+}
+
+/// Writes and syncs a fixture with unread management disabled.
+fn write_synced_fixture_with_unread_management_disabled(temp: &TempDir) -> SyncFixturePaths {
+    let paths = SyncFixtureBuilder::new(temp)
+        .manage_unread(false)
+        .build_db();
+    sync_fixture_ok(&paths);
+    paths
 }
 
 /// Writes a minimal config file pointing to a specific feeds source.

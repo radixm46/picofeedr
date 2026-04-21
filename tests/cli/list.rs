@@ -154,15 +154,7 @@ fn list_snapshot_matches_status_metadata() {
 #[test]
 fn list_json_uses_unread_tag_alias_when_management_is_disabled() {
     let temp = TempDir::new().expect("tempdir");
-    let paths = write_sync_fixture_files_with_manage_unread(&temp, false);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
-        .arg("sync")
-        .assert()
-        .success();
+    let paths = write_synced_fixture_with_unread_management_disabled(&temp);
 
     let output = picofeedr_cmd_json()
         .arg("--config")
@@ -186,15 +178,7 @@ fn list_json_uses_unread_tag_alias_when_management_is_disabled() {
 #[test]
 fn list_plain_uses_unread_tag_alias_when_management_is_disabled() {
     let temp = TempDir::new().expect("tempdir");
-    let paths = write_sync_fixture_files_with_manage_unread(&temp, false);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
-        .arg("sync")
-        .assert()
-        .success();
+    let paths = write_synced_fixture_with_unread_management_disabled(&temp);
 
     let output = picofeedr_cmd_plain()
         .arg("--config")
@@ -454,7 +438,7 @@ fn list_rejects_invalid_cursor_format() {
 #[test]
 fn list_uses_config_default_limit_when_limit_omitted() {
     let temp = TempDir::new().expect("tempdir");
-    let paths = write_sync_fixture_files_with_query_limits(&temp, "unread", 1, 5);
+    let paths = SyncFixtureBuilder::new(&temp).query_limits(1, 5).build_db();
     picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
@@ -488,7 +472,7 @@ fn list_uses_config_default_limit_when_limit_omitted() {
 #[test]
 fn list_rejects_limit_over_max_limit() {
     let temp = TempDir::new().expect("tempdir");
-    let paths = write_sync_fixture_files_with_query_limits(&temp, "unread", 1, 5);
+    let paths = SyncFixtureBuilder::new(&temp).query_limits(1, 5).build_db();
     picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
@@ -519,7 +503,7 @@ fn list_rejects_limit_over_max_limit() {
 #[test]
 fn list_rejects_zero_limit() {
     let temp = TempDir::new().expect("tempdir");
-    let paths = write_sync_fixture_files_with_query_limits(&temp, "unread", 1, 5);
+    let paths = SyncFixtureBuilder::new(&temp).query_limits(1, 5).build_db();
     picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)

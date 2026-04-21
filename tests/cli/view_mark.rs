@@ -406,16 +406,7 @@ fn mark_tag_remove_fails_when_any_entry_is_missing() {
 #[test]
 fn mark_read_uses_unread_tag_alias_when_unread_management_is_disabled() {
     let temp = TempDir::new().expect("tempdir");
-    let paths = write_sync_fixture_files_with_manage_unread(&temp, false);
-
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
-        .arg("sync")
-        .assert()
-        .success();
+    let paths = write_synced_fixture_with_unread_management_disabled(&temp);
 
     let all_items = list_query_json(&paths.config_path, &paths.db_path, "tag:tech");
     let entry_ids = collect_item_ids(&all_items);
@@ -442,16 +433,7 @@ fn mark_read_uses_unread_tag_alias_when_unread_management_is_disabled() {
 #[test]
 fn mark_unread_uses_unread_tag_alias_when_unread_management_is_disabled() {
     let temp = TempDir::new().expect("tempdir");
-    let paths = write_sync_fixture_files_with_manage_unread(&temp, false);
-
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
-        .arg("sync")
-        .assert()
-        .success();
+    let paths = write_synced_fixture_with_unread_management_disabled(&temp);
 
     let all_items = list_query_json(&paths.config_path, &paths.db_path, "tag:tech");
     let entry_ids = collect_item_ids(&all_items);
