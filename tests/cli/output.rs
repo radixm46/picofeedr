@@ -2,18 +2,10 @@ use super::*;
 
 #[test]
 fn plain_output_succeeds_when_stdout_is_closed() {
-    let temp = TempDir::new().expect("tempdir");
-    let paths = write_fixture_files(&temp);
-    let storage_root = db_root(&paths.db_path);
-
     let output = run_with_closed_stdout(vec![
         "--output".to_string(),
         "plain".to_string(),
-        "--config".to_string(),
-        paths.config_path.clone(),
-        "--storage-root".to_string(),
-        storage_root,
-        "feeds".to_string(),
+        "version".to_string(),
     ]);
 
     assert!(output.status.success());
@@ -21,18 +13,10 @@ fn plain_output_succeeds_when_stdout_is_closed() {
 
 #[test]
 fn json_output_succeeds_when_stdout_is_closed() {
-    let temp = TempDir::new().expect("tempdir");
-    let paths = write_fixture_files(&temp);
-    let storage_root = db_root(&paths.db_path);
-
     let output = run_with_closed_stdout(vec![
         "--output".to_string(),
         "json".to_string(),
-        "--config".to_string(),
-        paths.config_path.clone(),
-        "--storage-root".to_string(),
-        storage_root,
-        "feeds".to_string(),
+        "version".to_string(),
     ]);
 
     assert!(output.status.success());
@@ -40,19 +24,11 @@ fn json_output_succeeds_when_stdout_is_closed() {
 
 #[test]
 fn broken_pipe_emits_debug_diagnostic() {
-    let temp = TempDir::new().expect("tempdir");
-    let paths = write_fixture_files(&temp);
-    let storage_root = db_root(&paths.db_path);
-
     let output = run_with_closed_stdout(vec![
         "--output".to_string(),
         "plain".to_string(),
         "--debug".to_string(),
-        "--config".to_string(),
-        paths.config_path.clone(),
-        "--storage-root".to_string(),
-        storage_root,
-        "feeds".to_string(),
+        "version".to_string(),
     ]);
 
     assert!(output.status.success());

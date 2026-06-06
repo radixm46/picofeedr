@@ -10,7 +10,27 @@ It covers:
 - feed tree flattening
 - tag inheritance
 - auto-tag rule placement
-- validation semantics used by `sync --check`, `feeds`, and `sync`
+- validation semantics used by `sync --check` and `sync`
+
+## Role Separation
+
+`feeds.yaml` is the source for feed rules and the sync catalog:
+
+- feed URLs that `sync` may fetch
+- configured feed titles used when sync reconciles feed rows
+- feed-to-tag rules inherited from groups
+- auto-tag rules
+- skipped feed declarations
+
+The local database is the source for persisted state:
+
+- known feed rows and last observed feed metadata
+- the tag dictionary
+- entry-to-tag relations
+- sync/write status metadata
+
+The `feeds` CLI command reads feed state from the database only. It does not load
+or validate `feeds.yaml`, reconcile configured feeds, or create tags.
 
 ## Top-Level Contract
 
@@ -62,6 +82,18 @@ Currently supported feed source URL schemes are:
 - tag order is preserved by first appearance
 - duplicate tags are removed while keeping first-seen order
 
+## Tag Layers
+
+Tags are described at three layers:
+
+- L1 dictionary: rows in the `tags` table
+- L2 feed-to-tag rules: inherited and feed-level `tags` declared in `feeds.yaml`
+- L3 entry-to-tag facts: rows in `entry_tags`
+
+L2 declarations do not create L1 dictionary rows by themselves. L1 rows are
+created when a command writes actual tag facts, such as sync ingest creating L3
+entry tags or `mark tag --add` adding tags to existing entries.
+
 ## Auto Tags
 
 - `auto_tags` may be defined at the root and at any nested group
@@ -86,8 +118,8 @@ The validation report also includes `skipped_feeds`.
 
 Validation reports include logical YAML paths for issue locations.
 
-Blocking validation errors make `feeds` and `sync` fail with a configuration error before
-they touch the database or start fetching feeds.
+Blocking validation errors make `sync` fail with a configuration error before it
+starts fetching feeds.
 
 `sync --check` returns the same validation result as a report payload and exits with code 1
 when blocking errors are present.
@@ -105,3 +137,5 @@ when blocking errors are present.
 
 - this document does not define a strict mode such as `--strict`
 - this document does not define CLI output shapes beyond the validation payload
+- this document does not define database cleanup for removed feeds or orphan tags;
+  cleanup belongs to an independent maintenance command

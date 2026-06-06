@@ -52,7 +52,7 @@ pub fn run_sync_with_progress(
             });
         }
     }
-    let feed_pks_by_feed_id = prepare_sync_ingest(store, config, feeds_config, &targets)?;
+    let feed_pks_by_feed_id = prepare_sync_ingest(store, feeds_config, &targets)?;
     let mut new_entry_count = 0;
     let errors = fetch_parallel(&targets, config, on_progress, |result| {
         let count = ingest_sync_result(store, config, &feed_pks_by_feed_id, result)?;
@@ -77,13 +77,11 @@ pub fn run_sync_with_progress(
 /// Prepares feed metadata and resolves stable feed ids to primary keys.
 fn prepare_sync_ingest(
     store: &mut SqliteStore,
-    config: &AppConfig,
     feeds_config: &FeedsConfig,
     targets: &[SyncTarget],
 ) -> Result<HashMap<String, i64>, AppError> {
     let tx = store.tx()?;
-    tx.feed_write_repo()
-        .reconcile_feeds(feeds_config, config.auto_unread_tag())?;
+    tx.feed_write_repo().reconcile_feeds(feeds_config)?;
     tx.commit()?;
 
     let feed_ids = targets
@@ -349,7 +347,7 @@ retry_delay = 0
         let mut store = SqliteStore::open(&config.database.path).expect("open store");
         store.migrate().expect("migrate");
         let feed_pks_by_feed_id =
-            prepare_sync_ingest(&mut store, &config, &feeds_config, &targets).expect("prepare");
+            prepare_sync_ingest(&mut store, &feeds_config, &targets).expect("prepare");
         let mut new_entry_count = 0;
         let mut errors = Vec::new();
         for result in results {
@@ -384,7 +382,7 @@ retry_delay = 0
         let mut store = SqliteStore::open(&config.database.path).expect("open store");
         store.migrate().expect("migrate");
         let feed_pks_by_feed_id =
-            prepare_sync_ingest(&mut store, &config, &feeds_config, &targets).expect("prepare");
+            prepare_sync_ingest(&mut store, &feeds_config, &targets).expect("prepare");
         let mut new_entry_count = 0;
         let mut errors = Vec::new();
         for result in results {
@@ -418,7 +416,7 @@ retry_delay = 0
         let mut store = SqliteStore::open(&config.database.path).expect("open store");
         store.migrate().expect("migrate");
         let feed_pks_by_feed_id =
-            prepare_sync_ingest(&mut store, &config, &feeds_config, &targets).expect("prepare");
+            prepare_sync_ingest(&mut store, &feeds_config, &targets).expect("prepare");
 
         assert_eq!(feed_pks_by_feed_id.len(), targets.len());
         for target in &targets {

@@ -44,13 +44,11 @@
 ### `feeds`
 
 ```json
-{ "feeds": [{ "feed_id": "<string>", "url": "<string>", "title": "<string|null>", "site_url": "<string|null>", "author": "<string|null>", "tags": ["..."] }] }
+{ "feeds": [{ "feed_id": "<string>", "url": "<string>", "title": "<string|null>", "site_url": "<string|null>", "author": "<string|null>" }] }
 ```
 
-`feeds` はローカル DB 上の feed catalog を返す。
-
-Blocking `feeds.yaml` validation errors fail the command with `status = "error"` and
-`error.code = "CONFIG_ERROR"`.
+`feeds` はローカル DB に記録済みの feed catalog 状態のみを返す。
+`feeds.yaml` の load、validation、DB reconcile は行わない。
 
 ### `sync --check`
 
@@ -172,11 +170,11 @@ sync:feed-error index=<i>/<N> url=<feed_url> code=<FETCH_FAILED|PARSE_FAILED|ING
 ### `feeds`
 
 - 1 feed につき1行を出力する
-- 既定列は `title`, `url`, `site_url`, `author`, `tags`
+- 既定列は `title`, `url`, `site_url`, `author`
 - `--id` 指定時は末尾列として `feed_id` を追加する
-- `title` は config の表示名を優先し、未設定時のみ `sync` で最後に観測した非空 feed title を fallback として返す
-- `site_url` / `author` は `sync` で最後に観測した非空 metadata を返す
+- `title` / `site_url` / `author` はローカル DB に記録された値を返す
 - `feeds` コマンド自身は metadata refresh のための fetch を行わない
+- `feeds` コマンド自身は `feeds.yaml` との reconcile を行わない
 
 ### `tags`
 

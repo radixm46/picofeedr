@@ -1,9 +1,11 @@
 use super::*;
 
 #[test]
-fn feeds_reconcile_returns_tags() {
+fn feeds_reads_db_rows_without_validating_feeds_yaml() {
     let temp = TempDir::new().expect("tempdir");
-    let paths = write_fixture_files(&temp);
+    let paths = write_sync_fixture_files(&temp);
+    sync_fixture_ok(&paths);
+    fs::write(temp.path().join("feeds.yaml"), "picofeedr: [").expect("break feeds yaml");
 
     let output = picofeedr_cmd_json()
         .arg("--config")
@@ -25,27 +27,19 @@ fn feeds_reconcile_returns_tags() {
     assert_eq!(feeds.len(), 1);
     assert!(feeds[0]["feed_id"].is_string());
     assert!(feeds[0].get("feed_key").is_none());
-    let tags = feeds[0]["tags"].as_array().expect("tags array");
-    let tags: Vec<String> = tags
-        .iter()
-        .map(|tag| tag.as_str().unwrap().to_string())
-        .collect();
-    assert_eq!(tags, vec!["tech", "rust"]);
+    assert_eq!(feeds[0]["title"], "Example Feed");
+    assert_eq!(
+        feeds[0]["url"],
+        format!("file://{}", temp.path().join("feed.xml").display())
+    );
+    assert!(feeds[0].get("tags").is_none());
 }
 
 #[test]
 fn tags_command_returns_tag_dictionary() {
     let temp = TempDir::new().expect("tempdir");
-    let paths = write_fixture_files(&temp);
-
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
-        .arg("feeds")
-        .assert()
-        .success();
+    let paths = write_sync_fixture_files(&temp);
+    sync_fixture_ok(&paths);
 
     let output = picofeedr_cmd_json()
         .arg("--config")
@@ -68,13 +62,14 @@ fn tags_command_returns_tag_dictionary() {
         .iter()
         .map(|tag| tag.as_str().unwrap().to_string())
         .collect();
-    assert_eq!(tag_values, vec!["rust", "tech", "unread"]);
+    assert_eq!(tag_values, vec!["hot", "tech", "unread"]);
 }
 
 #[test]
 fn feeds_plain_outputs_tsv_columns() {
     let temp = TempDir::new().expect("tempdir");
-    let paths = write_fixture_files(&temp);
+    let paths = write_sync_fixture_files(&temp);
+    sync_fixture_ok(&paths);
 
     let output = picofeedr_cmd_plain()
         .arg("--config")
@@ -92,18 +87,21 @@ fn feeds_plain_outputs_tsv_columns() {
     let lines: Vec<&str> = output.lines().collect();
     assert_eq!(lines.len(), 1);
     let columns: Vec<&str> = lines[0].split('\t').collect();
-    assert_eq!(columns.len(), 5);
+    assert_eq!(columns.len(), 4);
     assert_eq!(columns[0], "Example Feed");
-    assert_eq!(columns[1], "https://example.com/feed");
-    assert_eq!(columns[2], "");
+    assert_eq!(
+        columns[1],
+        format!("file://{}", temp.path().join("feed.xml").display())
+    );
+    assert_eq!(columns[2], "https://example.com/");
     assert_eq!(columns[3], "");
-    assert_eq!(columns[4], "tech, rust");
 }
 
 #[test]
 fn feeds_plain_with_id_appends_feed_id_column() {
     let temp = TempDir::new().expect("tempdir");
-    let paths = write_fixture_files(&temp);
+    let paths = write_sync_fixture_files(&temp);
+    sync_fixture_ok(&paths);
 
     let output = picofeedr_cmd_plain()
         .arg("--config")
@@ -122,8 +120,8 @@ fn feeds_plain_with_id_appends_feed_id_column() {
     let lines: Vec<&str> = output.lines().collect();
     assert_eq!(lines.len(), 1);
     let columns: Vec<&str> = lines[0].split('\t').collect();
-    assert_eq!(columns.len(), 6);
-    assert!(!columns[5].is_empty());
+    assert_eq!(columns.len(), 5);
+    assert!(!columns[4].is_empty());
 }
 
 #[test]
@@ -141,7 +139,7 @@ fn status_returns_default_metadata() {
 }
 
 #[test]
-fn status_tracks_feeds_write_revision() {
+fn status_does_not_track_feeds_read_revision() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_fixture_files(&temp);
 
@@ -155,8 +153,8 @@ fn status_tracks_feeds_write_revision() {
         .success();
 
     let status = status_json(&paths.config_path, &paths.db_path);
-    assert_eq!(status["revision"], 1);
-    assert!(status["last_write_at"].as_i64().is_some());
+    assert_eq!(status["revision"], 0);
+    assert!(status["last_write_at"].is_null());
 }
 
 #[test]

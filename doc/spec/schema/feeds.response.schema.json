@@ -108,15 +108,8 @@
             "null"
           ]
         },
-        "tags": {
-          "description": "Tags from feeds.yaml.",
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
         "title": {
-          "description": "Config title when present, otherwise last observed non-empty feed title.",
+          "description": "Feed title recorded in the database.",
           "type": [
             "string",
             "null"
@@ -129,8 +122,7 @@
       },
       "required": [
         "feed_id",
-        "url",
-        "tags"
+        "url"
       ],
       "type": "object"
     },
@@ -138,7 +130,7 @@
       "description": "Feed list JSON response.",
       "properties": {
         "feeds": {
-          "description": "Feed rows including config-derived tags.",
+          "description": "Feed rows stored in the database.",
           "items": {
             "$ref": "#/definitions/FeedListItem"
           },

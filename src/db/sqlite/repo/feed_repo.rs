@@ -1,12 +1,11 @@
 //! Feed repositories for SQLite-backed operations.
 
 use crate::config::feeds::{FeedConfig, FeedsConfig};
-use crate::db::sqlite::{feeds, tags};
+use crate::db::sqlite::feeds;
 use crate::db::{FeedInput, FeedRow};
 use crate::error::AppError;
 use crate::feed::feed_id_from_url;
 use crate::sync::model::FeedMetadata;
-use crate::tag::{dedupe_tag_names, merge_tag_names};
 use crate::time::current_epoch;
 use rusqlite::Connection;
 use std::collections::HashMap;
@@ -36,7 +35,7 @@ impl<'a> FeedReadRepo<'a> {
     }
 }
 
-/// Write-oriented repository for feed and tag reconciliation operations.
+/// Write-oriented repository for feed reconciliation operations.
 pub struct FeedWriteRepo<'a> {
     conn: &'a Connection,
 }
@@ -72,45 +71,15 @@ impl<'a> FeedWriteRepo<'a> {
         )
     }
 
-    /// Ensures one tag exists.
-    pub fn ensure_tag(&self, name: &str) -> Result<(), AppError> {
-        tags::ensure_tag_with_conn(self.conn, name)
-    }
-
-    /// Ensures feeds and tags from config exist in SQLite.
-    pub fn reconcile_feeds(
-        &self,
-        config: &FeedsConfig,
-        unread_tag: Option<&str>,
-    ) -> Result<(), AppError> {
+    /// Ensures active feeds from config exist in SQLite.
+    pub fn reconcile_feeds(&self, config: &FeedsConfig) -> Result<(), AppError> {
         let now = current_epoch();
-        for tag in reconcile_tag_names(config, unread_tag) {
-            self.ensure_tag(&tag)?;
-        }
         for feed in config.active_feeds() {
             let input = feed_input(feed);
             feeds::reconcile_feed_with_conn(self.conn, &input, now)?;
         }
         Ok(())
     }
-}
-
-/// Returns tag names required for active feed reconciliation.
-///
-/// Root and inherited auto-tag outputs are collected through active feeds.
-/// Tags that can only apply to skipped feeds are intentionally omitted.
-fn reconcile_tag_names(config: &FeedsConfig, unread_tag: Option<&str>) -> Vec<String> {
-    let mut tags = Vec::new();
-    for feed in config.feeds.iter().filter(|feed| !feed.skip) {
-        tags = merge_tag_names(&tags, &feed.tags);
-        for rule in &feed.auto_tags {
-            tags.extend(rule.add_tags.iter().cloned());
-        }
-    }
-    dedupe_tag_names(
-        tags.into_iter()
-            .chain(unread_tag.into_iter().map(str::to_string)),
-    )
 }
 
 /// Builds a FeedInput payload from a FeedConfig entry.
@@ -133,7 +102,6 @@ mod tests {
     use crate::db::migrate::migrate;
     use crate::db::sqlite::feeds::list_feeds_with_conn;
     use crate::db::sqlite::repo::feed_repo::feed_input;
-    use crate::db::sqlite::tags::list_tags_with_conn;
     use rusqlite::Connection;
     use tempfile::TempDir;
 
@@ -166,7 +134,7 @@ mod tests {
         crate::db::sqlite::feeds::upsert_feed_with_conn(&conn, &existing, 1).expect("seed feed");
 
         FeedWriteRepo::new(&conn)
-            .reconcile_feeds(&config, Some("unread"))
+            .reconcile_feeds(&config)
             .expect("reconcile feeds");
 
         let feeds = list_feeds_with_conn(&conn).expect("list feeds");
@@ -180,7 +148,7 @@ mod tests {
     }
 
     #[test]
-    fn reconcile_feeds_ensures_tags_for_active_feeds_only() {
+    fn reconcile_feeds_does_not_ensure_tags_declared_for_active_feeds() {
         let conn = Connection::open_in_memory().expect("in-memory sqlite");
         migrate(&conn).expect("migrate");
         let temp = TempDir::new().expect("temp dir");
@@ -213,18 +181,17 @@ mod tests {
         let config = FeedsConfig::load(&feeds_path).expect("load feeds");
 
         FeedWriteRepo::new(&conn)
-            .reconcile_feeds(&config, Some("unread"))
+            .reconcile_feeds(&config)
             .expect("reconcile feeds");
 
-        let tags = list_tags_with_conn(&conn).expect("list tags");
-        assert_eq!(
-            tags,
-            vec!["active-auto", "active-feed", "active-group", "unread"]
-        );
+        let tag_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM tags", [], |row| row.get(0))
+            .expect("count tags");
+        assert_eq!(tag_count, 0);
     }
 
     #[test]
-    fn reconcile_feeds_does_not_ensure_auto_tags_without_active_feeds() {
+    fn reconcile_feeds_does_not_ensure_unread_or_auto_tags_without_active_feeds() {
         let conn = Connection::open_in_memory().expect("in-memory sqlite");
         migrate(&conn).expect("migrate");
         let temp = TempDir::new().expect("temp dir");
@@ -248,10 +215,12 @@ mod tests {
         let config = FeedsConfig::load(&feeds_path).expect("load feeds");
 
         FeedWriteRepo::new(&conn)
-            .reconcile_feeds(&config, Some("unread"))
+            .reconcile_feeds(&config)
             .expect("reconcile feeds");
 
-        let tags = list_tags_with_conn(&conn).expect("list tags");
-        assert_eq!(tags, vec!["unread"]);
+        let tag_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM tags", [], |row| row.get(0))
+            .expect("count tags");
+        assert_eq!(tag_count, 0);
     }
 }

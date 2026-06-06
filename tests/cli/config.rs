@@ -508,7 +508,7 @@ fn feeds_check_is_rejected() {
 }
 
 #[test]
-fn feeds_fails_fast_on_duplicate_url() {
+fn feeds_ignores_blocking_feeds_yaml_validation() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_fixture_files(&temp);
     let feeds = r#"picofeedr:
@@ -523,12 +523,13 @@ fn feeds_fails_fast_on_duplicate_url() {
 
     let output = feeds_json_cmd(&paths.config_path, &paths.db_path)
         .assert()
-        .failure()
+        .success()
         .get_output()
         .stdout
         .clone();
 
-    assert_error_envelope(&output, "CONFIG_ERROR", false);
+    let data = extract_ok_data(&output);
+    assert!(data["feeds"].as_array().expect("feeds array").is_empty());
 }
 
 #[test]
@@ -681,7 +682,7 @@ fn sync_validation_error_includes_summary_details() {
 }
 
 #[test]
-fn feeds_and_sync_allow_warning_only_config() {
+fn sync_allows_warning_only_config() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_fixture_files(&temp);
     let feed_path = temp.path().join("warning-only.xml");
@@ -702,9 +703,6 @@ fn feeds_and_sync_allow_warning_only_config() {
     );
     fs::write(&paths.feeds_path, feeds).expect("rewrite feeds");
 
-    feeds_json_cmd(&paths.config_path, &paths.db_path)
-        .assert()
-        .success();
     sync_json_cmd(&paths.config_path, &paths.db_path)
         .assert()
         .success();

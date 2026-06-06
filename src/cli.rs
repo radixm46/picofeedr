@@ -100,7 +100,7 @@ pub enum Command {
     /// Show lightweight database status metadata.
     Status,
 
-    /// List feeds from the local feed catalog.
+    /// Show feed state recorded in the local database.
     Feeds {
         /// Append feed id as the last column in plain output.
         #[arg(long, action = clap::ArgAction::SetTrue)]

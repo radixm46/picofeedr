@@ -9,7 +9,6 @@ use crate::{RunFailure, output};
 use picofeedr::TagManager;
 use picofeedr::cli::{Cli, Command};
 use picofeedr::config;
-use picofeedr::current_epoch;
 use picofeedr::entry::{self, EntryDetail};
 use picofeedr::error::AppError;
 use picofeedr::feed::{self, FeedListResponse};
@@ -73,13 +72,8 @@ pub(crate) fn run_status_command(config: &config::AppConfig) -> Result<StatusRes
 
 pub(crate) fn run_feeds_command(config: &config::AppConfig) -> Result<FeedListResponse, AppError> {
     with_store(config, |store| {
-        let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
-        feeds_config.ensure_valid_for_runtime()?;
-        feed::reconcile_feeds(store, &feeds_config, config.auto_unread_tag())?;
         let db_feeds = store.list_feeds()?;
-        let feeds = feed::build_feed_list_response(&feeds_config, &db_feeds);
-        store.bump_revision(current_epoch())?;
-        Ok(feeds)
+        Ok(feed::build_feed_list_response(&db_feeds))
     })
 }
 

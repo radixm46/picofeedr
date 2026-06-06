@@ -103,21 +103,16 @@ fn format_plain_output(result: PlainOutput) -> PlainTextOutput {
                 let title = feed.title.as_deref().unwrap_or("");
                 let site_url = feed.site_url.as_deref().unwrap_or("");
                 let author = feed.author.as_deref().unwrap_or("");
-                let tags = format_tags(&feed.tags);
                 if include_id {
                     writeln!(
                         stdout,
-                        "{title}\t{}\t{site_url}\t{author}\t{tags}\t{}",
+                        "{title}\t{}\t{site_url}\t{author}\t{}",
                         feed.url, feed.feed_id
                     )
                     .expect("write feed row with id");
                 } else {
-                    writeln!(
-                        stdout,
-                        "{title}\t{}\t{site_url}\t{author}\t{tags}",
-                        feed.url
-                    )
-                    .expect("write feed row");
+                    writeln!(stdout, "{title}\t{}\t{site_url}\t{author}", feed.url)
+                        .expect("write feed row");
                 }
             }
         }
