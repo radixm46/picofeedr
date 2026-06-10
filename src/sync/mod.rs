@@ -81,7 +81,7 @@ fn prepare_sync_ingest(
     targets: &[SyncTarget],
 ) -> Result<HashMap<String, i64>, AppError> {
     let tx = store.tx()?;
-    tx.feed_write_repo().reconcile_feeds(feeds_config)?;
+    tx.feed_write_repo().ensure_active_feeds(feeds_config)?;
     tx.commit()?;
 
     let feed_ids = targets

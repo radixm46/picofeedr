@@ -35,7 +35,7 @@ impl<'a> FeedReadRepo<'a> {
     }
 }
 
-/// Write-oriented repository for feed reconciliation operations.
+/// Write-oriented repository for feed catalog write operations.
 pub struct FeedWriteRepo<'a> {
     conn: &'a Connection,
 }
@@ -72,11 +72,11 @@ impl<'a> FeedWriteRepo<'a> {
     }
 
     /// Ensures active feeds from config exist in SQLite.
-    pub fn reconcile_feeds(&self, config: &FeedsConfig) -> Result<(), AppError> {
+    pub fn ensure_active_feeds(&self, config: &FeedsConfig) -> Result<(), AppError> {
         let now = current_epoch();
         for feed in config.active_feeds() {
             let input = feed_input(feed);
-            feeds::reconcile_feed_with_conn(self.conn, &input, now)?;
+            feeds::upsert_feed_from_config_with_conn(self.conn, &input, now)?;
         }
         Ok(())
     }
@@ -118,7 +118,7 @@ mod tests {
     }
 
     #[test]
-    fn reconcile_feeds_preserves_existing_metadata_fields() {
+    fn ensure_active_feeds_preserves_existing_metadata_fields() {
         let conn = Connection::open_in_memory().expect("in-memory sqlite");
         migrate(&conn).expect("migrate");
         let temp = TempDir::new().expect("temp dir");
@@ -134,8 +134,8 @@ mod tests {
         crate::db::sqlite::feeds::upsert_feed_with_conn(&conn, &existing, 1).expect("seed feed");
 
         FeedWriteRepo::new(&conn)
-            .reconcile_feeds(&config)
-            .expect("reconcile feeds");
+            .ensure_active_feeds(&config)
+            .expect("ensure active feeds");
 
         let feeds = list_feeds_with_conn(&conn).expect("list feeds");
         assert_eq!(feeds.len(), 1);
@@ -148,7 +148,7 @@ mod tests {
     }
 
     #[test]
-    fn reconcile_feeds_does_not_ensure_tags_declared_for_active_feeds() {
+    fn ensure_active_feeds_does_not_ensure_tags_declared_for_active_feeds() {
         let conn = Connection::open_in_memory().expect("in-memory sqlite");
         migrate(&conn).expect("migrate");
         let temp = TempDir::new().expect("temp dir");
@@ -181,8 +181,8 @@ mod tests {
         let config = FeedsConfig::load(&feeds_path).expect("load feeds");
 
         FeedWriteRepo::new(&conn)
-            .reconcile_feeds(&config)
-            .expect("reconcile feeds");
+            .ensure_active_feeds(&config)
+            .expect("ensure active feeds");
 
         let tag_count: i64 = conn
             .query_row("SELECT COUNT(*) FROM tags", [], |row| row.get(0))
@@ -191,7 +191,7 @@ mod tests {
     }
 
     #[test]
-    fn reconcile_feeds_does_not_ensure_unread_or_auto_tags_without_active_feeds() {
+    fn ensure_active_feeds_does_not_ensure_unread_or_auto_tags_without_active_feeds() {
         let conn = Connection::open_in_memory().expect("in-memory sqlite");
         migrate(&conn).expect("migrate");
         let temp = TempDir::new().expect("temp dir");
@@ -215,8 +215,8 @@ mod tests {
         let config = FeedsConfig::load(&feeds_path).expect("load feeds");
 
         FeedWriteRepo::new(&conn)
-            .reconcile_feeds(&config)
-            .expect("reconcile feeds");
+            .ensure_active_feeds(&config)
+            .expect("ensure active feeds");
 
         let tag_count: i64 = conn
             .query_row("SELECT COUNT(*) FROM tags", [], |row| row.get(0))

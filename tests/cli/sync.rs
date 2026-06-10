@@ -80,7 +80,7 @@ fn write_skipped_feed_sync_fixture(temp: &TempDir) -> SkippedFeedSyncFixture {
     }
 }
 
-fn assert_skipped_feed_not_reconciled(db_path: &std::path::Path, skipped_url: &str) {
+fn assert_skipped_feed_not_registered(db_path: &std::path::Path, skipped_url: &str) {
     let conn = Connection::open(db_path).expect("open db");
     let feed_count: i64 = conn
         .query_row("SELECT COUNT(*) FROM feeds", [], |row| row.get(0))
@@ -185,7 +185,7 @@ fn sync_plain_reports_skipped_feeds_without_fetching_or_reconciling_them() {
     assert!(output.contains("fetched_feed_count=1"));
     assert!(output.contains("skipped_feed_count=1"));
 
-    assert_skipped_feed_not_reconciled(&fixture.db_path, &fixture.skipped_url);
+    assert_skipped_feed_not_registered(&fixture.db_path, &fixture.skipped_url);
 }
 
 #[test]
@@ -212,7 +212,7 @@ fn sync_json_reports_skipped_feeds_without_fetching_or_reconciling_them() {
     assert_eq!(data["failed_feed_count"], 0);
     assert!(data["errors"].as_array().expect("errors array").is_empty());
 
-    assert_skipped_feed_not_reconciled(&fixture.db_path, &fixture.skipped_url);
+    assert_skipped_feed_not_registered(&fixture.db_path, &fixture.skipped_url);
 }
 
 #[test]

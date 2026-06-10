@@ -50,7 +50,7 @@ pub(crate) fn upsert_feed_with_conn(
 }
 
 /// Inserts or updates config-owned feed fields without overwriting observed metadata.
-pub(crate) fn reconcile_feed_with_conn(
+pub(crate) fn upsert_feed_from_config_with_conn(
     conn: &Connection,
     feed: &FeedInput,
     now: i64,

@@ -85,12 +85,12 @@ impl FeedsConfig {
         })
     }
 
-    /// Returns feeds that participate in sync and reconcile.
+    /// Returns feeds that participate in sync and feed catalog registration.
     pub fn active_feeds(&self) -> impl Iterator<Item = &FeedConfig> + '_ {
         self.feeds.iter().filter(|feed| !feed.skip)
     }
 
-    /// Returns feeds excluded from sync and reconcile.
+    /// Returns feeds excluded from sync and feed catalog registration.
     pub fn skipped_feeds(&self) -> impl Iterator<Item = &FeedConfig> + '_ {
         self.feeds.iter().filter(|feed| feed.skip)
     }

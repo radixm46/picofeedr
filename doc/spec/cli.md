@@ -48,7 +48,7 @@
 ```
 
 `feeds` はローカル DB に記録済みの feed catalog 状態のみを返す。
-`feeds.yaml` の load、validation、DB reconcile は行わない。
+`feeds.yaml` の load、validation、DB への feed 登録は行わない。
 
 ### `sync --check`
 
@@ -174,7 +174,7 @@ sync:feed-error index=<i>/<N> url=<feed_url> code=<FETCH_FAILED|PARSE_FAILED|ING
 - `--id` 指定時は末尾列として `feed_id` を追加する
 - `title` / `site_url` / `author` はローカル DB に記録された値を返す
 - `feeds` コマンド自身は metadata refresh のための fetch を行わない
-- `feeds` コマンド自身は `feeds.yaml` との reconcile を行わない
+- `feeds` コマンド自身は `feeds.yaml` の feed を DB に登録しない
 
 ### `tags`
 

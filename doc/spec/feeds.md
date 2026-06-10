@@ -17,7 +17,7 @@ It covers:
 `feeds.yaml` is the source for feed rules and the sync catalog:
 
 - feed URLs that `sync` may fetch
-- configured feed titles used when sync reconciles feed rows
+- configured feed titles used when sync registers feed rows
 - feed-to-tag rules inherited from groups
 - auto-tag rules
 - skipped feed declarations
@@ -30,7 +30,7 @@ The local database is the source for persisted state:
 - sync/write status metadata
 
 The `feeds` CLI command reads feed state from the database only. It does not load
-or validate `feeds.yaml`, reconcile configured feeds, or create tags.
+or validate `feeds.yaml`, register configured feeds, or create tags.
 
 ## Top-Level Contract
 
