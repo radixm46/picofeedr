@@ -18,11 +18,13 @@ ON CONFLICT(feed_id) DO UPDATE SET
 "#;
 
 /// Upserts feed config fields without clobbering observed metadata.
+///
+/// feed_id is derived from the url, so a conflicting row already holds
+/// the same url and only config-owned title needs refreshing.
 pub(crate) const UPSERT_FEED_FROM_CONFIG: &str = r#"
 INSERT INTO feeds (feed_id, url, title, author, site_url, meta_json, created_at, updated_at)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
 ON CONFLICT(feed_id) DO UPDATE SET
-   url = excluded.url,
    title = COALESCE(excluded.title, title),
    updated_at = excluded.updated_at
 "#;
