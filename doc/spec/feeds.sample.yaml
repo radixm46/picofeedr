@@ -13,6 +13,7 @@ picofeedr:
         url: https://feeds.example.invalid/news/daily.xml
       - title: World Wire
         url: https://feeds.example.invalid/news/world.xml
+        skip: true
 
   tech:
     tags: [tech]

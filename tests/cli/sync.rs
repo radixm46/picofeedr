@@ -1,4 +1,12 @@
 use super::*;
+use std::path::PathBuf;
+
+struct SkippedFeedSyncFixture {
+    config_path: PathBuf,
+    db_path: PathBuf,
+    active_url: String,
+    skipped_url: String,
+}
 
 fn spawn_gopher_feed_server(body: &'static [u8]) -> (String, thread::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
@@ -21,6 +29,71 @@ fn spawn_gopher_feed_server(body: &'static [u8]) -> (String, thread::JoinHandle<
         stream.write_all(body).expect("write response");
     });
     (format!("gopher://{addr}/0feed.xml"), server)
+}
+
+fn write_skipped_feed_sync_fixture(temp: &TempDir) -> SkippedFeedSyncFixture {
+    let feeds_path = temp.path().join("feeds.yaml");
+    let config_path = temp.path().join("config.toml");
+    let db_path = temp.path().join("db.sqlite");
+    let feed_path = temp.path().join("active.xml");
+    write_config_with_feeds_source(&config_path, &db_path, &feeds_path);
+
+    let active_url = format!("file://{}", feed_path.display());
+    let skipped_path = temp.path().join("skipped-nonexistent.xml");
+    let skipped_url = format!("file://{}", skipped_path.display());
+    let feeds = format!(
+        r#"picofeedr:
+  group:
+    feeds:
+      - url: {active_url}
+        title: Active Feed
+      - url: {skipped_url}
+        title: Skipped Feed
+        skip: true
+"#
+    );
+    fs::write(&feeds_path, feeds).expect("write feeds");
+    fs::write(
+        &feed_path,
+        r#"<?xml version="1.0"?>
+<rss version="2.0">
+  <channel>
+    <title>Active Feed</title>
+    <link>https://example.com</link>
+    <description>Example Feed</description>
+    <item>
+      <guid>active-1</guid>
+      <title>Active Entry</title>
+      <link>https://example.com/active-1</link>
+    </item>
+  </channel>
+</rss>
+"#,
+    )
+    .expect("write active feed");
+
+    SkippedFeedSyncFixture {
+        config_path,
+        db_path,
+        active_url,
+        skipped_url,
+    }
+}
+
+fn assert_skipped_feed_not_reconciled(db_path: &std::path::Path, skipped_url: &str) {
+    let conn = Connection::open(db_path).expect("open db");
+    let feed_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM feeds", [], |row| row.get(0))
+        .expect("count feeds");
+    assert_eq!(feed_count, 1);
+    let skipped_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM feeds WHERE url = ?1",
+            [skipped_url],
+            |row| row.get(0),
+        )
+        .expect("count skipped feed");
+    assert_eq!(skipped_count, 0);
 }
 
 #[test]
@@ -79,6 +152,67 @@ fn sync_plain_shows_feed_level_progress_and_final_summary() {
     assert!(output_str.contains("url=file://"));
     assert!(output_str.contains("entries=2"));
     assert!(output_str.contains("sync:done status=completed"));
+}
+
+#[test]
+fn sync_plain_reports_skipped_feeds_without_fetching_or_reconciling_them() {
+    let temp = TempDir::new().expect("tempdir");
+    let fixture = write_skipped_feed_sync_fixture(&temp);
+
+    let output = picofeedr_cmd_plain()
+        .arg("--config")
+        .arg(&fixture.config_path)
+        .arg("--storage-root")
+        .arg(db_root(fixture.db_path.to_str().expect("db path")))
+        .arg("sync")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let output = String::from_utf8_lossy(&output);
+    assert!(output.contains("sync:start total_feeds=1 skipped_feeds=1"));
+    assert!(output.contains(&format!(
+        "sync:skip url={} feed_name=\"Skipped Feed\"",
+        fixture.skipped_url
+    )));
+    assert!(output.contains(&format!(
+        "sync:feed-ok index=1/1 url={}",
+        fixture.active_url
+    )));
+    assert!(output.contains("sync:done status=completed"));
+    assert!(output.contains("fetched_feed_count=1"));
+    assert!(output.contains("skipped_feed_count=1"));
+
+    assert_skipped_feed_not_reconciled(&fixture.db_path, &fixture.skipped_url);
+}
+
+#[test]
+fn sync_json_reports_skipped_feeds_without_fetching_or_reconciling_them() {
+    let temp = TempDir::new().expect("tempdir");
+    let fixture = write_skipped_feed_sync_fixture(&temp);
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&fixture.config_path)
+        .arg("--storage-root")
+        .arg(db_root(fixture.db_path.to_str().expect("db path")))
+        .arg("sync")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let data = extract_ok_data(&output);
+    assert_eq!(data["status"], "completed");
+    assert_eq!(data["fetched_feed_count"], 1);
+    assert_eq!(data["skipped_feed_count"], 1);
+    assert_eq!(data["failed_feed_count"], 0);
+    assert!(data["errors"].as_array().expect("errors array").is_empty());
+
+    assert_skipped_feed_not_reconciled(&fixture.db_path, &fixture.skipped_url);
 }
 
 #[test]

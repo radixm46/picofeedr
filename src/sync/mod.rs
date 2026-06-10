@@ -39,10 +39,18 @@ pub fn run_sync_with_progress(
 ) -> Result<SyncSummary, AppError> {
     let start = Instant::now();
     let targets = build_sync_targets(feeds_config)?;
+    let skipped_feed_count = feeds_config.skipped_feeds().count();
     if let Some(progress) = on_progress.as_mut() {
         progress(SyncProgressEvent::Start {
             total_feeds: targets.len(),
+            skipped_feed_count,
         });
+        for feed in feeds_config.skipped_feeds() {
+            progress(SyncProgressEvent::FeedSkip {
+                url: feed.url.clone(),
+                feed_name: feed.title.clone(),
+            });
+        }
     }
     let feed_pks_by_feed_id = prepare_sync_ingest(store, config, feeds_config, &targets)?;
     let mut new_entry_count = 0;
@@ -58,6 +66,7 @@ pub fn run_sync_with_progress(
     Ok(SyncSummary {
         status,
         fetched_feed_count: targets.len(),
+        skipped_feed_count,
         failed_feed_count,
         new_entry_count,
         duration_ms,
@@ -159,8 +168,8 @@ fn derive_sync_status(total_feeds: usize, failed_feed_count: usize) -> SyncStatu
 /// Builds sync targets from feeds configuration.
 fn build_sync_targets(feeds_config: &FeedsConfig) -> Result<Vec<SyncTarget>, AppError> {
     let mut targets = Vec::new();
-    let total_feeds = feeds_config.feeds.len();
-    for (offset, feed) in feeds_config.feeds.iter().enumerate() {
+    let total_feeds = feeds_config.active_feeds().count();
+    for (offset, feed) in feeds_config.active_feeds().enumerate() {
         let feed_id = feed_id_from_url(&feed.url);
         targets.push(SyncTarget {
             feed_id,

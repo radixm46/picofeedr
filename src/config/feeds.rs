@@ -85,13 +85,14 @@ impl FeedsConfig {
         })
     }
 
-    /// Returns a unique list of all tags used by feeds.yaml.
-    pub fn all_tags(&self) -> Vec<String> {
-        let mut tags = Vec::new();
-        for feed in &self.feeds {
-            tags = merge_tag_names(&tags, &feed.tags);
-        }
-        tags
+    /// Returns feeds that participate in sync and reconcile.
+    pub fn active_feeds(&self) -> impl Iterator<Item = &FeedConfig> + '_ {
+        self.feeds.iter().filter(|feed| !feed.skip)
+    }
+
+    /// Returns feeds excluded from sync and reconcile.
+    pub fn skipped_feeds(&self) -> impl Iterator<Item = &FeedConfig> + '_ {
+        self.feeds.iter().filter(|feed| feed.skip)
     }
 
     /// Validates feeds.yaml semantics and returns a static validation report.
@@ -188,6 +189,7 @@ impl FeedsConfig {
             errors,
             warnings,
             checked_feeds: self.feeds.len(),
+            skipped_feeds: self.skipped_feeds().count(),
         }
     }
 
@@ -232,6 +234,8 @@ pub struct FeedConfig {
     pub title: Option<String>,
     /// Tags inherited from groups plus feed-level tags.
     pub tags: Vec<String>,
+    /// Whether this feed is excluded from sync execution.
+    pub skip: bool,
     /// Logical path in feeds.yaml used for validation reporting.
     pub path: String,
     /// Feed-level tags before deduplication.
@@ -293,6 +297,8 @@ pub struct ConfigCheckReport {
     pub warnings: Vec<ValidationIssue>,
     /// Number of feed entries checked.
     pub checked_feeds: usize,
+    /// Number of feed entries skipped by configuration.
+    pub skipped_feeds: usize,
 }
 
 impl ConfigCheckReport {
@@ -368,6 +374,17 @@ fn flatten_group(
                 .get(Value::String("title".to_string()))
                 .and_then(|value| value.as_str())
                 .map(|value| value.to_string());
+            let skip = feed_map
+                .get(Value::String("skip".to_string()))
+                .map(|value| {
+                    value.as_bool().ok_or_else(|| {
+                        AppError::config(format!(
+                            "feed entry skip must be a boolean at {current_path}.feeds[{index}].skip"
+                        ))
+                    })
+                })
+                .transpose()?
+                .unwrap_or(false);
             let feed_tags = feed_map
                 .get(Value::String("tags".to_string()))
                 .and_then(|value| value.as_sequence())
@@ -385,6 +402,7 @@ fn flatten_group(
                 url: url_value.trim().to_string(),
                 title,
                 tags,
+                skip,
                 path: format!("{current_path}.feeds[{index}]"),
                 declared_tags: feed_tags,
                 auto_tags: merged_auto_tags.clone(),
@@ -464,6 +482,7 @@ mod tests {
             errors: Vec::new(),
             warnings: Vec::new(),
             checked_feeds: 1,
+            skipped_feeds: 0,
         };
         assert!(!valid.has_errors());
 
@@ -472,6 +491,7 @@ mod tests {
             errors: Vec::new(),
             warnings: Vec::new(),
             checked_feeds: 1,
+            skipped_feeds: 0,
         };
         assert!(invalid.has_errors());
     }

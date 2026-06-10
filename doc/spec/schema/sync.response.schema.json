@@ -228,6 +228,12 @@
           "minimum": 0,
           "type": "integer"
         },
+        "skipped_feed_count": {
+          "description": "Number of feeds skipped by configuration.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
         "status": {
           "allOf": [
             {
@@ -240,6 +246,7 @@
       "required": [
         "status",
         "fetched_feed_count",
+        "skipped_feed_count",
         "failed_feed_count",
         "new_entry_count",
         "duration_ms",

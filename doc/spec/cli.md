@@ -55,7 +55,7 @@ Blocking `feeds.yaml` validation errors fail the command with `status = "error"`
 ### `sync --check`
 
 ```json
-{ "valid": <bool>, "errors": [ValidationIssue...], "warnings": [ValidationIssue...], "checked_feeds": <int> }
+{ "valid": <bool>, "errors": [ValidationIssue...], "warnings": [ValidationIssue...], "checked_feeds": <int>, "skipped_feeds": <int> }
 ```
 
 `result.valid = false` のときは `status = "warning"` かつ exit code 1。
@@ -63,7 +63,7 @@ Blocking `feeds.yaml` validation errors fail the command with `status = "error"`
 ### `sync`
 
 ```json
-{ "status": "completed|partial_failed|failed", "fetched_feed_count": <int>, "failed_feed_count": <int>, "new_entry_count": <int>, "duration_ms": <int>, "errors": [SyncError...] }
+{ "status": "completed|partial_failed|failed", "fetched_feed_count": <int>, "skipped_feed_count": <int>, "failed_feed_count": <int>, "new_entry_count": <int>, "duration_ms": <int>, "errors": [SyncError...] }
 ```
 
 Blocking `feeds.yaml` validation errors fail the command with `status = "error"` and
@@ -147,12 +147,13 @@ JSON ほど厳密な全文字列契約は持たないが、形式カテゴリと
 
 ### `sync`
 
-`sync` の plain 出力は log-oriented とする。default plain log では、ジョブ全体の開始、feed ごとの結果、最終要約を出す。`sync:start`、成功した feed ごとの結果、最終要約は stdout、詳細な error line は stderr に出す。
+`sync` の plain 出力は log-oriented とする。default plain log では、ジョブ全体の開始、skip された feed、feed ごとの結果、最終要約を出す。`sync:start`、skip line、成功した feed ごとの結果、最終要約は stdout、詳細な error line は stderr に出す。
 
 ```text
-sync:start total_feeds=<N>
-sync:feed-ok index=<i>/<N> url=<feed_url> entries=<n>
-sync:done status=<completed|partial_failed|failed> fetched_feed_count=<n> failed_feed_count=<n> new_entry_count=<n> duration_ms=<n> errors=<n>
+sync:start total_feeds=<fetch-targets> skipped_feeds=<n>
+sync:skip url=<feed_url> [feed_name=<json-string>]
+sync:feed-ok index=<i>/<fetch-targets> url=<feed_url> entries=<n>
+sync:done status=<completed|partial_failed|failed> fetched_feed_count=<n> skipped_feed_count=<n> failed_feed_count=<n> new_entry_count=<n> duration_ms=<n> errors=<n>
 ```
 
 詳細な error line は stderr に出す。

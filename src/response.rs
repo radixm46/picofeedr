@@ -213,6 +213,7 @@ mod tests {
             SyncSummary {
                 status: SyncStatus::PartialFailed,
                 fetched_feed_count: 2,
+                skipped_feed_count: 0,
                 failed_feed_count: 1,
                 new_entry_count: 3,
                 duration_ms: 10,
@@ -234,6 +235,7 @@ mod tests {
                 errors: Vec::new(),
                 warnings: Vec::new(),
                 checked_feeds: 1,
+                skipped_feeds: 0,
             }
             .into_envelope(),
         )

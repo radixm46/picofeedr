@@ -124,9 +124,10 @@ fn format_plain_output(result: PlainOutput) -> PlainTextOutput {
         PlainOutput::Sync(summary) => {
             writeln!(
                 stdout,
-                "sync:done status={} fetched_feed_count={} failed_feed_count={} new_entry_count={} duration_ms={} errors={}",
+                "sync:done status={} fetched_feed_count={} skipped_feed_count={} failed_feed_count={} new_entry_count={} duration_ms={} errors={}",
                 summary.status.as_str(),
                 summary.fetched_feed_count,
+                summary.skipped_feed_count,
                 summary.failed_feed_count,
                 summary.new_entry_count,
                 summary.duration_ms,
@@ -301,8 +302,19 @@ pub(crate) fn write_sync_progress_line<W: Write>(
 
 fn format_sync_progress_line(event: &sync::SyncProgressEvent) -> Option<String> {
     match event {
-        sync::SyncProgressEvent::Start { total_feeds } => {
-            Some(format!("sync:start total_feeds={total_feeds}"))
+        sync::SyncProgressEvent::Start {
+            total_feeds,
+            skipped_feed_count,
+        } => Some(format!(
+            "sync:start total_feeds={total_feeds} skipped_feeds={skipped_feed_count}"
+        )),
+        sync::SyncProgressEvent::FeedSkip { url, feed_name } => {
+            let mut line = format!("sync:skip url={url}");
+            if let Some(feed_name) = feed_name.as_deref() {
+                write!(line, " feed_name={}", format_log_value(feed_name))
+                    .expect("write skipped feed_name");
+            }
+            Some(line)
         }
         sync::SyncProgressEvent::FeedStart { .. } => None,
         sync::SyncProgressEvent::FeedOk {
@@ -337,6 +349,8 @@ fn format_config_check_plain(report: &ConfigCheckReport) -> String {
     writeln!(output, "valid: {}", report.valid).expect("write sync-check valid");
     writeln!(output, "checked_feeds: {}", report.checked_feeds)
         .expect("write sync-check checked_feeds");
+    writeln!(output, "skipped_feeds: {}", report.skipped_feeds)
+        .expect("write sync-check skipped_feeds");
     writeln!(output, "errors: {}", report.errors.len()).expect("write sync-check errors");
     writeln!(output, "warnings: {}", report.warnings.len()).expect("write sync-check warnings");
     write_validation_issue_lines(&mut output, "error", &report.errors);
@@ -391,7 +405,14 @@ mod tests {
 
     #[test]
     fn format_sync_progress_line_renders_public_event_variants() {
-        let start = format_sync_progress_line(&SyncProgressEvent::Start { total_feeds: 2 });
+        let start = format_sync_progress_line(&SyncProgressEvent::Start {
+            total_feeds: 2,
+            skipped_feed_count: 1,
+        });
+        let feed_skip = format_sync_progress_line(&SyncProgressEvent::FeedSkip {
+            url: "https://example.com/skipped.xml".to_string(),
+            feed_name: Some("Skipped".to_string()),
+        });
         let feed_start = format_sync_progress_line(&SyncProgressEvent::FeedStart {
             index: 1,
             total_feeds: 2,
@@ -403,7 +424,14 @@ mod tests {
             url: "https://example.com/feed.xml".to_string(),
             entries: 3,
         });
-        assert_eq!(start.as_deref(), Some("sync:start total_feeds=2"));
+        assert_eq!(
+            start.as_deref(),
+            Some("sync:start total_feeds=2 skipped_feeds=1")
+        );
+        assert_eq!(
+            feed_skip.as_deref(),
+            Some("sync:skip url=https://example.com/skipped.xml feed_name=\"Skipped\"")
+        );
         assert!(feed_start.is_none());
         assert_eq!(
             feed_ok.as_deref(),

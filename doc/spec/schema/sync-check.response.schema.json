@@ -71,6 +71,12 @@
           },
           "type": "array"
         },
+        "skipped_feeds": {
+          "description": "Number of feed entries skipped by configuration.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
         "valid": {
           "description": "True when no validation errors are present.",
           "type": "boolean"
@@ -87,7 +93,8 @@
         "valid",
         "errors",
         "warnings",
-        "checked_feeds"
+        "checked_feeds",
+        "skipped_feeds"
       ],
       "type": "object"
     },

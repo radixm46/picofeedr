@@ -6,7 +6,7 @@ use crate::db::{FeedInput, FeedRow};
 use crate::error::AppError;
 use crate::feed::feed_id_from_url;
 use crate::sync::model::FeedMetadata;
-use crate::tag::dedupe_tag_names;
+use crate::tag::{dedupe_tag_names, merge_tag_names};
 use crate::time::current_epoch;
 use rusqlite::Connection;
 use std::collections::HashMap;
@@ -84,27 +84,33 @@ impl<'a> FeedWriteRepo<'a> {
         unread_tag: Option<&str>,
     ) -> Result<(), AppError> {
         let now = current_epoch();
-        let mut all_tags = config.all_tags();
-        for rule in &config.auto_tags {
-            all_tags.extend(rule.add_tags.iter().cloned());
-        }
-        for feed in &config.feeds {
-            for rule in &feed.auto_tags {
-                all_tags.extend(rule.add_tags.iter().cloned());
-            }
-        }
-        let tag_iter = all_tags
-            .into_iter()
-            .chain(unread_tag.into_iter().map(str::to_string));
-        for tag in dedupe_tag_names(tag_iter) {
+        for tag in reconcile_tag_names(config, unread_tag) {
             self.ensure_tag(&tag)?;
         }
-        for feed in &config.feeds {
+        for feed in config.active_feeds() {
             let input = feed_input(feed);
             feeds::reconcile_feed_with_conn(self.conn, &input, now)?;
         }
         Ok(())
     }
+}
+
+/// Returns tag names required for active feed reconciliation.
+///
+/// Root and inherited auto-tag outputs are collected through active feeds.
+/// Tags that can only apply to skipped feeds are intentionally omitted.
+fn reconcile_tag_names(config: &FeedsConfig, unread_tag: Option<&str>) -> Vec<String> {
+    let mut tags = Vec::new();
+    for feed in config.feeds.iter().filter(|feed| !feed.skip) {
+        tags = merge_tag_names(&tags, &feed.tags);
+        for rule in &feed.auto_tags {
+            tags.extend(rule.add_tags.iter().cloned());
+        }
+    }
+    dedupe_tag_names(
+        tags.into_iter()
+            .chain(unread_tag.into_iter().map(str::to_string)),
+    )
 }
 
 /// Builds a FeedInput payload from a FeedConfig entry.
@@ -127,6 +133,7 @@ mod tests {
     use crate::db::migrate::migrate;
     use crate::db::sqlite::feeds::list_feeds_with_conn;
     use crate::db::sqlite::repo::feed_repo::feed_input;
+    use crate::db::sqlite::tags::list_tags_with_conn;
     use rusqlite::Connection;
     use tempfile::TempDir;
 
@@ -170,5 +177,81 @@ mod tests {
             feeds[0].site_url.as_deref(),
             Some("https://example.com/site")
         );
+    }
+
+    #[test]
+    fn reconcile_feeds_ensures_tags_for_active_feeds_only() {
+        let conn = Connection::open_in_memory().expect("in-memory sqlite");
+        migrate(&conn).expect("migrate");
+        let temp = TempDir::new().expect("temp dir");
+        let feeds_path = temp.path().join("feeds.yaml");
+        std::fs::write(
+            &feeds_path,
+            r#"picofeedr:
+  active:
+    tags: [active-group]
+    auto_tags:
+      - title_contains: [active]
+        add_tags: [active-auto]
+    feeds:
+      - url: "https://example.com/active.xml"
+        title: Active
+        tags: [active-feed]
+  skipped:
+    tags: [skipped-group]
+    auto_tags:
+      - title_contains: [skipped]
+        add_tags: [skipped-auto]
+    feeds:
+      - url: "https://example.com/skipped.xml"
+        title: Skipped
+        tags: [skipped-feed]
+        skip: true
+"#,
+        )
+        .expect("write feeds yaml");
+        let config = FeedsConfig::load(&feeds_path).expect("load feeds");
+
+        FeedWriteRepo::new(&conn)
+            .reconcile_feeds(&config, Some("unread"))
+            .expect("reconcile feeds");
+
+        let tags = list_tags_with_conn(&conn).expect("list tags");
+        assert_eq!(
+            tags,
+            vec!["active-auto", "active-feed", "active-group", "unread"]
+        );
+    }
+
+    #[test]
+    fn reconcile_feeds_does_not_ensure_auto_tags_without_active_feeds() {
+        let conn = Connection::open_in_memory().expect("in-memory sqlite");
+        migrate(&conn).expect("migrate");
+        let temp = TempDir::new().expect("temp dir");
+        let feeds_path = temp.path().join("feeds.yaml");
+        std::fs::write(
+            &feeds_path,
+            r#"picofeedr:
+  auto_tags:
+    - title_contains: [anything]
+      add_tags: [root-auto]
+  skipped:
+    tags: [skipped-group]
+    feeds:
+      - url: "https://example.com/skipped.xml"
+        title: Skipped
+        tags: [skipped-feed]
+        skip: true
+"#,
+        )
+        .expect("write feeds yaml");
+        let config = FeedsConfig::load(&feeds_path).expect("load feeds");
+
+        FeedWriteRepo::new(&conn)
+            .reconcile_feeds(&config, Some("unread"))
+            .expect("reconcile feeds");
+
+        let tags = list_tags_with_conn(&conn).expect("list tags");
+        assert_eq!(tags, vec!["unread"]);
     }
 }

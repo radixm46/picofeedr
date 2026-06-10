@@ -14,6 +14,8 @@ pub struct SyncSummary {
     pub status: SyncStatus,
     /// Number of feeds fetched.
     pub fetched_feed_count: usize,
+    /// Number of feeds skipped by configuration.
+    pub skipped_feed_count: usize,
     /// Number of failed feeds.
     pub failed_feed_count: usize,
     /// Number of new entries ingested.
@@ -100,8 +102,16 @@ impl SyncErrorCode {
 /// Sync progress event for interactive plain output.
 #[derive(Debug, Clone)]
 pub enum SyncProgressEvent {
-    /// Sync execution started with the total feed count.
-    Start { total_feeds: usize },
+    /// Sync execution started with feed counts.
+    Start {
+        total_feeds: usize,
+        skipped_feed_count: usize,
+    },
+    /// A configured feed was skipped.
+    FeedSkip {
+        url: String,
+        feed_name: Option<String>,
+    },
     /// A feed started processing.
     FeedStart {
         index: usize,

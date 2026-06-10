@@ -165,6 +165,34 @@ fn config_check_returns_validation_report() {
 }
 
 #[test]
+fn config_check_reports_skipped_feeds() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_fixture_files(&temp);
+    let feeds = r#"picofeedr:
+  group:
+    feeds:
+      - url: https://example.com/active.xml
+        title: Active
+      - url: https://example.com/skipped.xml
+        title: Skipped
+        skip: true
+"#;
+    fs::write(&paths.feeds_path, feeds).expect("rewrite feeds");
+
+    let output = sync_check_json_cmd(&paths.config_path, &paths.db_path)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let data = extract_ok_data(&output);
+    assert_eq!(data["valid"], true);
+    assert_eq!(data["checked_feeds"], 2);
+    assert_eq!(data["skipped_feeds"], 1);
+}
+
+#[test]
 fn config_check_uses_default_paths_without_config_file() {
     let temp = TempDir::new().expect("tempdir");
     let (home, feeds_path, storage_root) = write_default_home_feeds(&temp);
@@ -501,6 +529,36 @@ fn feeds_fails_fast_on_duplicate_url() {
         .clone();
 
     assert_error_envelope(&output, "CONFIG_ERROR", false);
+}
+
+#[test]
+fn sync_check_skip_type_error_includes_feed_path() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_fixture_files(&temp);
+    let feeds = r#"picofeedr:
+  group:
+    feeds:
+      - url: https://example.com/feed
+        title: Example
+        skip: "true"
+"#;
+    fs::write(&paths.feeds_path, feeds).expect("rewrite feeds");
+
+    let output = sync_check_json_cmd(&paths.config_path, &paths.db_path)
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    let error = extract_error_payload(&output);
+    assert_eq!(error["code"], "CONFIG_ERROR");
+    assert!(
+        error["message"]
+            .as_str()
+            .expect("error message")
+            .contains("picofeedr.group.feeds[0].skip")
+    );
 }
 
 #[test]

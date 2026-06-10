@@ -40,8 +40,12 @@ Each item in a group `feeds` list must be a mapping with:
 - `url` (required, string)
 - `title` (optional, string)
 - `tags` (optional, list of strings)
+- `skip` (optional, boolean; defaults to `false`)
 
 The loader trims surrounding whitespace from `url`.
+
+`skip: true` keeps the feed entry in `feeds.yaml` but excludes it from sync fetch
+targets. Skipped feed entries are still loaded and validated by `sync --check`.
 
 Currently supported feed source URL schemes are:
 
@@ -77,6 +81,9 @@ The shared validator checks at least the following:
 - invalid `title_regex` pattern -> error (`INVALID_TITLE_REGEX`)
 - duplicated tags within a feed entry -> warning (`DUPLICATE_FEED_TAG`)
 
+Feeds with `skip: true` remain part of validation and are counted in `checked_feeds`.
+The validation report also includes `skipped_feeds`.
+
 Validation reports include logical YAML paths for issue locations.
 
 Blocking validation errors make `feeds` and `sync` fail with a configuration error before
@@ -88,6 +95,7 @@ when blocking errors are present.
 ## Sync-Relevant Behavior
 
 - sync targets are built from the flattened `feeds` list only
+- feed entries with `skip: true` are not fetched or ingested during sync
 - `http://`, `https://`, `gopher://`, and `file://` source URLs are fetchable
 - `gopher://` sources are fetched as raw feed documents and parsed by the same RSS/Atom parser used for HTTP/file sources
 - URLs removed from `feeds.yaml` are not fetched
