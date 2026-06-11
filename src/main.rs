@@ -290,23 +290,23 @@ fn detect_output_from_args(args: &[OsString]) -> OutputFormat {
         let arg_value = arg.to_string_lossy();
         if arg_value == "--output" {
             if let Some(value) = iter.peek() {
-                return if value.to_string_lossy() == "plain" {
-                    OutputFormat::Plain
-                } else {
-                    OutputFormat::Json
-                };
+                return detect_explicit_output_value(&value.to_string_lossy());
             }
-            return OutputFormat::Json;
+            return OutputFormat::Plain;
         }
         if let Some(value) = arg_value.strip_prefix("--output=") {
-            return if value == "plain" {
-                OutputFormat::Plain
-            } else {
-                OutputFormat::Json
-            };
+            return detect_explicit_output_value(value);
         }
     }
     OutputFormat::Plain
+}
+
+fn detect_explicit_output_value(value: &str) -> OutputFormat {
+    if value == "json" {
+        OutputFormat::Json
+    } else {
+        OutputFormat::Plain
+    }
 }
 
 /// Prints error diagnostics to stderr when debug/trace is enabled.

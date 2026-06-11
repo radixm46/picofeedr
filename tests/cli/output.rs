@@ -50,6 +50,40 @@ fn parse_error_with_output_equals_json_is_enveloped() {
 }
 
 #[test]
+fn parse_error_with_output_json_arg_is_enveloped() {
+    let output = cargo_bin_cmd!("picofeedr")
+        .arg("--output")
+        .arg("json")
+        .arg("--bad-flag")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    assert_error_envelope(&output, "CONFIG_ERROR", false);
+}
+
+#[test]
+fn parse_error_with_invalid_output_value_stays_plain() {
+    let output = cargo_bin_cmd!("picofeedr")
+        .arg("--output")
+        .arg("bogus")
+        .arg("list")
+        .assert()
+        .failure()
+        .get_output()
+        .clone();
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8(output.stderr).expect("utf8");
+    assert!(stderr.contains("invalid value 'bogus'"));
+    assert!(stderr.contains("[possible values: plain, json]"));
+    assert!(stderr.contains("For more information, try '--help'."));
+}
+
+#[test]
 fn root_help_command_matches_long_help() {
     let long_help = cargo_bin_cmd!("picofeedr")
         .arg("--help")
