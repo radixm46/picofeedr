@@ -6,8 +6,13 @@ mod output;
 use clap::Parser;
 use picofeedr::cli::{Cli, Command, OutputFormat};
 use picofeedr::config;
+use picofeedr::config::feeds::ConfigCheckReport;
+use picofeedr::entry::{EntryDetail, EntryListResponse};
 use picofeedr::error::AppError;
-use picofeedr::response::{Envelope, ResponsePayload, VersionResponse};
+use picofeedr::feed::FeedListResponse;
+use picofeedr::response::{Envelope, MarkResponse, TagListResponse, VersionResponse};
+use picofeedr::status::StatusResponse;
+use picofeedr::sync::SyncSummary;
 use std::env;
 use std::error::Error;
 use std::ffi::OsString;
@@ -21,6 +26,55 @@ enum RunFailure {
     App(AppError),
     /// Stdout write failure while rendering output.
     Io(io::Error),
+}
+
+/// Typed result of executing one CLI command, consumed by JSON/plain renderers.
+pub(crate) enum CommandOutcome {
+    /// `version` payload.
+    Version(VersionResponse),
+    /// `tags` payload.
+    Tags(TagListResponse),
+    /// `status` payload.
+    Status(StatusResponse),
+    /// `feeds` payload with plain-output column options.
+    Feeds {
+        feeds: FeedListResponse,
+        include_id: bool,
+    },
+    /// `sync` summary.
+    Sync(SyncSummary),
+    /// `sync --check` validation report.
+    SyncCheck(ConfigCheckReport),
+    /// `list` payload with plain-output column options.
+    List {
+        list: EntryListResponse,
+        include_id: bool,
+    },
+    /// `view` payload.
+    View(EntryDetail),
+    /// `mark` payload.
+    Mark(MarkResponse),
+}
+
+/// Command outcome paired with the process exit code to report.
+pub(crate) struct CommandRun {
+    outcome: CommandOutcome,
+    exit_code: ExitCode,
+}
+
+impl CommandRun {
+    /// Wraps an outcome that exits successfully.
+    pub(crate) fn success(outcome: CommandOutcome) -> Self {
+        Self {
+            outcome,
+            exit_code: ExitCode::SUCCESS,
+        }
+    }
+
+    /// Wraps an outcome with an explicit exit code (e.g. failed `sync --check`).
+    pub(crate) fn with_exit_code(outcome: CommandOutcome, exit_code: ExitCode) -> Self {
+        Self { outcome, exit_code }
+    }
 }
 
 impl From<AppError> for RunFailure {
@@ -51,7 +105,15 @@ fn main() -> ExitCode {
         Ok(cli) => cli,
         Err(error) => return handle_cli_parse_error(&args, error),
     };
-    let preloaded_config = match preload_runtime_config(&cli) {
+
+    if matches!(cli.command, Command::Version) {
+        let (output, log_level) = resolve_runtime_settings(&cli, None);
+        init_logging(log_level);
+        debug!(?output, ?cli.command, "resolved CLI output and command");
+        return handle_run_result(log_level, output, run_version(output));
+    }
+
+    let config = match load_runtime_config(&cli) {
         Ok(config) => config,
         Err(error) => {
             let (output, log_level) = resolve_runtime_settings(&cli, None);
@@ -60,126 +122,60 @@ fn main() -> ExitCode {
             return handle_app_failure(log_level, output, error);
         }
     };
-    let (output, log_level) = resolve_runtime_settings(&cli, preloaded_config.as_ref());
+    let (output, log_level) = resolve_runtime_settings(&cli, Some(&config));
     init_logging(log_level);
     debug!(?output, ?cli.command, "resolved CLI output and command");
-    if matches!(cli.command, Command::Sync { check: true }) {
-        let config = preloaded_config
-            .as_ref()
-            .expect("config-backed commands should preload config");
-        match run_sync_check(output, config) {
-            Ok(exit_code) => return exit_code,
-            Err(RunFailure::Io(error)) => return handle_output_error(log_level, error),
-            Err(RunFailure::App(error)) => return handle_app_failure(log_level, output, error),
-        }
-    }
-    if let Err(error) = run(&cli, output, preloaded_config.as_ref()) {
-        match error {
-            RunFailure::Io(error) => return handle_output_error(log_level, error),
-            RunFailure::App(error) => return handle_app_failure(log_level, output, error),
-        }
-    }
-    ExitCode::SUCCESS
+    handle_run_result(log_level, output, run(&cli, output, &config))
 }
 
-/// Executes the CLI command and prints a JSON response.
+/// Executes the CLI command and renders the outcome in the selected format.
 fn run(
     cli: &Cli,
     output: OutputFormat,
-    config: Option<&config::AppConfig>,
-) -> Result<(), RunFailure> {
-    match output {
-        OutputFormat::Json => run_json(cli, config)?,
-        OutputFormat::Plain => run_plain(cli, config)?,
-    }
-    Ok(())
-}
-
-fn run_json(cli: &Cli, config: Option<&config::AppConfig>) -> Result<(), RunFailure> {
-    match &cli.command {
-        Command::Version => output::write_json_response(VersionResponse {
-            api_version: env!("CARGO_PKG_VERSION").to_string(),
-            db_schema_version: picofeedr::db::migrate::current_schema_version(),
-            build: "dev".to_string(),
-        })?,
-        Command::Tags => output::write_json_response(commands::run_tags_command(
-            config.expect("config-backed commands require config"),
-        )?)?,
-        Command::Status => output::write_json_response(commands::run_status_command(
-            config.expect("config-backed commands require config"),
-        )?)?,
-        Command::Feeds { .. } => output::write_json_response(commands::run_feeds_command(
-            config.expect("config-backed commands require config"),
-        )?)?,
-        Command::Sync { .. } => output::write_json_response(commands::run_sync_command(
-            config.expect("config-backed commands require config"),
-        )?)?,
-        Command::List {
-            query,
-            sort,
-            limit,
-            cursor,
-            ..
-        } => output::write_json_response(commands::run_list_command(
-            config.expect("config-backed commands require config"),
-            query.as_deref(),
-            *sort,
-            *limit,
-            cursor.as_deref(),
-        )?)?,
-        Command::View { id } => output::write_json_response(commands::run_view_command(
-            config.expect("config-backed commands require config"),
-            id,
-        )?)?,
-        Command::Mark { command } => output::write_json_response(commands::run_mark_command(
-            config.expect("config-backed commands require config"),
-            command,
-        )?)?,
-    }
-    Ok(())
-}
-
-fn run_plain(cli: &Cli, config: Option<&config::AppConfig>) -> Result<(), RunFailure> {
-    let result = match &cli.command {
-        Command::Version => output::PlainOutput::Version(VersionResponse {
-            api_version: env!("CARGO_PKG_VERSION").to_string(),
-            db_schema_version: picofeedr::db::migrate::current_schema_version(),
-            build: "dev".to_string(),
-        }),
-        _ => commands::run_plain_command(
-            cli,
-            config.expect("config-backed commands require config"),
-        )?,
-    };
-    output::write_plain_output(result)?;
-    Ok(())
-}
-
-/// Runs static sync input validation without touching the database.
-fn run_sync_check(
-    output: OutputFormat,
     config: &config::AppConfig,
 ) -> Result<ExitCode, RunFailure> {
-    let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
-    let report = feeds_config.validate();
-    let is_valid = report.valid;
-    match output {
-        OutputFormat::Json => output::print_json_or_fallback(&report.into_envelope())?,
-        OutputFormat::Plain => output::write_config_check_plain(&report)?,
-    }
-    Ok(if is_valid {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::from(1)
-    })
+    let command_run = commands::run_command(&cli.command, output, config)?;
+    finish_command_run(output, command_run)
 }
 
-/// Loads config once for config-backed commands.
-fn preload_runtime_config(cli: &Cli) -> Result<Option<config::AppConfig>, AppError> {
-    if matches!(cli.command, Command::Version) {
-        return Ok(None);
+/// Runs `version` without loading config.
+fn run_version(output: OutputFormat) -> Result<ExitCode, RunFailure> {
+    finish_command_run(
+        output,
+        CommandRun::success(CommandOutcome::Version(version_response())),
+    )
+}
+
+/// Renders a command outcome and returns its exit code.
+fn finish_command_run(
+    output: OutputFormat,
+    command_run: CommandRun,
+) -> Result<ExitCode, RunFailure> {
+    let CommandRun { outcome, exit_code } = command_run;
+    output::write_command_output(output, outcome)?;
+    Ok(exit_code)
+}
+
+/// Maps a run result to the process exit code, rendering failures.
+fn handle_run_result(
+    log_level: config::LogLevel,
+    output: OutputFormat,
+    result: Result<ExitCode, RunFailure>,
+) -> ExitCode {
+    match result {
+        Ok(exit_code) => exit_code,
+        Err(RunFailure::Io(error)) => handle_output_error(log_level, error),
+        Err(RunFailure::App(error)) => handle_app_failure(log_level, output, error),
     }
-    load_runtime_config(cli).map(Some)
+}
+
+/// Builds the version payload for this binary.
+pub(crate) fn version_response() -> VersionResponse {
+    VersionResponse {
+        api_version: env!("CARGO_PKG_VERSION").to_string(),
+        db_schema_version: picofeedr::db::migrate::current_schema_version(),
+        build: "dev".to_string(),
+    }
 }
 
 /// Loads config and applies CLI overrides for the current command.

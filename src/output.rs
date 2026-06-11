@@ -1,50 +1,58 @@
 //! Output rendering utilities for CLI responses.
 
-use crate::RunFailure;
+use crate::{CommandOutcome, RunFailure};
+use picofeedr::cli::OutputFormat;
 use picofeedr::config::feeds::ConfigCheckReport;
 use picofeedr::config::feeds::ValidationIssue;
-use picofeedr::entry::{EntryDetail, EntryListResponse};
-use picofeedr::feed::FeedListResponse;
-use picofeedr::response::{MarkResponse, ResponsePayload, VersionResponse};
-use picofeedr::status::StatusResponse;
+use picofeedr::response::ResponsePayload;
 use picofeedr::sync;
-use picofeedr::sync::SyncSummary;
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::io::{self, Write};
 use time::{OffsetDateTime, UtcOffset};
-
-/// Plain CLI output payloads.
-pub(crate) enum PlainOutput {
-    Version(VersionResponse),
-    Tags(Vec<String>),
-    Status(StatusResponse),
-    Feeds {
-        feeds: FeedListResponse,
-        include_id: bool,
-    },
-    Sync(SyncSummary),
-    List {
-        list: EntryListResponse,
-        include_id: bool,
-    },
-    View(EntryDetail),
-    Mark(MarkResponse),
-}
 
 struct PlainTextOutput {
     stdout: String,
     stderr: String,
 }
 
+/// Writes a command outcome in the selected output format.
+pub(crate) fn write_command_output(
+    output: OutputFormat,
+    outcome: CommandOutcome,
+) -> Result<(), RunFailure> {
+    match output {
+        OutputFormat::Json => write_json_output(outcome),
+        OutputFormat::Plain => {
+            write_plain_output(outcome)?;
+            Ok(())
+        }
+    }
+}
+
+/// Writes the JSON envelope for a command outcome.
+fn write_json_output(outcome: CommandOutcome) -> Result<(), RunFailure> {
+    match outcome {
+        CommandOutcome::Version(payload) => write_json_response(payload),
+        CommandOutcome::Tags(payload) => write_json_response(payload),
+        CommandOutcome::Status(payload) => write_json_response(payload),
+        CommandOutcome::Feeds { feeds, .. } => write_json_response(feeds),
+        CommandOutcome::Sync(payload) => write_json_response(payload),
+        CommandOutcome::SyncCheck(payload) => write_json_response(payload),
+        CommandOutcome::List { list, .. } => write_json_response(list),
+        CommandOutcome::View(payload) => write_json_response(payload),
+        CommandOutcome::Mark(payload) => write_json_response(payload),
+    }
+}
+
 /// Writes a JSON response payload.
-pub(crate) fn write_json_response<T: ResponsePayload>(payload: T) -> Result<(), RunFailure> {
+fn write_json_response<T: ResponsePayload>(payload: T) -> Result<(), RunFailure> {
     print_json_or_fallback(&payload.into_envelope())?;
     Ok(())
 }
 
 /// Writes human-readable output for a command result.
-pub(crate) fn write_plain_output(result: PlainOutput) -> io::Result<()> {
+fn write_plain_output(result: CommandOutcome) -> io::Result<()> {
     let rendered = format_plain_output(result);
     let stdout = io::stdout();
     let mut writer = io::BufWriter::new(stdout.lock());
@@ -59,22 +67,22 @@ pub(crate) fn write_plain_output(result: PlainOutput) -> io::Result<()> {
     Ok(())
 }
 
-fn format_plain_output(result: PlainOutput) -> PlainTextOutput {
+fn format_plain_output(result: CommandOutcome) -> PlainTextOutput {
     let mut stdout = String::new();
     let mut stderr = String::new();
     match result {
-        PlainOutput::Version(payload) => {
+        CommandOutcome::Version(payload) => {
             writeln!(stdout, "api_version: {}", payload.api_version).expect("write version api");
             writeln!(stdout, "db_schema_version: {}", payload.db_schema_version)
                 .expect("write version schema");
             writeln!(stdout, "build: {}", payload.build).expect("write version build");
         }
-        PlainOutput::Tags(tags) => {
-            for tag in tags {
+        CommandOutcome::Tags(payload) => {
+            for tag in payload.tags {
                 writeln!(stdout, "{tag}").expect("write tag");
             }
         }
-        PlainOutput::Status(status) => {
+        CommandOutcome::Status(status) => {
             writeln!(stdout, "revision: {}", status.revision).expect("write status revision");
             writeln!(
                 stdout,
@@ -98,7 +106,7 @@ fn format_plain_output(result: PlainOutput) -> PlainTextOutput {
             )
             .expect("write status sync_status");
         }
-        PlainOutput::Feeds { feeds, include_id } => {
+        CommandOutcome::Feeds { feeds, include_id } => {
             for feed in feeds.feeds {
                 let title = feed.title.as_deref().unwrap_or("");
                 let site_url = feed.site_url.as_deref().unwrap_or("");
@@ -116,7 +124,7 @@ fn format_plain_output(result: PlainOutput) -> PlainTextOutput {
                 }
             }
         }
-        PlainOutput::Sync(summary) => {
+        CommandOutcome::Sync(summary) => {
             writeln!(
                 stdout,
                 "sync:done status={} fetched_feed_count={} skipped_feed_count={} failed_feed_count={} new_entry_count={} duration_ms={} errors={}",
@@ -148,7 +156,10 @@ fn format_plain_output(result: PlainOutput) -> PlainTextOutput {
                 writeln!(stderr, "{line}").expect("write sync error line");
             }
         }
-        PlainOutput::List { list, include_id } => {
+        CommandOutcome::SyncCheck(report) => {
+            stdout.push_str(&format_config_check_plain(&report));
+        }
+        CommandOutcome::List { list, include_id } => {
             let total_count = list.total_count;
             let next_page_token = list.next_page_token;
             let feed_titles = list
@@ -182,7 +193,7 @@ fn format_plain_output(result: PlainOutput) -> PlainTextOutput {
                 writeln!(stderr, "next_page_token: {cursor}").expect("write list cursor");
             }
         }
-        PlainOutput::View(detail) => {
+        CommandOutcome::View(detail) => {
             writeln!(stdout, "entry_id: {}", detail.entry_id).expect("write view entry_id");
             writeln!(
                 stdout,
@@ -229,7 +240,7 @@ fn format_plain_output(result: PlainOutput) -> PlainTextOutput {
                 writeln!(stdout, "{content}").expect("write view content");
             }
         }
-        PlainOutput::Mark(payload) => {
+        CommandOutcome::Mark(payload) => {
             writeln!(
                 stdout,
                 "updated_entry_count: {}",
@@ -330,15 +341,6 @@ fn format_sync_progress_line(event: &sync::SyncProgressEvent) -> Option<String> 
     }
 }
 
-/// Writes human-readable output for feeds config validation.
-pub(crate) fn write_config_check_plain(report: &ConfigCheckReport) -> io::Result<()> {
-    let stdout = io::stdout();
-    let mut writer = io::BufWriter::new(stdout.lock());
-    writer.write_all(format_config_check_plain(report).as_bytes())?;
-    writer.flush()?;
-    Ok(())
-}
-
 fn format_config_check_plain(report: &ConfigCheckReport) -> String {
     let mut output = String::new();
     writeln!(output, "valid: {}", report.valid).expect("write sync-check valid");
@@ -385,7 +387,8 @@ const FALLBACK_INTERNAL_ERROR_JSON: &str = "{\"status\":\"error\",\"result\":nul
 
 #[cfg(test)]
 mod tests {
-    use super::{PlainOutput, format_plain_output, format_sync_progress_line, format_tags};
+    use super::{format_plain_output, format_sync_progress_line, format_tags};
+    use crate::CommandOutcome;
     use picofeedr::entry::{EntryListResponse, EntrySummary, FeedSummary};
     use picofeedr::sync::SyncProgressEvent;
 
@@ -436,7 +439,7 @@ mod tests {
 
     #[test]
     fn format_plain_output_routes_list_metadata_to_stderr() {
-        let rendered = format_plain_output(PlainOutput::List {
+        let rendered = format_plain_output(CommandOutcome::List {
             list: EntryListResponse {
                 total_count: 42,
                 items: vec![EntrySummary {

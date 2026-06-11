@@ -5,49 +5,74 @@ mod mark;
 mod store;
 mod sync;
 
-use crate::{RunFailure, output};
+use crate::{CommandOutcome, CommandRun, RunFailure, version_response};
 use picofeedr::TagManager;
-use picofeedr::cli::{Cli, Command};
+use picofeedr::cli::{Command, OutputFormat};
 use picofeedr::config;
 use picofeedr::entry::{self, EntryDetail};
 use picofeedr::error::AppError;
 use picofeedr::feed::{self, FeedListResponse};
 use picofeedr::response::TagListResponse;
 use picofeedr::status::StatusResponse;
+use std::process::ExitCode;
 use store::with_store;
 
 pub(crate) use list::run_list_command;
 pub(crate) use mark::run_mark_command;
 pub(crate) use sync::{run_sync_command, run_sync_command_plain};
 
-pub(crate) fn run_plain_command(
-    cli: &Cli,
+/// Executes a CLI command and returns its typed outcome and exit code.
+///
+/// This is the single dispatch over [`Command`]; output-format specifics are
+/// limited to `sync`, whose plain mode streams progress during execution.
+pub(crate) fn run_command(
+    command: &Command,
+    output: OutputFormat,
     config: &config::AppConfig,
-) -> Result<output::PlainOutput, RunFailure> {
-    match &cli.command {
-        Command::Tags => Ok(output::PlainOutput::Tags(run_tags_command(config)?.tags)),
-        Command::Status => Ok(output::PlainOutput::Status(run_status_command(config)?)),
-        Command::Feeds { id } => Ok(output::PlainOutput::Feeds {
+) -> Result<CommandRun, RunFailure> {
+    let outcome = match command {
+        Command::Version => CommandOutcome::Version(version_response()),
+        Command::Tags => CommandOutcome::Tags(run_tags_command(config)?),
+        Command::Status => CommandOutcome::Status(run_status_command(config)?),
+        Command::Feeds { id } => CommandOutcome::Feeds {
             feeds: run_feeds_command(config)?,
             include_id: *id,
-        }),
-        Command::Sync { .. } => run_sync_command_plain(config),
+        },
+        Command::Sync { check: true } => {
+            let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
+            let report = feeds_config.validate();
+            let exit_code = if report.valid {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::from(1)
+            };
+            return Ok(CommandRun::with_exit_code(
+                CommandOutcome::SyncCheck(report),
+                exit_code,
+            ));
+        }
+        Command::Sync { check: false } => {
+            let summary = match output {
+                OutputFormat::Json => run_sync_command(config)?,
+                OutputFormat::Plain => run_sync_command_plain(config)?,
+            };
+            CommandOutcome::Sync(summary)
+        }
         Command::List {
             query,
             sort,
             limit,
             cursor,
             id,
-        } => Ok(output::PlainOutput::List {
+        } => CommandOutcome::List {
             list: run_list_command(config, query.as_deref(), *sort, *limit, cursor.as_deref())?,
             include_id: *id,
-        }),
-        Command::View { id } => Ok(output::PlainOutput::View(run_view_command(config, id)?)),
-        Command::Mark { command } => Ok(output::PlainOutput::Mark(run_mark_command(
-            config, command,
-        )?)),
-        Command::Version => unreachable!("handled in main"),
-    }
+        },
+        Command::View { id } => CommandOutcome::View(run_view_command(config, id)?),
+        Command::Mark { command } => CommandOutcome::Mark(run_mark_command(config, command)?),
+    };
+
+    Ok(CommandRun::success(outcome))
 }
 
 pub(crate) fn run_tags_command(config: &config::AppConfig) -> Result<TagListResponse, AppError> {

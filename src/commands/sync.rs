@@ -15,7 +15,7 @@ pub(crate) fn run_sync_command(config: &config::AppConfig) -> Result<SyncSummary
 /// Executes sync command and streams plain progress lines to stdout.
 pub(crate) fn run_sync_command_plain(
     config: &config::AppConfig,
-) -> Result<output::PlainOutput, RunFailure> {
+) -> Result<SyncSummary, RunFailure> {
     debug!(
         db_path = ?config.database.path,
         feeds_path = ?config.feeds.source,
@@ -51,7 +51,7 @@ pub(crate) fn run_sync_command_plain(
     let now = current_epoch();
     store.bump_revision(now)?;
     store.update_sync(now, summary.status.as_str())?;
-    Ok(output::PlainOutput::Sync(summary))
+    Ok(summary)
 }
 
 /// Executes sync command using the shared store path without progress rendering.
