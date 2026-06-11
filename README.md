@@ -59,18 +59,20 @@ picofeedr list --query unread
 
 ## Commands
 
-| Command                       | Description                      |
-| ----------------------------- | -------------------------------- |
-| `sync`                        | Sync feeds                       |
-| `sync --check`                | Validate config (no DB required) |
-| `list [--query <q>]`          | List entries                     |
-| `view <id>`                   | View entry details               |
-| `mark read <ids>`             | Mark as read                     |
-| `mark unread <ids>`           | Mark as unread                   |
-| `mark tag <ids> --add <tags>` | Add tags                         |
-| `tags`                        | List tags                        |
-| `feeds`                       | List feeds                       |
-| `status`                      | Show DB status metadata          |
+| Command                          | Description                      |
+| -------------------------------- | -------------------------------- |
+| `sync`                           | Sync feeds                       |
+| `sync --check`                   | Validate config (no DB required) |
+| `list [--query <q>]`             | List entries (see options below) |
+| `view <id>`                      | View entry details               |
+| `mark read <ids>`                | Mark as read                     |
+| `mark unread <ids>`              | Mark as unread                   |
+| `mark tag <ids> --add <tags>`    | Add tags (comma-separated)       |
+| `mark tag <ids> --remove <tags>` | Remove tags (comma-separated)    |
+| `tags`                           | List tags                        |
+| `feeds [--id]`                   | List feeds                       |
+| `status`                         | Show DB status metadata          |
+| `version`                        | Print version information        |
 
 When `manage_unread = false`, automatic unread-tag assignment is disabled, but `unread` queries and `mark read` / `mark unread` still work as aliases for `unread_tag`.
 
@@ -89,6 +91,16 @@ Supported terms:
 - `title:"<text>"` - title search
 - `feed:<id>` or `feed:"<title>"` - filter by feed
 - `after:<date>`, `before:<date>` - date range
+
+### List Options
+
+```
+--sort <order>   Sort order: first-seen-desc (default) | first-seen-asc |
+                 date-desc | date-asc
+--limit <n>      Number of entries per page (default: query.default_limit)
+--cursor <token> Pagination cursor from the previous page
+--id             Append entry id as the last column in plain output
+```
 
 ### Common Flags
 

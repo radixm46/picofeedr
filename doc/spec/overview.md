@@ -56,11 +56,13 @@
 ```
 picofeedr sync                      # 同期実行
 picofeedr status                    # DB状態メタデータ
-picofeedr list [--query <q>] [--id] # エントリ一覧
+picofeedr list [--query <q>] [--sort <order>] [--limit <n>] [--cursor <token>] [--id]
+                                    # エントリ一覧（sort/paging は doc/spec/pagination.md 参照）
 picofeedr view <entry_id>           # エントリ詳細
-picofeedr mark <operation> <ids>    # 状態更新
+picofeedr mark <operation> <ids>    # 状態更新（read|unread|tag --add/--remove）
 picofeedr tags                      # タグ一覧
 picofeedr feeds [--id]              # フィード一覧
+picofeedr version                   # バージョン情報
 picofeedr sync --check              # 同期設定の静的妥当性検証（DB非依存）
 
 ```
