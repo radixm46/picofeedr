@@ -71,30 +71,21 @@ where
             Err(_) => break,
         };
         match result {
-            WorkerResult::Started {
-                index,
-                total_feeds,
-                url,
-            } => {
+            WorkerResult::Started { ctx } => {
                 if let Some(progress) = on_progress.as_mut() {
                     progress(SyncProgressEvent::FeedStart {
-                        index,
-                        total_feeds,
-                        url,
+                        index: ctx.index,
+                        total_feeds: ctx.total_feeds,
+                        url: ctx.url,
                     });
                 }
             }
-            WorkerResult::Ok {
-                index,
-                total_feeds,
-                url,
-                result,
-            } => {
+            WorkerResult::Ok { ctx, result } => {
                 if let Some(progress) = on_progress.as_mut() {
                     progress(SyncProgressEvent::FeedOk {
-                        index,
-                        total_feeds,
-                        url,
+                        index: ctx.index,
+                        total_feeds: ctx.total_feeds,
+                        url: ctx.url,
                         entries: result.entries.len(),
                     });
                 }
@@ -102,17 +93,12 @@ where
                     errors.push(error);
                 }
             }
-            WorkerResult::Error {
-                index,
-                total_feeds,
-                url,
-                error,
-            } => {
+            WorkerResult::Error { ctx, error } => {
                 if let Some(progress) = on_progress.as_mut() {
                     progress(SyncProgressEvent::FeedError {
-                        index,
-                        total_feeds,
-                        url,
+                        index: ctx.index,
+                        total_feeds: ctx.total_feeds,
+                        url: ctx.url,
                         code: error.code,
                         retryable: error.retryable,
                     });
@@ -153,9 +139,7 @@ fn worker_loop(
             recv(job_rx) -> job => match job {
                 Ok(target) => {
                     let _ = result_tx.send(WorkerResult::Started {
-                        index: target.index,
-                        total_feeds: target.total_feeds,
-                        url: target.url.clone(),
+                        ctx: target.ctx.clone(),
                     });
                     let result = fetch_and_parse(&target, config, &agent);
                     let _ = result_tx.send(result);
@@ -168,22 +152,12 @@ fn worker_loop(
 
 /// Fetches a single feed and parses entries.
 fn fetch_and_parse(target: &SyncTarget, config: &AppConfig, agent: &ureq::Agent) -> WorkerResult {
-    let bytes = match fetch_feed_bytes(&target.url, &config.sync, agent) {
+    let bytes = match fetch_feed_bytes(&target.ctx.url, &config.sync, agent) {
         Ok(bytes) => bytes,
         Err(error) => {
             return WorkerResult::Error {
-                index: target.index,
-                total_feeds: target.total_feeds,
-                url: target.url.clone(),
-                error: SyncError::fetch(
-                    &target.feed_id,
-                    target.feed_name.as_deref(),
-                    &target.url,
-                    target.index,
-                    target.total_feeds,
-                    error.message,
-                    error.retryable,
-                ),
+                ctx: target.ctx.clone(),
+                error: SyncError::fetch(&target.ctx, error.message, error.retryable),
             };
         }
     };
@@ -191,17 +165,8 @@ fn fetch_and_parse(target: &SyncTarget, config: &AppConfig, agent: &ureq::Agent)
         Ok(feed) => feed,
         Err(error) => {
             return WorkerResult::Error {
-                index: target.index,
-                total_feeds: target.total_feeds,
-                url: target.url.clone(),
-                error: SyncError::parse(
-                    &target.feed_id,
-                    target.feed_name.as_deref(),
-                    &target.url,
-                    target.index,
-                    target.total_feeds,
-                    error.to_string(),
-                ),
+                ctx: target.ctx.clone(),
+                error: SyncError::parse(&target.ctx, error.to_string()),
             };
         }
     };
@@ -215,16 +180,11 @@ fn fetch_and_parse(target: &SyncTarget, config: &AppConfig, agent: &ureq::Agent)
         Ok(entries) => entries,
         Err(error) => return WorkerResult::Fatal(error),
     };
+    let ctx = target.ctx.clone();
     WorkerResult::Ok {
-        index: target.index,
-        total_feeds: target.total_feeds,
-        url: target.url.clone(),
+        ctx: ctx.clone(),
         result: SyncResult {
-            feed_id: target.feed_id.clone(),
-            feed_name: target.feed_name.clone(),
-            feed_url: target.url.clone(),
-            index: target.index,
-            total_feeds: target.total_feeds,
+            ctx,
             feed_metadata,
             entries,
         },

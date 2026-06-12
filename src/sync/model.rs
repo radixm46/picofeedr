@@ -51,6 +51,16 @@ pub struct SyncError {
     pub retryable: bool,
 }
 
+/// Feed identity and progress context shared across sync phases.
+#[derive(Debug, Clone)]
+pub(crate) struct FeedContext {
+    pub(crate) feed_id: String,
+    pub(crate) feed_name: Option<String>,
+    pub(crate) url: String,
+    pub(crate) index: usize,
+    pub(crate) total_feeds: usize,
+}
+
 /// Sync status values.
 #[derive(Debug, Serialize, JsonSchema, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -142,21 +152,13 @@ impl SyncError {
     }
 
     /// Builds a fetch error entry.
-    pub(crate) fn fetch(
-        feed_id: &str,
-        feed_name: Option<&str>,
-        feed_url: &str,
-        index: usize,
-        total_feeds: usize,
-        message: String,
-        retryable: bool,
-    ) -> Self {
+    pub(crate) fn fetch(ctx: &FeedContext, message: String, retryable: bool) -> Self {
         Self {
-            feed_id: feed_id.to_string(),
-            feed_name: feed_name.map(ToOwned::to_owned),
-            feed_url: feed_url.to_string(),
-            index,
-            total_feeds,
+            feed_id: ctx.feed_id.clone(),
+            feed_name: ctx.feed_name.clone(),
+            feed_url: ctx.url.clone(),
+            index: ctx.index,
+            total_feeds: ctx.total_feeds,
             code: SyncErrorCode::FetchFailed,
             message,
             retryable,
@@ -164,20 +166,13 @@ impl SyncError {
     }
 
     /// Builds a parse error entry.
-    pub(crate) fn parse(
-        feed_id: &str,
-        feed_name: Option<&str>,
-        feed_url: &str,
-        index: usize,
-        total_feeds: usize,
-        message: String,
-    ) -> Self {
+    pub(crate) fn parse(ctx: &FeedContext, message: String) -> Self {
         Self {
-            feed_id: feed_id.to_string(),
-            feed_name: feed_name.map(ToOwned::to_owned),
-            feed_url: feed_url.to_string(),
-            index,
-            total_feeds,
+            feed_id: ctx.feed_id.clone(),
+            feed_name: ctx.feed_name.clone(),
+            feed_url: ctx.url.clone(),
+            index: ctx.index,
+            total_feeds: ctx.total_feeds,
             code: SyncErrorCode::ParseFailed,
             message,
             retryable: false,
@@ -185,20 +180,13 @@ impl SyncError {
     }
 
     /// Builds an ingest error entry.
-    pub(crate) fn ingest(
-        feed_id: &str,
-        feed_name: Option<&str>,
-        feed_url: &str,
-        index: usize,
-        total_feeds: usize,
-        message: String,
-    ) -> Self {
+    pub(crate) fn ingest(ctx: &FeedContext, message: String) -> Self {
         Self {
-            feed_id: feed_id.to_string(),
-            feed_name: feed_name.map(ToOwned::to_owned),
-            feed_url: feed_url.to_string(),
-            index,
-            total_feeds,
+            feed_id: ctx.feed_id.clone(),
+            feed_name: ctx.feed_name.clone(),
+            feed_url: ctx.url.clone(),
+            index: ctx.index,
+            total_feeds: ctx.total_feeds,
             code: SyncErrorCode::IngestFailed,
             message,
             retryable: false,
@@ -209,23 +197,15 @@ impl SyncError {
 /// Sync target with feed metadata and tags.
 #[derive(Debug, Clone)]
 pub(crate) struct SyncTarget {
-    pub(crate) feed_id: String,
-    pub(crate) feed_name: Option<String>,
-    pub(crate) url: String,
+    pub(crate) ctx: FeedContext,
     pub(crate) tags: Vec<String>,
     pub(crate) auto_tag_rules: Vec<CompiledRule>,
-    pub(crate) index: usize,
-    pub(crate) total_feeds: usize,
 }
 
 /// Parsed feed result from fetch workers.
 #[derive(Debug)]
 pub(crate) struct SyncResult {
-    pub(crate) feed_id: String,
-    pub(crate) feed_name: Option<String>,
-    pub(crate) feed_url: String,
-    pub(crate) index: usize,
-    pub(crate) total_feeds: usize,
+    pub(crate) ctx: FeedContext,
     pub(crate) feed_metadata: FeedMetadata,
     pub(crate) entries: Vec<SyncEntry>,
 }
@@ -296,25 +276,14 @@ impl PendingEntry {
 #[derive(Debug)]
 pub(crate) enum WorkerResult {
     /// Feed processing started.
-    Started {
-        index: usize,
-        total_feeds: usize,
-        url: String,
-    },
+    Started { ctx: FeedContext },
     /// Parsed feed result.
     Ok {
-        index: usize,
-        total_feeds: usize,
-        url: String,
+        ctx: FeedContext,
         result: SyncResult,
     },
     /// Non-fatal sync error for a feed.
-    Error {
-        index: usize,
-        total_feeds: usize,
-        url: String,
-        error: SyncError,
-    },
+    Error { ctx: FeedContext, error: SyncError },
     /// Fatal error that should abort sync.
     Fatal(AppError),
 }

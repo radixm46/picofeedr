@@ -19,7 +19,7 @@ pub use model::{SyncProgressEvent, SyncStatus, SyncSummary};
 
 use autotag::compile_auto_tags;
 use fetch::fetch_parallel;
-use model::SyncTarget;
+use model::{FeedContext, SyncTarget};
 
 /// Runs a sync for all feeds in config.
 pub fn run_sync(
@@ -86,7 +86,7 @@ fn prepare_sync_ingest(
 
     let feed_ids = targets
         .iter()
-        .map(|target| target.feed_id.clone())
+        .map(|target| target.ctx.feed_id.clone())
         .collect::<Vec<_>>();
     store.feed_read_repo().find_feed_pks_by_ids(&feed_ids)
 }
@@ -98,57 +98,21 @@ fn ingest_sync_result(
     feed_pks_by_feed_id: &HashMap<String, i64>,
     result: model::SyncResult,
 ) -> Result<usize, model::SyncError> {
-    let error_feed_id = result.feed_id.clone();
-    let error_feed_name = result.feed_name.clone();
-    let error_feed_url = result.feed_url.clone();
-    let error_index = result.index;
-    let error_total_feeds = result.total_feeds;
+    let ctx = result.ctx.clone();
+    let ingest_error = |message| model::SyncError::ingest(&ctx, message);
     let feed_pk = feed_pks_by_feed_id
-        .get(&result.feed_id)
+        .get(&ctx.feed_id)
         .copied()
-        .ok_or_else(|| {
-            model::SyncError::ingest(
-                &error_feed_id,
-                error_feed_name.as_deref(),
-                &error_feed_url,
-                error_index,
-                error_total_feeds,
-                format!("Missing feed for {error_feed_id}"),
-            )
-        })?;
-    let tx = store.tx().map_err(|error| {
-        model::SyncError::ingest(
-            &error_feed_id,
-            error_feed_name.as_deref(),
-            &error_feed_url,
-            error_index,
-            error_total_feeds,
-            error.to_string(),
-        )
-    })?;
+        .ok_or_else(|| ingest_error(format!("Missing feed for {}", ctx.feed_id)))?;
+    let tx = store
+        .tx()
+        .map_err(|error| ingest_error(error.to_string()))?;
     let count = tx
         .sync_write_repo()
         .ingest_feed_result(config, feed_pk, result)
-        .map_err(|error| {
-            model::SyncError::ingest(
-                &error_feed_id,
-                error_feed_name.as_deref(),
-                &error_feed_url,
-                error_index,
-                error_total_feeds,
-                error.to_string(),
-            )
-        })?;
-    tx.commit().map_err(|error| {
-        model::SyncError::ingest(
-            &error_feed_id,
-            error_feed_name.as_deref(),
-            &error_feed_url,
-            error_index,
-            error_total_feeds,
-            error.to_string(),
-        )
-    })?;
+        .map_err(|error| ingest_error(error.to_string()))?;
+    tx.commit()
+        .map_err(|error| ingest_error(error.to_string()))?;
     Ok(count)
 }
 
@@ -170,13 +134,15 @@ fn build_sync_targets(feeds_config: &FeedsConfig) -> Result<Vec<SyncTarget>, App
     for (offset, feed) in feeds_config.active_feeds().enumerate() {
         let feed_id = feed_id_from_url(&feed.url);
         targets.push(SyncTarget {
-            feed_id,
-            feed_name: feed.title.clone(),
-            url: feed.url.clone(),
+            ctx: FeedContext {
+                feed_id,
+                feed_name: feed.title.clone(),
+                url: feed.url.clone(),
+                index: offset + 1,
+                total_feeds,
+            },
             tags: feed.tags.clone(),
             auto_tag_rules: compile_auto_tags(&feed.auto_tags)?,
-            index: offset + 1,
-            total_feeds,
         });
     }
     Ok(targets)
@@ -184,7 +150,7 @@ fn build_sync_targets(feeds_config: &FeedsConfig) -> Result<Vec<SyncTarget>, App
 
 #[cfg(test)]
 mod tests {
-    use super::model::{FeedMetadata, PendingEntry, SyncEntry, SyncResult};
+    use super::model::{FeedContext, FeedMetadata, PendingEntry, SyncEntry, SyncResult};
     use super::{
         build_sync_targets, derive_sync_status, ingest_sync_result, prepare_sync_ingest, run_sync,
     };
@@ -301,11 +267,13 @@ retry_delay = 0
 
     fn make_result(feed_id: &str, entry_id: &str) -> SyncResult {
         SyncResult {
-            feed_id: feed_id.to_string(),
-            feed_name: Some(feed_id.to_string()),
-            feed_url: format!("https://example.com/{feed_id}.xml"),
-            index: 1,
-            total_feeds: 1,
+            ctx: FeedContext {
+                feed_id: feed_id.to_string(),
+                feed_name: Some(feed_id.to_string()),
+                url: format!("https://example.com/{feed_id}.xml"),
+                index: 1,
+                total_feeds: 1,
+            },
             feed_metadata: FeedMetadata::default(),
             entries: vec![SyncEntry {
                 entry: PendingEntry {
@@ -340,8 +308,8 @@ retry_delay = 0
         let feeds_config = FeedsConfig::load(&feeds_path).expect("load feeds");
         let targets = build_sync_targets(&feeds_config).expect("build targets");
         let results = vec![
-            make_result(&targets[0].feed_id, "entry-a"),
-            make_result(&targets[1].feed_id, "entry-b"),
+            make_result(&targets[0].ctx.feed_id, "entry-a"),
+            make_result(&targets[1].ctx.feed_id, "entry-b"),
         ];
 
         let mut store = SqliteStore::open(&config.database.path).expect("open store");
@@ -375,7 +343,7 @@ retry_delay = 0
         let feeds_config = FeedsConfig::load(&feeds_path).expect("load feeds");
         let targets = build_sync_targets(&feeds_config).expect("build targets");
         let results = vec![
-            make_result(&targets[0].feed_id, "entry-a"),
+            make_result(&targets[0].ctx.feed_id, "entry-a"),
             make_result("missing-feed-id", "entry-b"),
         ];
 
@@ -420,7 +388,7 @@ retry_delay = 0
 
         assert_eq!(feed_pks_by_feed_id.len(), targets.len());
         for target in &targets {
-            assert!(feed_pks_by_feed_id.contains_key(&target.feed_id));
+            assert!(feed_pks_by_feed_id.contains_key(&target.ctx.feed_id));
         }
     }
 
