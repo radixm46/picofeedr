@@ -8,6 +8,19 @@ struct SkippedFeedSyncFixture {
     skipped_url: String,
 }
 
+fn feed_ok_indices(output: &str) -> Vec<usize> {
+    output
+        .lines()
+        .filter(|line| line.starts_with("sync:feed-ok "))
+        .filter_map(|line| {
+            line.split_whitespace()
+                .find_map(|part| part.strip_prefix("index="))
+                .and_then(|value| value.split_once('/'))
+                .and_then(|(index, _)| index.parse::<usize>().ok())
+        })
+        .collect()
+}
+
 fn spawn_gopher_feed_server(body: &'static [u8]) -> (String, thread::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
     let addr = listener.local_addr().expect("local addr");
@@ -186,6 +199,49 @@ fn sync_plain_reports_skipped_feeds_without_fetching_or_reconciling_them() {
     assert!(output.contains("skipped_feed_count=1"));
 
     assert_skipped_feed_not_registered(&fixture.db_path, &fixture.skipped_url);
+}
+
+#[test]
+fn sync_plain_feed_ok_index_counts_completed_feeds() {
+    let temp = TempDir::new().expect("tempdir");
+    let feeds_path = temp.path().join("feeds.yaml");
+    let config_path = temp.path().join("config.toml");
+    let db_path = temp.path().join("db.sqlite");
+    let feed_a = temp.path().join("feed-a.xml");
+    let feed_b = temp.path().join("feed-b.xml");
+    write_config_with_feeds_source(&config_path, &db_path, &feeds_path);
+
+    let feed_a_url = format!("file://{}", feed_a.display());
+    let feed_b_url = format!("file://{}", feed_b.display());
+    let feeds = format!(
+        r#"picofeedr:
+  feeds:
+    - url: {feed_a_url}
+      title: Feed A
+    - url: {feed_b_url}
+      title: Feed B
+"#
+    );
+    fs::write(&feeds_path, feeds).expect("write feeds");
+    fs::write(&feed_a, sample_feed_xml("entry-a", "Entry A")).expect("write feed a");
+    fs::write(&feed_b, sample_feed_xml("entry-b", "Entry B")).expect("write feed b");
+
+    let output = picofeedr_cmd_plain()
+        .arg("--config")
+        .arg(&config_path)
+        .arg("--storage-root")
+        .arg(db_root(db_path.to_str().expect("db path")))
+        .arg("sync")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let output = String::from_utf8_lossy(&output);
+    assert_eq!(feed_ok_indices(&output), vec![1, 2]);
+    assert!(output.contains("sync:feed-ok index=1/2"));
+    assert!(output.contains("sync:feed-ok index=2/2"));
 }
 
 #[test]
@@ -716,7 +772,7 @@ fn sync_plain_reports_partial_failed_with_feed_error_lines() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stdout.contains("sync:done status=partial_failed"));
     assert!(stderr.contains("sync:feed-error"));
-    assert!(stderr.contains("index=2/2"));
+    assert!(!stderr.contains("index="));
 }
 
 #[test]
@@ -740,7 +796,7 @@ fn sync_plain_reports_error_details_as_log_lines() {
     assert!(stdout.contains("sync:done"));
     assert!(stdout.contains("errors=1"));
     assert!(stderr.contains("sync:feed-error"));
-    assert!(stderr.contains("index=2/2"));
+    assert!(!stderr.contains("index="));
     assert!(stderr.contains("code=PARSE_FAILED"));
     assert!(stderr.contains("retryable=false"));
     assert!(stderr.contains("message="));
@@ -784,7 +840,7 @@ fn sync_plain_reports_failed_with_feed_error_lines() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stdout.contains("sync:done status=failed"));
     assert!(stderr.contains("sync:feed-error"));
-    assert!(stderr.contains("index="));
+    assert!(!stderr.contains("index="));
 }
 
 #[test]
@@ -857,7 +913,7 @@ fn sync_plain_http_404_error_output_is_not_redundant() {
     server_thread.join().expect("join 404 server thread");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("sync:feed-error"));
-    assert!(stderr.contains("index=1/1"));
+    assert!(!stderr.contains("index="));
     assert!(stderr.contains("code=FETCH_FAILED"));
     assert!(stderr.contains("retryable=false"));
 }

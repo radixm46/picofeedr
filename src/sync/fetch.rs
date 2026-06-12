@@ -65,6 +65,7 @@ where
 
     let mut errors = Vec::new();
     let mut fatal: Option<AppError> = None;
+    let mut completed_feeds = 0usize;
     loop {
         let result = match result_rx.recv() {
             Ok(result) => result,
@@ -73,18 +74,15 @@ where
         match result {
             WorkerResult::Started { ctx } => {
                 if let Some(progress) = on_progress.as_mut() {
-                    progress(SyncProgressEvent::FeedStart {
-                        index: ctx.index,
-                        total_feeds: ctx.total_feeds,
-                        url: ctx.url,
-                    });
+                    progress(SyncProgressEvent::FeedStart { url: ctx.url });
                 }
             }
             WorkerResult::Ok { ctx, result } => {
+                completed_feeds += 1;
                 if let Some(progress) = on_progress.as_mut() {
                     progress(SyncProgressEvent::FeedOk {
-                        index: ctx.index,
-                        total_feeds: ctx.total_feeds,
+                        index: completed_feeds,
+                        total_feeds: targets.len(),
                         url: ctx.url,
                         entries: result.entries.len(),
                     });
@@ -94,10 +92,9 @@ where
                 }
             }
             WorkerResult::Error { ctx, error } => {
+                completed_feeds += 1;
                 if let Some(progress) = on_progress.as_mut() {
                     progress(SyncProgressEvent::FeedError {
-                        index: ctx.index,
-                        total_feeds: ctx.total_feeds,
                         url: ctx.url,
                         code: error.code,
                         retryable: error.retryable,

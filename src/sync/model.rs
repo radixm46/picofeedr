@@ -35,14 +35,6 @@ pub struct SyncError {
     pub feed_name: Option<String>,
     /// Feed URL that failed.
     pub feed_url: String,
-    /// 1-based feed position within the sync job.
-    #[serde(skip)]
-    #[schemars(skip)]
-    pub(crate) index: usize,
-    /// Total feed count for the sync job.
-    #[serde(skip)]
-    #[schemars(skip)]
-    pub(crate) total_feeds: usize,
     /// Error code.
     pub code: SyncErrorCode,
     /// Error message.
@@ -57,8 +49,6 @@ pub(crate) struct FeedContext {
     pub(crate) feed_id: String,
     pub(crate) feed_name: Option<String>,
     pub(crate) url: String,
-    pub(crate) index: usize,
-    pub(crate) total_feeds: usize,
 }
 
 /// Sync status values.
@@ -123,11 +113,7 @@ pub enum SyncProgressEvent {
         feed_name: Option<String>,
     },
     /// A feed started processing.
-    FeedStart {
-        index: usize,
-        total_feeds: usize,
-        url: String,
-    },
+    FeedStart { url: String },
     /// A feed finished successfully.
     FeedOk {
         index: usize,
@@ -137,8 +123,6 @@ pub enum SyncProgressEvent {
     },
     /// A feed failed with a non-fatal sync error.
     FeedError {
-        index: usize,
-        total_feeds: usize,
         url: String,
         code: SyncErrorCode,
         retryable: bool,
@@ -146,19 +130,12 @@ pub enum SyncProgressEvent {
 }
 
 impl SyncError {
-    /// Returns the 1-based feed position and total feed count for plain progress output.
-    pub fn progress_position(&self) -> (usize, usize) {
-        (self.index, self.total_feeds)
-    }
-
     /// Builds a fetch error entry.
     pub(crate) fn fetch(ctx: &FeedContext, message: String, retryable: bool) -> Self {
         Self {
             feed_id: ctx.feed_id.clone(),
             feed_name: ctx.feed_name.clone(),
             feed_url: ctx.url.clone(),
-            index: ctx.index,
-            total_feeds: ctx.total_feeds,
             code: SyncErrorCode::FetchFailed,
             message,
             retryable,
@@ -171,8 +148,6 @@ impl SyncError {
             feed_id: ctx.feed_id.clone(),
             feed_name: ctx.feed_name.clone(),
             feed_url: ctx.url.clone(),
-            index: ctx.index,
-            total_feeds: ctx.total_feeds,
             code: SyncErrorCode::ParseFailed,
             message,
             retryable: false,
@@ -185,8 +160,6 @@ impl SyncError {
             feed_id: ctx.feed_id.clone(),
             feed_name: ctx.feed_name.clone(),
             feed_url: ctx.url.clone(),
-            index: ctx.index,
-            total_feeds: ctx.total_feeds,
             code: SyncErrorCode::IngestFailed,
             message,
             retryable: false,

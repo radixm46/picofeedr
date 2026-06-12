@@ -130,16 +130,13 @@ fn derive_sync_status(total_feeds: usize, failed_feed_count: usize) -> SyncStatu
 /// Builds sync targets from feeds configuration.
 fn build_sync_targets(feeds_config: &FeedsConfig) -> Result<Vec<SyncTarget>, AppError> {
     let mut targets = Vec::new();
-    let total_feeds = feeds_config.active_feeds().count();
-    for (offset, feed) in feeds_config.active_feeds().enumerate() {
+    for feed in feeds_config.active_feeds() {
         let feed_id = feed_id_from_url(&feed.url);
         targets.push(SyncTarget {
             ctx: FeedContext {
                 feed_id,
                 feed_name: feed.title.clone(),
                 url: feed.url.clone(),
-                index: offset + 1,
-                total_feeds,
             },
             tags: feed.tags.clone(),
             auto_tag_rules: compile_auto_tags(&feed.auto_tags)?,
@@ -271,8 +268,6 @@ retry_delay = 0
                 feed_id: feed_id.to_string(),
                 feed_name: Some(feed_id.to_string()),
                 url: format!("https://example.com/{feed_id}.xml"),
-                index: 1,
-                total_feeds: 1,
             },
             feed_metadata: FeedMetadata::default(),
             entries: vec![SyncEntry {

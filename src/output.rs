@@ -138,11 +138,8 @@ fn format_plain_output(result: CommandOutcome) -> PlainTextOutput {
             )
             .expect("write sync done");
             for error in summary.errors {
-                let (index, total_feeds) = error.progress_position();
                 let mut line = format!(
-                    "sync:feed-error index={}/{} url={} code={} retryable={}",
-                    index,
-                    total_feeds,
+                    "sync:feed-error url={} code={} retryable={}",
                     error.feed_url,
                     error.code.as_str(),
                     error.retryable
@@ -332,8 +329,6 @@ fn format_sync_progress_line(event: &sync::SyncProgressEvent) -> Option<String> 
             "sync:feed-ok index={index}/{total_feeds} url={url} entries={entries}"
         )),
         sync::SyncProgressEvent::FeedError {
-            index: _,
-            total_feeds: _,
             url: _,
             code: _,
             retryable: _,
@@ -412,8 +407,6 @@ mod tests {
             feed_name: Some("Skipped".to_string()),
         });
         let feed_start = format_sync_progress_line(&SyncProgressEvent::FeedStart {
-            index: 1,
-            total_feeds: 2,
             url: "https://example.com/feed.xml".to_string(),
         });
         let feed_ok = format_sync_progress_line(&SyncProgressEvent::FeedOk {

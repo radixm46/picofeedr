@@ -154,10 +154,12 @@ sync:feed-ok index=<i>/<fetch-targets> url=<feed_url> entries=<n>
 sync:done status=<completed|partial_failed|failed> fetched_feed_count=<n> skipped_feed_count=<n> failed_feed_count=<n> new_entry_count=<n> duration_ms=<n> errors=<n>
 ```
 
+`sync:feed-ok` の `index=<i>/<fetch-targets>` は完了順の進捗カウンタであり、`i` はその sync で成功または失敗として処理が完了した feed の件数を表す。
+
 詳細な error line は stderr に出す。
 
 ```text
-sync:feed-error index=<i>/<N> url=<feed_url> code=<FETCH_FAILED|PARSE_FAILED|INGEST_FAILED> retryable=<true|false> message="<text>"
+sync:feed-error url=<feed_url> code=<FETCH_FAILED|PARSE_FAILED|INGEST_FAILED> retryable=<true|false> [feed_name=<json-string>] message="<text>"
 ```
 
 ### `list`
