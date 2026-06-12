@@ -3,9 +3,9 @@
 //! This module intentionally stays at single-statement query execution level.
 //! Multi-step workflows must live in repository modules.
 
-use crate::db::sqlite::query::tags as q;
+use crate::db::sqlite::query::{sql_placeholders, tags as q};
 use crate::error::AppError;
-use crate::tag::dedupe_tag_names;
+use crate::string_set::dedupe_strings_preserve_order;
 use rusqlite::{Connection, params, params_from_iter};
 use std::collections::HashMap;
 
@@ -29,7 +29,7 @@ pub(crate) fn ensure_tag_ids_with_conn(
     conn: &Connection,
     tags: &[String],
 ) -> Result<HashMap<String, i64>, AppError> {
-    let unique = dedupe_tag_names(tags.iter().cloned());
+    let unique = dedupe_strings_preserve_order(tags.iter().cloned());
     for tag in &unique {
         ensure_tag_with_conn(conn, tag)?;
     }
@@ -44,9 +44,7 @@ pub(crate) fn lookup_tag_ids_with_conn(
     if tags.is_empty() {
         return Ok(HashMap::new());
     }
-    let placeholders = std::iter::repeat_n("?", tags.len())
-        .collect::<Vec<_>>()
-        .join(",");
+    let placeholders = sql_placeholders(tags.len());
     let sql = q::select_tag_ids_by_names(&placeholders);
     let mut stmt = conn.prepare(&sql)?;
     let mut rows = stmt.query(params_from_iter(tags.iter()))?;

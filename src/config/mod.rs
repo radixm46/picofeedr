@@ -139,7 +139,7 @@ struct FeedsSourceConfigRaw {
 }
 
 /// Raw sync config representation.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 struct SyncConfigRaw {
     parallel: Option<usize>,
     timeout: Option<u64>,
@@ -157,20 +157,20 @@ struct StorageConfigRaw {
 }
 
 /// Raw query config representation.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 struct QueryConfigRaw {
     default_limit: Option<usize>,
     max_limit: Option<usize>,
 }
 
 /// Raw CLI config representation.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 struct CliConfigRaw {
     output: Option<String>,
 }
 
 /// Raw log config representation.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 struct LogConfigRaw {
     level: Option<String>,
 }
@@ -350,14 +350,7 @@ impl FeedsSourceConfig {
 impl SyncConfig {
     /// Builds a SyncConfig from optional raw config.
     fn from_raw(raw: Option<SyncConfigRaw>) -> Result<Self, AppError> {
-        let raw = raw.unwrap_or(SyncConfigRaw {
-            parallel: None,
-            timeout: None,
-            max_feed_bytes: None,
-            user_agent: None,
-            retry_count: None,
-            retry_delay: None,
-        });
+        let raw = raw.unwrap_or_default();
         let max_feed_bytes = raw.max_feed_bytes.unwrap_or(2 * 1024 * 1024);
         if max_feed_bytes == 0 {
             return Err(AppError::config_with_details(
@@ -402,7 +395,7 @@ impl StorageConfig {
 impl CliConfig {
     /// Builds a CliConfig from optional raw config.
     fn from_raw(raw: Option<CliConfigRaw>) -> Result<Self, AppError> {
-        let raw = raw.unwrap_or(CliConfigRaw { output: None });
+        let raw = raw.unwrap_or_default();
         let output = parse_output_format(raw.output.as_deref())?;
         Ok(Self { output })
     }
@@ -411,10 +404,7 @@ impl CliConfig {
 impl QueryConfig {
     /// Builds a QueryConfig from optional raw config.
     fn from_raw(raw: Option<QueryConfigRaw>) -> Result<Self, AppError> {
-        let raw = raw.unwrap_or(QueryConfigRaw {
-            default_limit: None,
-            max_limit: None,
-        });
+        let raw = raw.unwrap_or_default();
         let default_limit = raw.default_limit.unwrap_or(100);
         let max_limit = raw.max_limit.unwrap_or(1000);
         if default_limit == 0 {
@@ -457,7 +447,7 @@ impl QueryConfig {
 impl LogConfig {
     /// Builds a LogConfig from optional raw config.
     fn from_raw(raw: Option<LogConfigRaw>) -> Result<Self, AppError> {
-        let raw = raw.unwrap_or(LogConfigRaw { level: None });
+        let raw = raw.unwrap_or_default();
         let level = parse_log_level(raw.level.as_deref())?;
         Ok(Self { level })
     }
@@ -570,12 +560,8 @@ mod tests {
     #[test]
     fn sync_max_feed_bytes_zero_is_invalid() {
         let error = SyncConfig::from_raw(Some(SyncConfigRaw {
-            parallel: None,
-            timeout: None,
-            user_agent: None,
-            retry_count: None,
-            retry_delay: None,
             max_feed_bytes: Some(0),
+            ..Default::default()
         }))
         .expect_err("zero max_feed_bytes should fail");
 

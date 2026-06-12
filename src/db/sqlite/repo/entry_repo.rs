@@ -1,30 +1,30 @@
 //! Entry repositories for SQLite-backed listing and mutation operations.
 
 use crate::db::EntryContentStorage as Storage;
-use crate::db::sqlite::query::entries as q;
+use crate::db::sqlite::query::{entries as q, sql_placeholders};
 use crate::db::sqlite::tags;
 use crate::entry::{EntryEnclosure, EntrySummary};
 use crate::error::{AppError, error_details};
 use rusqlite::types::Value;
-use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
+use rusqlite::{Connection, OptionalExtension, Row, params, params_from_iter};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
 
-/// Tuple payload for the entry detail base row selected from SQLite.
-pub(crate) type EntryDetailRow = (
-    i64,
-    String,
-    String,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<i64>,
-    i64,
-);
+/// Payload for the entry detail base row selected from SQLite.
+pub(crate) struct EntryDetailRow {
+    pub entry_pk: i64,
+    pub entry_id: String,
+    pub feed_id: String,
+    pub feed_title: Option<String>,
+    pub title: Option<String>,
+    pub link: Option<String>,
+    pub author: Option<String>,
+    pub published_at: Option<i64>,
+    pub first_seen_at: i64,
+}
 
 /// One list row with metadata required to finalize response payloads.
 pub(crate) struct EntryListRow {
@@ -34,6 +34,30 @@ pub(crate) struct EntryListRow {
     pub summary: EntrySummary,
     /// Feed title resolved from feeds table.
     pub feed_title: Option<String>,
+}
+
+fn entry_list_row_from_row(row: &Row<'_>) -> Result<EntryListRow, rusqlite::Error> {
+    let entry_pk: i64 = row.get(0)?;
+    let entry_id: String = row.get(1)?;
+    let feed_id: String = row.get(2)?;
+    let feed_title: Option<String> = row.get(3)?;
+    let title: Option<String> = row.get(4)?;
+    let link: Option<String> = row.get(5)?;
+    let published_at: Option<i64> = row.get(6)?;
+    let first_seen_at: i64 = row.get(7)?;
+    Ok(EntryListRow {
+        entry_pk,
+        summary: EntrySummary {
+            entry_id,
+            feed_id,
+            title,
+            link,
+            published_at,
+            first_seen_at,
+            tags: Vec::new(),
+        },
+        feed_title,
+    })
 }
 
 /// Read-only repository for entry query operations.
@@ -56,9 +80,7 @@ impl<'a> EntryReadRepo<'a> {
     ) -> Result<HashMap<String, i64>, AppError> {
         let mut ids = HashMap::new();
         for chunk in entry_ids.chunks(Self::IN_CHUNK_SIZE) {
-            let placeholders = std::iter::repeat_n("?", chunk.len())
-                .collect::<Vec<_>>()
-                .join(", ");
+            let placeholders = sql_placeholders(chunk.len());
             let sql = q::select_entry_pks_by_ids(&placeholders);
             let mut stmt = self.conn.prepare(&sql)?;
             let mut rows = stmt.query(params_from_iter(chunk.iter()))?;
@@ -100,34 +122,12 @@ impl<'a> EntryReadRepo<'a> {
         }
         let mut rows_out = Vec::with_capacity(entry_pks.len());
         for chunk in entry_pks.chunks(Self::IN_CHUNK_SIZE) {
-            let placeholders = std::iter::repeat_n("?", chunk.len())
-                .collect::<Vec<_>>()
-                .join(", ");
+            let placeholders = sql_placeholders(chunk.len());
             let sql = q::select_entry_rows_by_entry_pks(&placeholders);
             let mut stmt = self.conn.prepare(&sql)?;
             let mut rows = stmt.query(params_from_iter(chunk.iter()))?;
             while let Some(row) = rows.next()? {
-                let entry_pk: i64 = row.get(0)?;
-                let entry_id: String = row.get(1)?;
-                let feed_id: String = row.get(2)?;
-                let feed_title: Option<String> = row.get(3)?;
-                let title: Option<String> = row.get(4)?;
-                let link: Option<String> = row.get(5)?;
-                let published_at: Option<i64> = row.get(6)?;
-                let first_seen_at: i64 = row.get(7)?;
-                rows_out.push(EntryListRow {
-                    entry_pk,
-                    summary: EntrySummary {
-                        entry_id,
-                        feed_id,
-                        title,
-                        link,
-                        published_at,
-                        first_seen_at,
-                        tags: Vec::new(),
-                    },
-                    feed_title,
-                });
+                rows_out.push(entry_list_row_from_row(row)?);
             }
         }
         Ok(rows_out)
@@ -143,9 +143,7 @@ impl<'a> EntryReadRepo<'a> {
         }
         let mut map: HashMap<i64, Vec<i64>> = HashMap::new();
         for tag_chunk in tag_ids.chunks(Self::IN_CHUNK_SIZE) {
-            let tag_placeholders = std::iter::repeat_n("?", tag_chunk.len())
-                .collect::<Vec<_>>()
-                .join(", ");
+            let tag_placeholders = sql_placeholders(tag_chunk.len());
             let sql = q::select_entry_pks_by_tag_ids(&tag_placeholders);
             let mut stmt = self.conn.prepare(&sql)?;
             let mut rows = stmt.query(params_from_iter(tag_chunk.iter()))?;
@@ -196,28 +194,8 @@ impl<'a> EntryReadRepo<'a> {
         let mut entries = Vec::new();
         let mut sort_keys = Vec::new();
         while let Some(row) = rows.next()? {
-            let entry_pk: i64 = row.get(0)?;
-            let entry_id: String = row.get(1)?;
-            let feed_id: String = row.get(2)?;
-            let feed_title: Option<String> = row.get(3)?;
-            let title: Option<String> = row.get(4)?;
-            let link: Option<String> = row.get(5)?;
-            let published_at: Option<i64> = row.get(6)?;
-            let first_seen_at: i64 = row.get(7)?;
             let sort_key: i64 = row.get(8)?;
-            entries.push(EntryListRow {
-                entry_pk,
-                summary: EntrySummary {
-                    entry_id,
-                    feed_id,
-                    title,
-                    link,
-                    published_at,
-                    first_seen_at,
-                    tags: Vec::new(),
-                },
-                feed_title,
-            });
+            entries.push(entry_list_row_from_row(row)?);
             sort_keys.push(sort_key);
         }
         Ok((entries, sort_keys))
@@ -228,17 +206,17 @@ impl<'a> EntryReadRepo<'a> {
         if entry_pks.is_empty() {
             return Ok(HashMap::new());
         }
-        let placeholders = std::iter::repeat_n("?", entry_pks.len())
-            .collect::<Vec<_>>()
-            .join(",");
-        let sql = q::load_tags_by_entry_ids(&placeholders);
-        let mut stmt = self.conn.prepare(&sql)?;
-        let mut rows = stmt.query(params_from_iter(entry_pks.iter()))?;
         let mut tags: HashMap<i64, Vec<String>> = HashMap::new();
-        while let Some(row) = rows.next()? {
-            let entry_pk: i64 = row.get(0)?;
-            let name: String = row.get(1)?;
-            tags.entry(entry_pk).or_default().push(name);
+        for chunk in entry_pks.chunks(Self::IN_CHUNK_SIZE) {
+            let placeholders = sql_placeholders(chunk.len());
+            let sql = q::load_tags_by_entry_ids(&placeholders);
+            let mut stmt = self.conn.prepare(&sql)?;
+            let mut rows = stmt.query(params_from_iter(chunk.iter()))?;
+            while let Some(row) = rows.next()? {
+                let entry_pk: i64 = row.get(0)?;
+                let name: String = row.get(1)?;
+                tags.entry(entry_pk).or_default().push(name);
+            }
         }
         Ok(tags)
     }
@@ -251,9 +229,7 @@ impl<'a> EntryReadRepo<'a> {
         if names.is_empty() {
             return Ok(HashMap::new());
         }
-        let placeholders = std::iter::repeat_n("?", names.len())
-            .collect::<Vec<_>>()
-            .join(", ");
+        let placeholders = sql_placeholders(names.len());
         let sql = q::select_tag_ids_by_names(&placeholders);
         let mut stmt = self.conn.prepare(&sql)?;
         let mut rows = stmt.query(params_from_iter(names.iter()))?;
@@ -267,20 +243,23 @@ impl<'a> EntryReadRepo<'a> {
     }
 
     /// Loads one entry detail row tuple for view operation.
-    pub fn view_entry_row(&self, entry_id: &str) -> Result<Option<EntryDetailRow>, AppError> {
+    pub(crate) fn view_entry_row(
+        &self,
+        entry_id: &str,
+    ) -> Result<Option<EntryDetailRow>, AppError> {
         self.conn
             .query_row(q::SELECT_ENTRY_DETAIL_BY_ID, params![entry_id], |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                    row.get::<_, Option<String>>(4)?,
-                    row.get::<_, Option<String>>(5)?,
-                    row.get::<_, Option<String>>(6)?,
-                    row.get::<_, Option<i64>>(7)?,
-                    row.get::<_, i64>(8)?,
-                ))
+                Ok(EntryDetailRow {
+                    entry_pk: row.get(0)?,
+                    entry_id: row.get(1)?,
+                    feed_id: row.get(2)?,
+                    feed_title: row.get(3)?,
+                    title: row.get(4)?,
+                    link: row.get(5)?,
+                    author: row.get(6)?,
+                    published_at: row.get(7)?,
+                    first_seen_at: row.get(8)?,
+                })
             })
             .optional()
             .map_err(AppError::from)
@@ -433,22 +412,6 @@ impl<'a> EntryWriteRepo<'a> {
         Ok(self.conn.execute(q::APPLY_MARK_REMOVES, [])?)
     }
 
-    /// Inserts one entry-tag relation if missing.
-    pub fn insert_entry_tag(&self, entry_pk: i64, tag_id: i64) -> Result<usize, AppError> {
-        let rows = self
-            .conn
-            .execute(q::INSERT_ENTRY_TAG_IGNORE, params![entry_pk, tag_id])?;
-        Ok(rows)
-    }
-
-    /// Deletes one entry-tag relation.
-    pub fn delete_entry_tag(&self, entry_pk: i64, tag_id: i64) -> Result<usize, AppError> {
-        let rows = self
-            .conn
-            .execute(q::DELETE_ENTRY_TAG, params![entry_pk, tag_id])?;
-        Ok(rows)
-    }
-
     fn stage_mark_ids<F>(&self, ids: &[i64], sql_builder: F) -> Result<(), AppError>
     where
         F: Fn(&str) -> String,
@@ -576,11 +539,11 @@ mod tests {
             .expect("view row")
             .expect("row exists");
 
-        assert_eq!(row.0, 42);
-        assert_eq!(row.1, "entry-1");
-        assert_eq!(row.2, "feed-1");
-        assert_eq!(row.3.as_deref(), Some("Feed Title"));
-        assert_eq!(row.4.as_deref(), Some("Entry Title"));
+        assert_eq!(row.entry_pk, 42);
+        assert_eq!(row.entry_id, "entry-1");
+        assert_eq!(row.feed_id, "feed-1");
+        assert_eq!(row.feed_title.as_deref(), Some("Feed Title"));
+        assert_eq!(row.title.as_deref(), Some("Entry Title"));
     }
 
     #[test]

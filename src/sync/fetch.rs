@@ -357,10 +357,11 @@ fn fetch_feed_bytes(
     agent: &ureq::Agent,
 ) -> Result<Vec<u8>, FetchError> {
     match parse_feed_source(url)? {
-        FeedSource::File(path) => return read_feed_file(&path, sync),
-        FeedSource::Gopher(parsed_url) => return fetch_gopher_bytes(&parsed_url, sync),
+        FeedSource::File(path) => read_feed_file(&path, sync),
+        FeedSource::Gopher(parsed_url) => fetch_gopher_bytes(&parsed_url, sync),
         FeedSource::Http(parsed_url) => {
-            for attempt in 0..=sync.retry_count {
+            let mut attempt = 0;
+            loop {
                 let response = agent
                     .get(&parsed_url)
                     .header("User-Agent", &sync.user_agent)
@@ -391,15 +392,12 @@ fn fetch_feed_bytes(
                         if sync.retry_delay_secs > 0 {
                             thread::sleep(Duration::from_secs(sync.retry_delay_secs));
                         }
+                        attempt += 1;
                     }
                 }
             }
         }
     }
-    Err(FetchError {
-        message: "Fetch failed".to_string(),
-        retryable: true,
-    })
 }
 
 fn trim_url_prefix(url: &str, message: String) -> String {

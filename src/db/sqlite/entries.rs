@@ -3,7 +3,7 @@
 //! This module intentionally stays at single-statement query execution level.
 //! Multi-step workflows must live in repository modules.
 
-use crate::db::sqlite::query::entries as q;
+use crate::db::sqlite::query::{entries as q, sql_placeholders};
 use crate::db::{EntryContentInput, EntryInput, EntryInsertResult};
 use crate::error::AppError;
 use crate::string_set::dedupe_string_slice_preserve_order;
@@ -104,9 +104,7 @@ impl<'conn> IngestContext<'conn> {
 fn resolve_tag_ids(conn: &Connection, unique: &[String]) -> Result<HashMap<String, i64>, AppError> {
     let mut tag_ids = HashMap::new();
     for chunk in unique.chunks(TAG_ID_LOOKUP_CHUNK_SIZE) {
-        let placeholders = std::iter::repeat_n("?", chunk.len())
-            .collect::<Vec<_>>()
-            .join(",");
+        let placeholders = sql_placeholders(chunk.len());
         let query = q::select_tag_ids_by_names(&placeholders);
         let mut stmt = conn.prepare_cached(&query)?;
         let mut rows = stmt.query(params_from_iter(chunk.iter()))?;

@@ -1,7 +1,7 @@
 //! Feeds configuration parser for feeds.yaml.
 
 use crate::error::{AppError, error_details};
-use crate::tag::{duplicated_tag_names, merge_tag_names};
+use crate::string_set::{duplicated_strings_preserve_order, merge_unique_strings};
 use regex::Regex;
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -129,7 +129,7 @@ impl FeedsConfig {
                 .filter(|tag| !tag.is_empty())
                 .cloned()
                 .collect::<Vec<_>>();
-            for duplicated_tag in duplicated_tag_names(&non_empty_tags) {
+            for duplicated_tag in duplicated_strings_preserve_order(&non_empty_tags) {
                 warnings.push(ValidationIssue {
                     code: "DUPLICATE_FEED_TAG".to_string(),
                     message: format!("duplicated feed tag '{duplicated_tag}'"),
@@ -450,7 +450,7 @@ fn normalize_tag_name(tag: &str) -> String {
 
 /// Merges two tag lists while preserving order and uniqueness.
 fn merge_tags(base: &[String], extra: &[String]) -> Vec<String> {
-    merge_tag_names(base, extra)
+    merge_unique_strings(base, extra)
 }
 
 /// Merges inherited and local auto-tag rules while preserving order.

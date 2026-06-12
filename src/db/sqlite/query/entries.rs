@@ -27,10 +27,6 @@ pub(crate) const INSERT_TAG_IGNORE: &str = "INSERT OR IGNORE INTO tags (name) VA
 pub(crate) const INSERT_ENTRY_TAG_IGNORE: &str =
     "INSERT OR IGNORE INTO entry_tags (entry_pk, tag_id) VALUES (?1, ?2)";
 
-/// Deletes entry-tag relation.
-pub(crate) const DELETE_ENTRY_TAG: &str =
-    "DELETE FROM entry_tags WHERE entry_pk = ?1 AND tag_id = ?2";
-
 /// Creates temp tables used by bulk mark operations.
 pub(crate) const CREATE_MARK_TEMP_TABLES: &str = r#"
 CREATE TEMP TABLE IF NOT EXISTS temp_mark_entry_pks (

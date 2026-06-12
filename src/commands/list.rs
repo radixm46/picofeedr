@@ -27,25 +27,20 @@ fn resolve_list_limit(limit: Option<usize>, query: config::QueryConfig) -> Resul
     if resolved == 0 {
         return Err(AppError::invalid_query_with_details(
             "--limit must be greater than 0",
-            limit_error_details("zero_or_negative", resolved, query.max_limit),
+            limit_error_details(resolved, "limit_must_be_greater_than_zero"),
         ));
     }
     if resolved > query.max_limit {
         return Err(AppError::invalid_query_with_details(
             format!("--limit must be less than or equal to {}", query.max_limit),
-            limit_error_details("exceeds_max_limit", resolved, query.max_limit),
+            limit_error_details(resolved, "limit_exceeds_configured_max_limit"),
         ));
     }
     Ok(resolved)
 }
 
 /// Builds standardized details payload for limit validation failures.
-fn limit_error_details(kind: &str, value: usize, _max_limit: usize) -> ErrorDetails {
-    let hint = match kind {
-        "zero_or_negative" => "limit_must_be_greater_than_zero",
-        "exceeds_max_limit" => "limit_exceeds_configured_max_limit",
-        _ => "invalid_limit",
-    };
+fn limit_error_details(value: usize, hint: &'static str) -> ErrorDetails {
     error_details([
         ("kind", Value::from("limit_out_of_range")),
         ("field", Value::from("limit")),

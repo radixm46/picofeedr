@@ -3,7 +3,7 @@
 //! This module intentionally stays at single-statement query execution level.
 //! Multi-step workflows must live in repository modules.
 
-use crate::db::sqlite::query::feeds as q;
+use crate::db::sqlite::query::{feeds as q, sql_placeholders};
 use crate::db::{FeedInput, FeedRow};
 use crate::error::AppError;
 use rusqlite::{Connection, params, params_from_iter};
@@ -28,6 +28,7 @@ pub(crate) fn list_feeds_with_conn(conn: &Connection) -> Result<Vec<FeedRow>, Ap
 }
 
 /// Inserts or updates a feed row using a provided connection.
+#[cfg(test)]
 pub(crate) fn upsert_feed_with_conn(
     conn: &Connection,
     feed: &FeedInput,
@@ -99,9 +100,7 @@ pub(crate) fn find_feed_pks_by_ids_with_conn(
     }
     let mut feed_pks_by_id = HashMap::new();
     for chunk in feed_ids.chunks(FEED_ID_CHUNK_SIZE) {
-        let placeholders = std::iter::repeat_n("?", chunk.len())
-            .collect::<Vec<_>>()
-            .join(", ");
+        let placeholders = sql_placeholders(chunk.len());
         let sql = q::select_feed_pks_by_ids(&placeholders);
         let mut stmt = conn.prepare(&sql)?;
         let mut rows = stmt.query(params_from_iter(chunk.iter()))?;

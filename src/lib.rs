@@ -16,5 +16,5 @@ pub mod sync;
 mod tag;
 mod time;
 
-pub use tag::{TagManager, parse_tag_csv};
+pub use tag::parse_tag_csv;
 pub use time::current_epoch;

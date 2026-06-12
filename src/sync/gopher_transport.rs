@@ -27,20 +27,19 @@ struct GopherRequest {
 
 pub(super) fn fetch_gopher_bytes(url: &str, sync: &SyncConfig) -> Result<Vec<u8>, FetchError> {
     let request = parse_gopher_url(url)?;
-    for attempt in 0..=sync.retry_count {
+    let mut attempt = 0;
+    loop {
         match fetch_once(&request, sync) {
             Ok(bytes) => return Ok(bytes),
             Err(error) if !error.retryable || attempt >= sync.retry_count => return Err(error),
-            Err(_) if sync.retry_delay_secs > 0 => {
-                thread::sleep(Duration::from_secs(sync.retry_delay_secs));
+            Err(_) => {
+                if sync.retry_delay_secs > 0 {
+                    thread::sleep(Duration::from_secs(sync.retry_delay_secs));
+                }
+                attempt += 1;
             }
-            Err(_) => {}
         }
     }
-    Err(FetchError {
-        message: "Fetch failed".to_string(),
-        retryable: true,
-    })
 }
 
 fn fetch_once(request: &GopherRequest, sync: &SyncConfig) -> Result<Vec<u8>, FetchError> {

@@ -5,6 +5,7 @@ pub(crate) const SELECT_FEEDS: &str =
     "SELECT id, feed_id, url, title, author, site_url FROM feeds ORDER BY id";
 
 /// Upserts feed record.
+#[cfg(test)]
 pub(crate) const UPSERT_FEED: &str = r#"
 INSERT INTO feeds (feed_id, url, title, author, site_url, meta_json, created_at, updated_at)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)

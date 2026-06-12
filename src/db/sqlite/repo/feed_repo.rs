@@ -47,10 +47,6 @@ impl<'a> FeedWriteRepo<'a> {
     }
 
     /// Upserts one feed row.
-    pub fn upsert_feed(&self, feed: &FeedInput, now: i64) -> Result<(), AppError> {
-        feeds::upsert_feed_with_conn(self.conn, feed, now)
-    }
-
     /// Refreshes non-empty feed metadata on an existing feed row.
     pub(crate) fn refresh_feed_metadata(
         &self,

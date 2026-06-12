@@ -6,7 +6,6 @@ mod store;
 mod sync;
 
 use crate::{CommandOutcome, CommandRun, RunFailure, version_response};
-use picofeedr::TagManager;
 use picofeedr::cli::{Command, OutputFormat};
 use picofeedr::config;
 use picofeedr::entry::{self, EntryDetail};
@@ -77,8 +76,7 @@ pub(crate) fn run_command(
 
 pub(crate) fn run_tags_command(config: &config::AppConfig) -> Result<TagListResponse, AppError> {
     with_store(config, |store| {
-        let tag_manager = TagManager::new(store);
-        let tags = tag_manager.list_tags()?;
+        let tags = store.list_tags()?;
         Ok(TagListResponse { tags })
     })
 }

@@ -9,7 +9,7 @@ use std::io::{self, Write};
 use tracing::debug;
 
 pub(crate) fn run_sync_command(config: &config::AppConfig) -> Result<SyncSummary, AppError> {
-    with_store(config, |store| run_sync_with_store(config, store))
+    with_store(config, |store| run_sync_with_store(config, store, None))
 }
 
 /// Executes sync command and streams plain progress lines to stdout.
@@ -23,9 +23,6 @@ pub(crate) fn run_sync_command_plain(
     );
     let mut store = db::sqlite::SqliteStore::open(&config.database.path)?;
     store.migrate()?;
-    let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
-    feeds_config.ensure_valid_for_runtime()?;
-
     let stdout = io::stdout();
     let mut writer = io::BufWriter::new(stdout.lock());
     let mut write_error: Option<io::Error> = None;
@@ -42,15 +39,10 @@ pub(crate) fn run_sync_command_plain(
         }
     };
 
-    let summary =
-        sync::run_sync_with_progress(&mut store, config, &feeds_config, Some(&mut on_progress))?;
+    let summary = run_sync_with_store(config, &mut store, Some(&mut on_progress))?;
     if let Some(error) = write_error {
         return Err(RunFailure::Io(error));
     }
-
-    let now = current_epoch();
-    store.bump_revision(now)?;
-    store.update_sync(now, summary.status.as_str())?;
     Ok(summary)
 }
 
@@ -58,10 +50,11 @@ pub(crate) fn run_sync_command_plain(
 fn run_sync_with_store(
     config: &config::AppConfig,
     store: &mut db::sqlite::SqliteStore,
+    on_progress: Option<&mut dyn FnMut(sync::SyncProgressEvent)>,
 ) -> Result<SyncSummary, AppError> {
     let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
     feeds_config.ensure_valid_for_runtime()?;
-    let summary = sync::run_sync(store, config, &feeds_config)?;
+    let summary = sync::run_sync_with_progress(store, config, &feeds_config, on_progress)?;
     let now = current_epoch();
     store.bump_revision(now)?;
     store.update_sync(now, summary.status.as_str())?;

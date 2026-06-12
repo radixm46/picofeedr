@@ -1,7 +1,7 @@
 use super::{EntryListResponse, EntrySummary, FeedSummary};
 use crate::cli::SortOrder;
 use crate::db::sqlite::SqliteStore;
-use crate::db::sqlite::query::entries as q;
+use crate::db::sqlite::query::{entries as q, sql_placeholders};
 use crate::db::sqlite::repo::EntryReadRepo;
 use crate::error::{AppError, error_details};
 use crate::query::{EntryQuery, FeedFilter, TagExpr};
@@ -808,9 +808,7 @@ fn build_tag_expr_clause(
                 if ids.is_empty() {
                     return "0=1".to_string();
                 }
-                let placeholders = std::iter::repeat_n("?", ids.len())
-                    .collect::<Vec<_>>()
-                    .join(", ");
+                let placeholders = sql_placeholders(ids.len());
                 for id in ids {
                     params.push(Value::from(id));
                 }
