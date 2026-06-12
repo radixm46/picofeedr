@@ -1,48 +1,24 @@
 use super::{EntryListResponse, EntrySummary, FeedSummary};
+mod cursor;
+mod setops;
+
 use crate::cli::SortOrder;
 use crate::db::sqlite::SqliteStore;
 use crate::db::sqlite::query::{entries as q, sql_placeholders};
-use crate::db::sqlite::repo::EntryReadRepo;
+use crate::db::sqlite::repo::{EntryListRow, EntryReadRepo};
 use crate::error::{AppError, error_details};
 use crate::query::{EntryQuery, FeedFilter, TagExpr};
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use cursor::{compute_query_hash, decode_cursor, encode_cursor_with_query};
 use rusqlite::types::Value;
-use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
-use sha1::{Digest, Sha1};
+use setops::{UniverseView, intersect_sorted_into, merge_union_sorted_into};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-
-/// Cursor payload for pagination.
-#[derive(Debug, Serialize, Deserialize)]
-struct Cursor {
-    k: i64,
-    id: i64,
-    sort: String,
-    query_hash: String,
-}
 
 type EntryListPage = (Vec<EntrySummary>, Vec<FeedSummary>, Option<String>);
 
 enum FeedIdPredicate {
     NotRequested,
     Resolved(i64),
-}
-
-#[derive(Clone, Copy)]
-struct UniverseView<'a>(&'a [(i64, i64)]);
-
-impl<'a> UniverseView<'a> {
-    fn len(self) -> usize {
-        self.0.len()
-    }
-
-    fn intersect_sorted(self, right: &[i64]) -> Vec<i64> {
-        intersect_pairs_sorted(self.0, right)
-    }
-
-    fn difference_sorted(self, right: &[i64]) -> Vec<i64> {
-        difference_pairs_sorted(self.0, right)
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,8 +47,15 @@ pub fn list_entries(
     if let Some(tag_expr) = &query.tag_expr
         && matches!(route_tag_eval_path(tag_expr), TagEvalPath::Complex)
     {
-        let (universe_where_sql, universe_params) =
-            build_non_tag_where_clause(query, sort, None, &query_hash, &feed_id_predicate)?;
+        let (universe_where_sql, universe_params) = build_where_clause(
+            query,
+            sort,
+            None,
+            &query_hash,
+            &feed_id_predicate,
+            None,
+            &[],
+        )?;
         let mut universe_sort_pairs = entry_repo.list_filtered_entry_sort_keys(
             &universe_where_sql,
             &universe_params,
@@ -251,133 +234,6 @@ fn evaluate_tag_expr_set(
     }
 }
 
-#[cfg(test)]
-fn intersect_sorted(left: &[i64], right: &[i64]) -> Vec<i64> {
-    let mut result = Vec::with_capacity(left.len().min(right.len()));
-    intersect_sorted_into(left, right, &mut result);
-    result
-}
-
-fn intersect_pairs_sorted(left: &[(i64, i64)], right: &[i64]) -> Vec<i64> {
-    let mut result = Vec::with_capacity(left.len().min(right.len()));
-    let mut left_index = 0usize;
-    let mut right_index = 0usize;
-    while left_index < left.len() && right_index < right.len() {
-        match left[left_index].0.cmp(&right[right_index]) {
-            std::cmp::Ordering::Less => left_index += 1,
-            std::cmp::Ordering::Greater => right_index += 1,
-            std::cmp::Ordering::Equal => {
-                result.push(left[left_index].0);
-                left_index += 1;
-                right_index += 1;
-            }
-        }
-    }
-    result
-}
-
-fn intersect_sorted_into(left: &[i64], right: &[i64], result: &mut Vec<i64>) {
-    result.clear();
-    let target_capacity = left.len().min(right.len());
-    result.reserve(target_capacity.saturating_sub(result.capacity()));
-    let mut left_index = 0usize;
-    let mut right_index = 0usize;
-    while left_index < left.len() && right_index < right.len() {
-        match left[left_index].cmp(&right[right_index]) {
-            std::cmp::Ordering::Less => left_index += 1,
-            std::cmp::Ordering::Greater => right_index += 1,
-            std::cmp::Ordering::Equal => {
-                result.push(left[left_index]);
-                left_index += 1;
-                right_index += 1;
-            }
-        }
-    }
-}
-
-#[cfg(test)]
-fn difference_sorted(left: &[i64], right: &[i64]) -> Vec<i64> {
-    let mut result = Vec::with_capacity(left.len());
-    let mut left_index = 0usize;
-    let mut right_index = 0usize;
-    while left_index < left.len() {
-        if right_index >= right.len() {
-            result.extend_from_slice(&left[left_index..]);
-            break;
-        }
-        match left[left_index].cmp(&right[right_index]) {
-            std::cmp::Ordering::Less => {
-                result.push(left[left_index]);
-                left_index += 1;
-            }
-            std::cmp::Ordering::Greater => right_index += 1,
-            std::cmp::Ordering::Equal => {
-                left_index += 1;
-                right_index += 1;
-            }
-        }
-    }
-    result
-}
-
-fn difference_pairs_sorted(left: &[(i64, i64)], right: &[i64]) -> Vec<i64> {
-    let mut result = Vec::with_capacity(left.len());
-    let mut left_index = 0usize;
-    let mut right_index = 0usize;
-    while left_index < left.len() {
-        if right_index >= right.len() {
-            result.extend(left[left_index..].iter().map(|(entry_pk, _)| *entry_pk));
-            break;
-        }
-        match left[left_index].0.cmp(&right[right_index]) {
-            std::cmp::Ordering::Less => {
-                result.push(left[left_index].0);
-                left_index += 1;
-            }
-            std::cmp::Ordering::Greater => right_index += 1,
-            std::cmp::Ordering::Equal => {
-                left_index += 1;
-                right_index += 1;
-            }
-        }
-    }
-    result
-}
-
-#[cfg(test)]
-fn merge_union_sorted(left: &[i64], right: &[i64]) -> Vec<i64> {
-    let mut result = Vec::with_capacity(left.len() + right.len());
-    merge_union_sorted_into(left, right, &mut result);
-    result
-}
-
-fn merge_union_sorted_into(left: &[i64], right: &[i64], result: &mut Vec<i64>) {
-    result.clear();
-    let target_capacity = left.len() + right.len();
-    result.reserve(target_capacity.saturating_sub(result.capacity()));
-    let mut left_index = 0usize;
-    let mut right_index = 0usize;
-    while left_index < left.len() && right_index < right.len() {
-        match left[left_index].cmp(&right[right_index]) {
-            std::cmp::Ordering::Less => {
-                result.push(left[left_index]);
-                left_index += 1;
-            }
-            std::cmp::Ordering::Greater => {
-                result.push(right[right_index]);
-                right_index += 1;
-            }
-            std::cmp::Ordering::Equal => {
-                result.push(left[left_index]);
-                left_index += 1;
-                right_index += 1;
-            }
-        }
-    }
-    result.extend_from_slice(&left[left_index..]);
-    result.extend_from_slice(&right[right_index..]);
-}
-
 fn resolve_feed_id_predicate(
     store: &SqliteStore,
     query: &EntryQuery,
@@ -446,23 +302,6 @@ fn build_where_clause(
         merged.extend(params);
         params = merged;
     }
-    let where_sql = if clauses.is_empty() {
-        String::new()
-    } else {
-        format!("{}{}", q::WHERE_PREFIX, clauses.join(" AND "))
-    };
-    Ok((where_sql, params))
-}
-
-fn build_non_tag_where_clause(
-    query: &EntryQuery,
-    sort: SortOrder,
-    cursor: Option<&str>,
-    query_hash: &str,
-    feed_id_predicate: &FeedIdPredicate,
-) -> Result<(String, Vec<Value>), AppError> {
-    let (clauses, params) =
-        build_non_tag_predicates(query, sort, cursor, query_hash, feed_id_predicate)?;
     let where_sql = if clauses.is_empty() {
         String::new()
     } else {
@@ -544,22 +383,8 @@ fn fetch_entries(
         rows.truncate(limit);
         sort_keys.truncate(limit);
     }
-    let ids: Vec<i64> = rows.iter().map(|entry| entry.entry_pk).collect();
-    let tags = entry_repo.load_tags(&ids)?;
-    for row in &mut rows {
-        row.summary.tags = tags.get(&row.entry_pk).cloned().unwrap_or_default();
-    }
-    let feeds = rows
-        .iter()
-        .fold(BTreeMap::<String, Option<String>>::new(), |mut map, row| {
-            map.entry(row.summary.feed_id.clone())
-                .or_insert_with(|| row.feed_title.clone());
-            map
-        })
-        .into_iter()
-        .map(|(feed_id, title)| FeedSummary { feed_id, title })
-        .collect::<Vec<_>>();
-    let entries = rows.into_iter().map(|row| row.summary).collect::<Vec<_>>();
+    let ids: Vec<i64> = rows.iter().map(|row| row.entry_pk).collect();
+    let (items, feeds) = finalize_rows(entry_repo, rows)?;
     let next_page_token = if has_next {
         match (ids.last(), sort_keys.last()) {
             (Some(id), Some(key)) => Some(encode_cursor_with_query(*key, *id, sort, query_hash)?),
@@ -568,7 +393,7 @@ fn fetch_entries(
     } else {
         None
     };
-    Ok((entries, feeds, next_page_token))
+    Ok((items, feeds, next_page_token))
 }
 
 fn fetch_entries_complex(
@@ -628,24 +453,7 @@ fn fetch_entries_complex(
         }
     }
 
-    let tags = entry_repo.load_tags(&page_ids)?;
-    for row in &mut ordered_rows {
-        row.summary.tags = tags.get(&row.entry_pk).cloned().unwrap_or_default();
-    }
-    let feeds = ordered_rows
-        .iter()
-        .fold(BTreeMap::<String, Option<String>>::new(), |mut map, row| {
-            map.entry(row.summary.feed_id.clone())
-                .or_insert_with(|| row.feed_title.clone());
-            map
-        })
-        .into_iter()
-        .map(|(feed_id, title)| FeedSummary { feed_id, title })
-        .collect::<Vec<_>>();
-    let items = ordered_rows
-        .into_iter()
-        .map(|row| row.summary)
-        .collect::<Vec<_>>();
+    let (items, feeds) = finalize_rows(entry_repo, ordered_rows)?;
     let next_page_token = if has_next {
         page_pairs
             .last()
@@ -655,6 +463,29 @@ fn fetch_entries_complex(
         None
     };
     Ok((items, feeds, next_page_token))
+}
+
+fn finalize_rows(
+    entry_repo: &EntryReadRepo<'_>,
+    mut rows: Vec<EntryListRow>,
+) -> Result<(Vec<EntrySummary>, Vec<FeedSummary>), AppError> {
+    let ids: Vec<i64> = rows.iter().map(|row| row.entry_pk).collect();
+    let tags = entry_repo.load_tags(&ids)?;
+    for row in &mut rows {
+        row.summary.tags = tags.get(&row.entry_pk).cloned().unwrap_or_default();
+    }
+    let feeds = rows
+        .iter()
+        .fold(BTreeMap::<String, Option<String>>::new(), |mut map, row| {
+            map.entry(row.summary.feed_id.clone())
+                .or_insert_with(|| row.feed_title.clone());
+            map
+        })
+        .into_iter()
+        .map(|(feed_id, title)| FeedSummary { feed_id, title })
+        .collect::<Vec<_>>();
+    let items = rows.into_iter().map(|row| row.summary).collect::<Vec<_>>();
+    Ok((items, feeds))
 }
 
 fn sort_key_expr(sort: SortOrder) -> &'static str {
@@ -676,88 +507,6 @@ fn sort_order_clause(sort: SortOrder) -> &'static str {
         SortOrder::FirstSeenDesc => q::ORDER_BY_FIRST_SEEN_DESC,
         SortOrder::FirstSeenAsc => q::ORDER_BY_FIRST_SEEN_ASC,
     }
-}
-
-/// Encodes pagination cursor with query metadata.
-fn encode_cursor_with_query(
-    key: i64,
-    id: i64,
-    sort: SortOrder,
-    query_hash: &str,
-) -> Result<String, AppError> {
-    let cursor = Cursor {
-        k: key,
-        id,
-        sort: sort.as_str().to_string(),
-        query_hash: query_hash.to_string(),
-    };
-    let bytes = serde_json::to_vec(&cursor)?;
-    Ok(URL_SAFE_NO_PAD.encode(bytes))
-}
-
-/// Decodes and validates pagination cursor.
-fn decode_cursor(raw: &str, sort: SortOrder, query_hash: &str) -> Result<Cursor, AppError> {
-    let bytes = URL_SAFE_NO_PAD.decode(raw.as_bytes()).map_err(|error| {
-        AppError::invalid_query_with_details(
-            format!("Invalid cursor: {error}"),
-            error_details([
-                ("kind", JsonValue::from("invalid_cursor")),
-                ("field", JsonValue::from("cursor")),
-                ("value", JsonValue::from(raw.to_string())),
-                ("hint", JsonValue::from("base64url_decode_failed")),
-            ]),
-        )
-    })?;
-    let cursor: Cursor = serde_json::from_slice(&bytes).map_err(|error| {
-        AppError::invalid_query_with_details(
-            format!("Invalid cursor: {error}"),
-            error_details([
-                ("kind", JsonValue::from("invalid_cursor")),
-                ("field", JsonValue::from("cursor")),
-                ("value", JsonValue::from(raw.to_string())),
-                ("hint", JsonValue::from("cursor_json_decode_failed")),
-            ]),
-        )
-    })?;
-    if cursor.sort != sort.as_str() || cursor.query_hash != query_hash {
-        return Err(AppError::invalid_query_with_details(
-            "Cursor does not match the current query",
-            error_details([
-                ("kind", JsonValue::from("invalid_cursor")),
-                ("field", JsonValue::from("cursor")),
-                ("value", JsonValue::from(raw.to_string())),
-                ("hint", JsonValue::from("cursor_mismatch")),
-            ]),
-        ));
-    }
-    Ok(cursor)
-}
-
-/// Computes a stable hash for query validation.
-fn compute_query_hash(query: &EntryQuery) -> String {
-    let mut components = Vec::new();
-    if let Some(tag_expr) = &query.tag_expr {
-        components.push(format!("tag_expr={}", tag_expr.canonical()));
-    }
-    if let Some(feed) = &query.feed {
-        match feed {
-            FeedFilter::Id(id) => components.push(format!("feed_id={id}")),
-            FeedFilter::Title(title) => components.push(format!("feed_title={title}")),
-        }
-    }
-    if let Some(title) = &query.title {
-        components.push(format!("title={title}"));
-    }
-    if let Some(after) = query.after {
-        components.push(format!("after={after}"));
-    }
-    if let Some(before) = query.before {
-        components.push(format!("before={before}"));
-    }
-    let payload = components.join("|");
-    let mut hasher = Sha1::new();
-    hasher.update(payload.as_bytes());
-    hex::encode(hasher.finalize())
 }
 
 /// Builds SQL for a tag expression and appends bind params.
@@ -830,10 +579,8 @@ fn build_tag_expr_clause(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        TagEvalPath, UniverseView, difference_sorted, evaluate_tag_expr_set, intersect_sorted,
-        merge_union_sorted, route_tag_eval_path,
-    };
+    use super::setops::UniverseView;
+    use super::{TagEvalPath, evaluate_tag_expr_set, route_tag_eval_path};
     use crate::query::TagExpr;
     use std::collections::HashMap;
 
@@ -877,30 +624,6 @@ mod tests {
     fn route_complex_when_or_fanout_exceeds_threshold() {
         let expr = TagExpr::Or((0..7).map(|i| TagExpr::Tag(format!("t{i}"))).collect());
         assert_eq!(route_tag_eval_path(&expr), TagEvalPath::Complex);
-    }
-
-    #[test]
-    fn intersect_sorted_returns_common_values_in_order() {
-        assert_eq!(intersect_sorted(&[1, 3, 4, 7], &[2, 3, 4, 8]), vec![3, 4]);
-    }
-
-    #[test]
-    fn difference_sorted_returns_values_missing_from_right() {
-        assert_eq!(difference_sorted(&[1, 2, 3, 5], &[2, 4, 5]), vec![1, 3]);
-    }
-
-    #[test]
-    fn merge_union_sorted_merges_without_duplicates() {
-        assert_eq!(
-            merge_union_sorted(&[1, 2, 5, 9], &[2, 3, 4, 9]),
-            vec![1, 2, 3, 4, 5, 9]
-        );
-    }
-
-    #[test]
-    fn merge_union_sorted_handles_empty_inputs() {
-        assert_eq!(merge_union_sorted(&[], &[2, 4]), vec![2, 4]);
-        assert_eq!(merge_union_sorted(&[1, 3], &[]), vec![1, 3]);
     }
 
     #[test]
