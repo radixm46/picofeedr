@@ -22,7 +22,7 @@ where
 }
 
 /// Error codes exposed by the CLI.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorCode {
     /// Configuration error.
     ConfigError,
@@ -60,147 +60,83 @@ impl ErrorCode {
 
 /// Application error with code and retry flag.
 #[derive(Debug, Error)]
-pub enum AppError {
-    /// Configuration error.
-    #[error("{message}")]
-    Config {
-        /// Human-readable message.
-        message: String,
-        /// Optional machine-readable details.
-        details: Option<ErrorDetails>,
-        /// Source error when available.
-        #[source]
-        source: Option<BoxError>,
-    },
-    /// Query syntax error.
-    #[error("{message}")]
-    InvalidQuery {
-        /// Human-readable message.
-        message: String,
-        /// Optional machine-readable details.
-        details: Option<ErrorDetails>,
-        /// Source error when available.
-        #[source]
-        source: Option<BoxError>,
-    },
-    /// Entry not found error.
-    #[error("{message}")]
-    EntryNotFound {
-        /// Human-readable message.
-        message: String,
-        /// Optional machine-readable details.
-        details: Option<ErrorDetails>,
-        /// Source error when available.
-        #[source]
-        source: Option<BoxError>,
-    },
-    /// Database locked/busy error.
-    #[error("{message}")]
-    DbLocked {
-        /// Human-readable message.
-        message: String,
-        /// Optional machine-readable details.
-        details: Option<ErrorDetails>,
-        /// Source error when available.
-        #[source]
-        source: Option<BoxError>,
-    },
-    /// Database error.
-    #[error("{message}")]
-    Db {
-        /// Human-readable message.
-        message: String,
-        /// Optional machine-readable details.
-        details: Option<ErrorDetails>,
-        /// Source error when available.
-        #[source]
-        source: Option<BoxError>,
-    },
-    /// Internal unexpected error.
-    #[error("{message}")]
-    Internal {
-        /// Human-readable message.
-        message: String,
-        /// Optional machine-readable details.
-        details: Option<ErrorDetails>,
-        /// Source error when available.
-        #[source]
-        source: Option<BoxError>,
-    },
-    /// I/O error.
-    #[error("{message}")]
-    Io {
-        /// Human-readable message.
-        message: String,
-        /// Optional machine-readable details.
-        details: Option<ErrorDetails>,
-        /// Source error when available.
-        #[source]
-        source: Option<BoxError>,
-    },
-    /// Serialization error.
-    #[error("{message}")]
-    Serialization {
-        /// Human-readable message.
-        message: String,
-        /// Optional machine-readable details.
-        details: Option<ErrorDetails>,
-        /// Source error when available.
-        #[source]
-        source: Option<BoxError>,
-    },
+#[error("{message}")]
+pub struct AppError {
+    /// Error code.
+    code: ErrorCode,
+    /// Human-readable message.
+    message: String,
+    /// Optional machine-readable details.
+    details: Option<ErrorDetails>,
+    /// Source error when available.
+    #[source]
+    source: Option<BoxError>,
 }
 
 impl AppError {
-    /// Returns the error code.
-    pub fn code(&self) -> ErrorCode {
-        match self {
-            AppError::Config { .. } => ErrorCode::ConfigError,
-            AppError::InvalidQuery { .. } => ErrorCode::InvalidQuery,
-            AppError::EntryNotFound { .. } => ErrorCode::EntryNotFound,
-            AppError::DbLocked { .. } => ErrorCode::DbLocked,
-            AppError::Db { .. } => ErrorCode::DbError,
-            AppError::Internal { .. } => ErrorCode::Internal,
-            AppError::Io { .. } => ErrorCode::IoError,
-            AppError::Serialization { .. } => ErrorCode::SerializationError,
-        }
-    }
-
-    /// Returns the error message.
-    pub fn message(&self) -> &str {
-        match self {
-            AppError::Config { message, .. }
-            | AppError::InvalidQuery { message, .. }
-            | AppError::EntryNotFound { message, .. }
-            | AppError::DbLocked { message, .. }
-            | AppError::Db { message, .. }
-            | AppError::Internal { message, .. }
-            | AppError::Io { message, .. }
-            | AppError::Serialization { message, .. } => message,
-        }
-    }
-
-    /// Returns whether the operation is safe to retry.
-    pub fn retry(&self) -> bool {
-        matches!(self, AppError::DbLocked { .. })
-    }
-
-    /// Creates a configuration error.
-    pub fn config(message: impl Into<String>) -> Self {
-        Self::Config {
+    fn new(code: ErrorCode, message: impl Into<String>) -> Self {
+        Self {
+            code,
             message: message.into(),
             details: None,
             source: None,
         }
     }
 
+    fn with_details(code: ErrorCode, message: impl Into<String>, details: ErrorDetails) -> Self {
+        Self {
+            details: Some(details),
+            ..Self::new(code, message)
+        }
+    }
+
+    fn with_source(
+        code: ErrorCode,
+        message: impl Into<String>,
+        source: impl StdError + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            source: Some(Box::new(source)),
+            ..Self::new(code, message)
+        }
+    }
+
+    fn with_details_and_source(
+        code: ErrorCode,
+        message: impl Into<String>,
+        details: ErrorDetails,
+        source: impl StdError + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            details: Some(details),
+            source: Some(Box::new(source)),
+            ..Self::new(code, message)
+        }
+    }
+
+    /// Returns the error code.
+    pub fn code(&self) -> ErrorCode {
+        self.code
+    }
+
+    /// Returns the error message.
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
+    /// Returns whether the operation is safe to retry.
+    pub fn retry(&self) -> bool {
+        self.code == ErrorCode::DbLocked
+    }
+
+    /// Creates a configuration error.
+    pub fn config(message: impl Into<String>) -> Self {
+        Self::new(ErrorCode::ConfigError, message)
+    }
+
     /// Creates a configuration error with details.
     pub fn config_with_details(message: impl Into<String>, details: ErrorDetails) -> Self {
-        Self::Config {
-            message: message.into(),
-            details: Some(details),
-            source: None,
-        }
+        Self::with_details(ErrorCode::ConfigError, message, details)
     }
 
     /// Creates a configuration error with source.
@@ -208,65 +144,37 @@ impl AppError {
         message: impl Into<String>,
         source: impl StdError + Send + Sync + 'static,
     ) -> Self {
-        Self::Config {
-            message: message.into(),
-            details: None,
-            source: Some(Box::new(source)),
-        }
+        Self::with_source(ErrorCode::ConfigError, message, source)
     }
 
     /// Creates an invalid query error.
     pub fn invalid_query(message: impl Into<String>) -> Self {
-        Self::InvalidQuery {
-            message: message.into(),
-            details: None,
-            source: None,
-        }
+        Self::new(ErrorCode::InvalidQuery, message)
     }
 
     /// Creates an invalid query error with details.
     pub fn invalid_query_with_details(message: impl Into<String>, details: ErrorDetails) -> Self {
-        Self::InvalidQuery {
-            message: message.into(),
-            details: Some(details),
-            source: None,
-        }
+        Self::with_details(ErrorCode::InvalidQuery, message, details)
     }
 
     /// Creates an entry not found error with details.
     pub fn entry_not_found_with_details(message: impl Into<String>, details: ErrorDetails) -> Self {
-        Self::EntryNotFound {
-            message: message.into(),
-            details: Some(details),
-            source: None,
-        }
+        Self::with_details(ErrorCode::EntryNotFound, message, details)
     }
 
     /// Creates an entry not found error.
     pub fn entry_not_found(message: impl Into<String>) -> Self {
-        Self::EntryNotFound {
-            message: message.into(),
-            details: None,
-            source: None,
-        }
+        Self::new(ErrorCode::EntryNotFound, message)
     }
 
     /// Creates an I/O error.
     pub fn io(message: impl Into<String>) -> Self {
-        Self::Io {
-            message: message.into(),
-            details: None,
-            source: None,
-        }
+        Self::new(ErrorCode::IoError, message)
     }
 
     /// Creates an I/O error with details.
     pub fn io_with_details(message: impl Into<String>, details: ErrorDetails) -> Self {
-        Self::Io {
-            message: message.into(),
-            details: Some(details),
-            source: None,
-        }
+        Self::with_details(ErrorCode::IoError, message, details)
     }
 
     /// Creates an I/O error with source.
@@ -274,11 +182,7 @@ impl AppError {
         message: impl Into<String>,
         source: impl StdError + Send + Sync + 'static,
     ) -> Self {
-        Self::Io {
-            message: message.into(),
-            details: None,
-            source: Some(Box::new(source)),
-        }
+        Self::with_source(ErrorCode::IoError, message, source)
     }
 
     /// Creates an I/O error with details and source.
@@ -287,11 +191,7 @@ impl AppError {
         details: ErrorDetails,
         source: impl StdError + Send + Sync + 'static,
     ) -> Self {
-        Self::Io {
-            message: message.into(),
-            details: Some(details),
-            source: Some(Box::new(source)),
-        }
+        Self::with_details_and_source(ErrorCode::IoError, message, details, source)
     }
 
     /// Creates a serialization error with source.
@@ -299,20 +199,12 @@ impl AppError {
         message: impl Into<String>,
         source: impl StdError + Send + Sync + 'static,
     ) -> Self {
-        Self::Serialization {
-            message: message.into(),
-            details: None,
-            source: Some(Box::new(source)),
-        }
+        Self::with_source(ErrorCode::SerializationError, message, source)
     }
 
     /// Creates a database error.
     pub fn db(message: impl Into<String>) -> Self {
-        Self::Db {
-            message: message.into(),
-            details: None,
-            source: None,
-        }
+        Self::new(ErrorCode::DbError, message)
     }
 
     /// Creates a database error with source.
@@ -320,20 +212,12 @@ impl AppError {
         message: impl Into<String>,
         source: impl StdError + Send + Sync + 'static,
     ) -> Self {
-        Self::Db {
-            message: message.into(),
-            details: None,
-            source: Some(Box::new(source)),
-        }
+        Self::with_source(ErrorCode::DbError, message, source)
     }
 
     /// Creates a database error with details.
     pub fn db_with_details(message: impl Into<String>, details: ErrorDetails) -> Self {
-        Self::Db {
-            message: message.into(),
-            details: Some(details),
-            source: None,
-        }
+        Self::with_details(ErrorCode::DbError, message, details)
     }
 
     /// Creates a locked database error with details and source.
@@ -342,34 +226,17 @@ impl AppError {
         details: ErrorDetails,
         source: impl StdError + Send + Sync + 'static,
     ) -> Self {
-        Self::DbLocked {
-            message: message.into(),
-            details: Some(details),
-            source: Some(Box::new(source)),
-        }
+        Self::with_details_and_source(ErrorCode::DbLocked, message, details, source)
     }
 
     /// Creates an internal error.
     pub fn internal(message: impl Into<String>) -> Self {
-        Self::Internal {
-            message: message.into(),
-            details: None,
-            source: None,
-        }
+        Self::new(ErrorCode::Internal, message)
     }
 
     /// Returns optional machine-readable error details.
     pub fn details(&self) -> Option<&ErrorDetails> {
-        match self {
-            AppError::Config { details, .. }
-            | AppError::InvalidQuery { details, .. }
-            | AppError::EntryNotFound { details, .. }
-            | AppError::DbLocked { details, .. }
-            | AppError::Db { details, .. }
-            | AppError::Internal { details, .. }
-            | AppError::Io { details, .. }
-            | AppError::Serialization { details, .. } => details.as_ref(),
-        }
+        self.details.as_ref()
     }
 }
 
