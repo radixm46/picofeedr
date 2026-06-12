@@ -155,96 +155,52 @@ impl EntryQuery {
                 continue;
             }
             if let Some(value) = token.strip_prefix("tag:") {
-                let mut parts = Vec::new();
-                if !value.is_empty() {
-                    parts.push(value.to_string());
-                }
-                index += 1;
-                while index < tokens.len() && !is_top_level_token(&tokens[index]) {
-                    parts.push(tokens[index].clone());
-                    index += 1;
-                }
-                if parts.is_empty() {
-                    return Err(AppError::invalid_query("tag: requires a value"));
-                }
-                let expr = tag::parse_tag_expr(&parts.join(" "))?;
+                let expr_source = collect_expr_parts(&tokens, &mut index, value, "tag:")?;
+                let expr = tag::parse_tag_expr(&expr_source)?;
                 tag_terms.push(expr);
                 continue;
             }
             if let Some(value) = token.strip_prefix("-tag:") {
-                let mut parts = Vec::new();
-                if !value.is_empty() {
-                    parts.push(value.to_string());
-                }
-                index += 1;
-                while index < tokens.len() && !is_top_level_token(&tokens[index]) {
-                    parts.push(tokens[index].clone());
-                    index += 1;
-                }
-                if parts.is_empty() {
-                    return Err(AppError::invalid_query("-tag: requires a value"));
-                }
-                let inner = tag::parse_minus_tag_expr(&parts.join(" "))?;
+                let expr_source = collect_expr_parts(&tokens, &mut index, value, "-tag:")?;
+                let inner = tag::parse_minus_tag_expr(&expr_source)?;
                 tag_terms.push(TagExpr::Not(Box::new(inner)));
                 continue;
             }
             if let Some(value) = token.strip_prefix("feed:") {
-                if value.is_empty() {
-                    return Err(AppError::invalid_query("feed: requires a value"));
-                }
-                if query.feed.is_some() {
-                    return Err(AppError::invalid_query(
-                        "feed: cannot be specified multiple times",
-                    ));
-                }
+                let value = require_value(value, "feed:")?;
+                ensure_unique(&query.feed, "feed:")?;
                 query.feed = Some(parse_feed_filter(value)?);
                 index += 1;
                 continue;
             }
             if let Some(value) = token.strip_prefix("title:") {
-                if value.is_empty() {
-                    return Err(AppError::invalid_query("title: requires a value"));
-                }
-                if query.title.is_some() {
-                    return Err(AppError::invalid_query(
-                        "title: cannot be specified multiple times",
-                    ));
-                }
+                let value = require_value(value, "title:")?;
+                ensure_unique(&query.title, "title:")?;
                 query.title = Some(parse_scalar_value(value)?);
                 index += 1;
                 continue;
             }
             if let Some(value) = token.strip_prefix("after:") {
-                if value.is_empty() {
-                    return Err(AppError::invalid_query("after: requires a value"));
-                }
-                if query.after.is_some() {
-                    return Err(AppError::invalid_query(
-                        "after: cannot be specified multiple times",
-                    ));
-                }
-                query.after = Some(date::parse_date_or_relative_to_epoch(
+                let value = require_value(value, "after:")?;
+                ensure_unique(&query.after, "after:")?;
+                let value = date::parse_date_or_relative_to_epoch(
                     &parse_scalar_value(value)?,
                     now_epoch_utc,
                     local_offset,
-                )?);
+                )?;
+                query.after = Some(value);
                 index += 1;
                 continue;
             }
             if let Some(value) = token.strip_prefix("before:") {
-                if value.is_empty() {
-                    return Err(AppError::invalid_query("before: requires a value"));
-                }
-                if query.before.is_some() {
-                    return Err(AppError::invalid_query(
-                        "before: cannot be specified multiple times",
-                    ));
-                }
-                query.before = Some(date::parse_date_or_relative_to_epoch(
+                let value = require_value(value, "before:")?;
+                ensure_unique(&query.before, "before:")?;
+                let value = date::parse_date_or_relative_to_epoch(
                     &parse_scalar_value(value)?,
                     now_epoch_utc,
                     local_offset,
-                )?);
+                )?;
+                query.before = Some(value);
                 index += 1;
                 continue;
             }
@@ -273,6 +229,47 @@ impl EntryQuery {
         }
         Ok(query)
     }
+}
+
+fn collect_expr_parts(
+    tokens: &[String],
+    index: &mut usize,
+    first_value: &str,
+    prefix: &str,
+) -> Result<String, AppError> {
+    let mut parts = Vec::new();
+    if !first_value.is_empty() {
+        parts.push(first_value.to_string());
+    }
+    *index += 1;
+    while *index < tokens.len() && !is_top_level_token(&tokens[*index]) {
+        parts.push(tokens[*index].clone());
+        *index += 1;
+    }
+    if parts.is_empty() {
+        return Err(AppError::invalid_query(format!(
+            "{prefix} requires a value"
+        )));
+    }
+    Ok(parts.join(" "))
+}
+
+fn require_value<'a>(value: &'a str, prefix: &str) -> Result<&'a str, AppError> {
+    if value.is_empty() {
+        return Err(AppError::invalid_query(format!(
+            "{prefix} requires a value"
+        )));
+    }
+    Ok(value)
+}
+
+fn ensure_unique<T>(slot: &Option<T>, prefix: &str) -> Result<(), AppError> {
+    if slot.is_some() {
+        return Err(AppError::invalid_query(format!(
+            "{prefix} cannot be specified multiple times"
+        )));
+    }
+    Ok(())
 }
 
 /// Tokenizes query text while honoring quoted segments.
