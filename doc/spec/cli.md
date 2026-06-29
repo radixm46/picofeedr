@@ -84,7 +84,7 @@ Blocking `feeds.yaml` validation errors fail the command with `status = "error"`
 ### `list`
 
 ```json
-{ "total_count": <int>, "items": [EntrySummary...], "feeds": [FeedSummary...], "next_page_token": "<token|null>", "revision": <int>, "last_write_at": <epoch|null> }
+{ "total_count": <int>, "items": [EntrySummary...], "feeds": [FeedSummary...], "next_page_token": "<token|null>", "revision": <int>, "last_write_at": <epoch|null>, "last_sync_at": <epoch|null> }
 ```
 
 `EntrySummary` の最低契約:

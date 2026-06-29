@@ -72,6 +72,14 @@
           },
           "type": "array"
         },
+        "last_sync_at": {
+          "description": "Epoch seconds for the latest successful sync command.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "last_write_at": {
           "description": "Write timestamp captured when the list was fetched.",
           "format": "int64",

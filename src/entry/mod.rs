@@ -85,6 +85,8 @@ pub struct EntryListResponse {
     pub revision: i64,
     /// Write timestamp captured when the list was fetched.
     pub last_write_at: Option<i64>,
+    /// Epoch seconds for the latest successful sync command.
+    pub last_sync_at: Option<i64>,
 }
 
 /// Feed dictionary item used by entry list responses.

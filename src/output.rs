@@ -451,6 +451,7 @@ mod tests {
                 next_page_token: Some("cursor-1".to_string()),
                 revision: 7,
                 last_write_at: Some(1_704_067_200),
+                last_sync_at: Some(1_704_067_200),
             },
             include_id: true,
         });
@@ -459,5 +460,6 @@ mod tests {
         assert!(rendered.stdout.contains("entry-1"));
         assert!(rendered.stderr.contains("total_count: 42"));
         assert!(rendered.stderr.contains("next_page_token: cursor-1"));
+        assert!(!rendered.stderr.contains("last_sync_at"));
     }
 }

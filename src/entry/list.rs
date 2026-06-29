@@ -86,6 +86,7 @@ pub fn list_entries(
             next_page_token,
             revision: system_meta.revision,
             last_write_at: system_meta.updated_at,
+            last_sync_at: system_meta.sync_at,
         });
     }
 
@@ -131,6 +132,7 @@ pub fn list_entries(
         next_page_token,
         revision: system_meta.revision,
         last_write_at: system_meta.updated_at,
+        last_sync_at: system_meta.sync_at,
     })
 }
 

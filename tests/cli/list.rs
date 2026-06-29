@@ -147,8 +147,11 @@ fn list_snapshot_matches_status_metadata() {
         .assert()
         .success();
     let status = status_json(&paths.config_path, &paths.db_path);
-    let data = list_query_json(&paths.config_path, &paths.db_path, "unread");
-    assert_eq!(data["revision"], status["revision"]);
+    for query in ["unread", "tag:tech|doesnotexist|m1|m2|m3|m4|m5"] {
+        let data = list_query_json(&paths.config_path, &paths.db_path, query);
+        assert_eq!(data["revision"], status["revision"]);
+        assert_eq!(data["last_sync_at"], status["last_sync_at"]);
+    }
 }
 
 #[test]
