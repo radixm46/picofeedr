@@ -7,7 +7,7 @@ use crate::db::sqlite::SqliteStore;
 use crate::db::sqlite::query::{entries as q, sql_placeholders};
 use crate::db::sqlite::repo::{EntryListRow, EntryReadRepo};
 use crate::error::{AppError, error_details};
-use crate::query::{EntryQuery, FeedFilter, TagExpr};
+use crate::query::{EntryQuery, FeedFilter, TagExpr, TermExpr};
 use cursor::{compute_query_hash, decode_cursor, encode_cursor_with_query};
 use rusqlite::types::Value;
 use serde_json::Value as JsonValue;
@@ -338,9 +338,22 @@ fn build_non_tag_predicates(
             }
         }
     }
-    if let Some(title) = &query.title {
-        clauses.push("e.title LIKE ?".to_string());
-        params.push(Value::from(format!("%{title}%")));
+    for title in &query.title_terms {
+        clauses.push(term_literal_clause());
+        params.push(Value::from(like_contains_pattern(title)));
+    }
+    for title in &query.negated_title_terms {
+        clauses.push(r#"(e.title IS NULL OR e.title NOT LIKE ? ESCAPE '\')"#.to_string());
+        params.push(Value::from(like_contains_pattern(title)));
+    }
+    for expr in &query.term_groups {
+        clauses.push(format!("({})", build_term_expr_clause(expr, &mut params)));
+    }
+    for expr in &query.negated_term_groups {
+        clauses.push(format!(
+            "NOT ({})",
+            build_term_expr_clause(expr, &mut params)
+        ));
     }
     if let Some(after) = query.after {
         clauses.push(format!("({}) >= ?", effective_date_expr()));
@@ -366,6 +379,45 @@ fn build_non_tag_predicates(
         params.push(Value::from(cursor.id));
     }
     Ok((clauses, params))
+}
+
+fn build_term_expr_clause(expr: &TermExpr, params: &mut Vec<Value>) -> String {
+    match expr {
+        TermExpr::Term(term) => {
+            params.push(Value::from(like_contains_pattern(term)));
+            term_literal_clause()
+        }
+        TermExpr::Not(inner) => format!("NOT ({})", build_term_expr_clause(inner, params)),
+        TermExpr::And(items) => items
+            .iter()
+            .map(|item| format!("({})", build_term_expr_clause(item, params)))
+            .collect::<Vec<_>>()
+            .join(" AND "),
+        TermExpr::Or(items) => items
+            .iter()
+            .map(|item| format!("({})", build_term_expr_clause(item, params)))
+            .collect::<Vec<_>>()
+            .join(" OR "),
+    }
+}
+
+fn term_literal_clause() -> String {
+    r#"(e.title IS NOT NULL AND e.title LIKE ? ESCAPE '\')"#.to_string()
+}
+
+fn like_contains_pattern(value: &str) -> String {
+    format!("%{}%", escape_like_value(value))
+}
+
+fn escape_like_value(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for ch in value.chars() {
+        if matches!(ch, '\\' | '%' | '_') {
+            escaped.push('\\');
+        }
+        escaped.push(ch);
+    }
+    escaped
 }
 
 fn fetch_entries(

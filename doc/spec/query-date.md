@@ -15,7 +15,7 @@
 ## 3. 設計原則
 
 - 同一意味の条件は最終的に「下限/上限」の2軸へ正規化する
-- 複数条件は優先順位で勝ち負けを付けず、交差（AND）として合成する
+- 下限と上限は優先順位で勝ち負けを付けず、交差（AND）として合成する
 - 相対時刻は評価時点 (`now`) を固定して計算する
 - 無効レンジは静かに0件にせず `INVALID_QUERY` を返す
 
@@ -52,24 +52,22 @@
 
 最終評価は以下に正規化する。
 
-- `lower_bounds`（下限候補）と `upper_bounds`（上限候補）を収集する
-- 実効下限: `effective_after = max(lower_bounds)` とする
-- 実効上限: `effective_before = min(upper_bounds)` とする
-- 妥当性: `effective_after < effective_before` を必須とする
+- `after:` は実効下限 `effective_after` を与える
+- `before:` は実効上限 `effective_before` を与える
+- `after:` / `before:` はそれぞれ 1 回のみ指定でき、重複指定は `INVALID_QUERY`（`doc/spec/query.md` の Top-Level Rules を正本とする）
+- 妥当性: 両方を指定した場合は `effective_after < effective_before` を必須とする
 
 ### 5.1 変換規則
 
-- `after:YYYY-MM-DD` -> lower bound 追加
-- `before:YYYY-MM-DD` -> upper bound 追加
-- `after:DUR` -> lower bound 追加（`now - DUR`）
-- `before:DUR` -> upper bound 追加（`now - DUR`）
+- `after:YYYY-MM-DD` -> `effective_after = 当該ローカル日付 0:00`
+- `before:YYYY-MM-DD` -> `effective_before = 当該ローカル日付 0:00`
+- `after:DUR` -> `effective_after = now - DUR`
+- `before:DUR` -> `effective_before = now - DUR`
 
 ### 5.2 併用例
 
-- `after:3m after:2026-01-01`
-  - `effective_after = max(now-3m, 2026-01-01)`
-- `before:1y before:2026-01-03`
-  - `effective_before = min(now-1y, 2026-01-03)`
+- `after:2026-01-01 before:2w`
+  - 絶対日付と相対 duration の混在を許可する
 - `after:3m before:1y`
   - 状況によっては `effective_after >= effective_before` となり `INVALID_QUERY`
 

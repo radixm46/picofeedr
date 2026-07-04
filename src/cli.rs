@@ -10,16 +10,20 @@ Supported terms:
   unread
   tag:<expr>         tag expression: AND/OR/NOT, &, |, !, ()
   -tag:<expr>        exclude tags
-  title:\"<text>\"
+  <term>             title search term
+  -<term>            exclude title search term
+  (<expr>)           title term expression group
+  -(<expr>)          exclude title term expression group
   feed:<id>|\"<title>\"
   after:<YYYY-MM-DD|Nd|Nw|Nm|Ny>
   before:<YYYY-MM-DD|Nd|Nw|Nm|Ny>
 
 Examples:
   --query 'after:1w'
-  --query 'tag:(rust & cli)'
-  --query 'tag:rust -tag:(archived | misc)'
-  --query 'title:\"example title\"'";
+  --query 'tag:( rust & cli )'
+  --query 'tag:rust -tag:(archived|misc)'
+  --query 'foo -bar'
+  --query '(color|colour) -(draft|sponsored)'";
 
 /// Output format for CLI responses.
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -116,8 +120,8 @@ pub enum Command {
 
     /// List entry summaries.
     List {
-        /// Query string for tag filters.
-        #[arg(long, long_help = LIST_QUERY_LONG_HELP)]
+        /// Query string for filters and title word search.
+        #[arg(long, long_help = LIST_QUERY_LONG_HELP, allow_hyphen_values = true)]
         query: Option<String>,
         /// Sort order.
         #[arg(long, value_enum)]

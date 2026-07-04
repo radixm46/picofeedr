@@ -17,8 +17,11 @@ fn list_long_help_includes_query_reference_sections() {
     assert!(stdout.contains("--query <QUERY>"));
     assert!(stdout.contains("tag:<expr>"));
     assert!(stdout.contains("-tag:<expr>"));
+    assert!(stdout.contains("(<expr>)"));
+    assert!(stdout.contains("-(<expr>)"));
     assert!(stdout.contains("after:<YYYY-MM-DD|Nd|Nw|Nm|Ny>"));
     assert!(stdout.contains("before:<YYYY-MM-DD|Nd|Nw|Nm|Ny>"));
+    assert!(!stdout.contains("title:\"<text>\""));
 }
 
 #[test]
@@ -283,7 +286,7 @@ fn list_filter_by_missing_feed_id_returns_entry_not_found() {
 }
 
 #[test]
-fn list_filters_by_title() {
+fn list_filters_by_bare_title_term() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
     picofeedr_cmd_json()
@@ -294,8 +297,208 @@ fn list_filters_by_title() {
         .arg("sync")
         .assert()
         .success();
-    let data = list_query_json(&paths.config_path, &paths.db_path, "title:\"First\"");
+    let data = list_query_json(&paths.config_path, &paths.db_path, "First");
     assert_eq!(data["total_count"], 1);
+}
+
+#[test]
+fn list_rejects_removed_title_filter_with_dedicated_hint() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("list")
+        .arg("--query")
+        .arg("title:\"First\"")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+    let details = extract_error_details(&output);
+    assert_eq!(details["kind"], "unknown_filter_prefix");
+    assert_eq!(details["field"], "query");
+    assert_eq!(details["value"], "title:\"First\"");
+    assert_eq!(details["hint"], "title_filter_removed_use_bare_term");
+}
+
+#[test]
+fn list_title_filter_treats_like_metacharacters_as_literals() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_title_literal_fixture(&temp);
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    assert_single_title(
+        list_query_json(&paths.config_path, &paths.db_path, "\"100%\""),
+        "Budget 100% Launch",
+    );
+    assert_single_title(
+        list_query_json(&paths.config_path, &paths.db_path, "\"A_B\""),
+        "Build A_B Release",
+    );
+    assert_single_title(
+        list_query_json(&paths.config_path, &paths.db_path, "\"C:\\Temp\""),
+        "Path C:\\Temp Guide",
+    );
+}
+
+#[test]
+fn list_filters_by_title_terms_with_implicit_and_and_negation() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    assert_single_title(
+        list_query_json(&paths.config_path, &paths.db_path, "First"),
+        "First Entry",
+    );
+    assert_single_title(
+        list_query_json(&paths.config_path, &paths.db_path, "\"Second Entry\""),
+        "Second Entry",
+    );
+    assert_single_title(
+        list_query_json(&paths.config_path, &paths.db_path, "Entry -Second"),
+        "First Entry",
+    );
+}
+
+#[test]
+fn list_accepts_hyphen_started_query_value_after_query_flag() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("list")
+        .arg("--query")
+        .arg("-Second")
+        .arg("--sort")
+        .arg("first_seen_desc")
+        .arg("--limit")
+        .arg("10")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    assert_single_title(extract_ok_data(&output), "First Entry");
+}
+
+#[test]
+fn list_filters_by_title_term_groups() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_term_group_fixture(&temp);
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    assert_titles(
+        list_query_json(
+            &paths.config_path,
+            &paths.db_path,
+            "(alpha|アルファ) (beta|ベータ) -(gamma|ガンマ)",
+        ),
+        &["alpha beta Launch", "アルファ ベータ News"],
+    );
+    assert_titles(
+        list_query_json(
+            &paths.config_path,
+            &paths.db_path,
+            "((echo&delta)|\"共同声明\")",
+        ),
+        &["echo delta memo", "共同声明"],
+    );
+}
+
+#[test]
+fn list_treats_group_operator_characters_as_literals_outside_groups() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_term_group_fixture(&temp);
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    assert_single_title(
+        list_query_json(&paths.config_path, &paths.db_path, "a|b"),
+        "Literal a|b",
+    );
+    assert_single_title(
+        list_query_json(&paths.config_path, &paths.db_path, "Rust(2024)"),
+        "Rust(2024)",
+    );
+}
+
+#[test]
+fn list_negated_title_group_matches_null_title_entries() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+    let conn = Connection::open(&paths.db_path).expect("open db");
+    conn.execute(
+        "UPDATE entries SET title = NULL WHERE title = 'First Entry'",
+        [],
+    )
+    .expect("null title");
+
+    let data = list_query_json(&paths.config_path, &paths.db_path, "-(First|Second)");
+    assert_eq!(data["total_count"], 1);
+    let items = data["items"].as_array().expect("items array");
+    assert!(items[0]["title"].is_null());
 }
 
 #[test]
@@ -398,6 +601,108 @@ fn list_rejects_mismatched_cursor() {
         .arg("list")
         .arg("--query")
         .arg("tag:tech")
+        .arg("--cursor")
+        .arg(cursor)
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+    let error = extract_error_payload(&output);
+    assert_eq!(error["code"], "INVALID_QUERY");
+}
+
+#[test]
+fn list_rejects_cursor_when_title_terms_change() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("list")
+        .arg("--query")
+        .arg("Entry")
+        .arg("--sort")
+        .arg("first_seen_desc")
+        .arg("--limit")
+        .arg("1")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let cursor = extract_ok_data(&output)["next_page_token"]
+        .as_str()
+        .expect("cursor")
+        .to_string();
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("list")
+        .arg("--query")
+        .arg("First")
+        .arg("--cursor")
+        .arg(cursor)
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+    let error = extract_error_payload(&output);
+    assert_eq!(error["code"], "INVALID_QUERY");
+}
+
+#[test]
+fn list_rejects_cursor_when_title_term_group_changes() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_term_group_fixture(&temp);
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("list")
+        .arg("--query=(alpha|アルファ)")
+        .arg("--sort")
+        .arg("first_seen_desc")
+        .arg("--limit")
+        .arg("1")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let cursor = extract_ok_data(&output)["next_page_token"]
+        .as_str()
+        .expect("cursor")
+        .to_string();
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("list")
+        .arg("--query=(beta|ベータ)")
         .arg("--cursor")
         .arg(cursor)
         .assert()
@@ -699,4 +1004,189 @@ fn list_complex_large_match_set_does_not_hit_sql_variable_limit() {
         "tag:unread -tag:news|later|junk|YouTube",
     );
     assert!(data["total_count"].as_i64().expect("count") >= 2);
+}
+
+fn assert_single_title(data: serde_json::Value, expected: &str) {
+    assert_eq!(data["total_count"], 1);
+    let items = data["items"].as_array().expect("items array");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["title"], expected);
+}
+
+fn assert_titles(data: serde_json::Value, expected: &[&str]) {
+    let actual = data["items"]
+        .as_array()
+        .expect("items array")
+        .iter()
+        .map(|item| item["title"].as_str().expect("title").to_string())
+        .collect::<std::collections::BTreeSet<_>>();
+    let expected = expected
+        .iter()
+        .map(|title| title.to_string())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(actual, expected);
+    assert_eq!(data["total_count"], expected.len() as i64);
+}
+
+fn write_title_literal_fixture(temp: &TempDir) -> SyncFixturePaths {
+    let config_path = temp.path().join("config.toml");
+    let feeds_path = temp.path().join("feeds.yaml");
+    let db_path = temp.path().join("db.sqlite");
+    let feed_path = temp.path().join("literal-feed.xml");
+    write_config_with_feeds_source(&config_path, &db_path, &feeds_path);
+
+    let feed_url = format!("file://{}", feed_path.display());
+    let feeds = format!(
+        r#"picofeedr:
+  tech:
+    tags: [tech]
+    feeds:
+      - url: {feed_url}
+        title: Literal Feed
+"#
+    );
+    let feed = r#"<?xml version="1.0"?>
+<rss version="2.0">
+  <channel>
+    <title>Literal Feed</title>
+    <link>https://example.com</link>
+    <description>Literal Feed</description>
+    <item>
+      <title>Budget 100% Launch</title>
+      <link>https://example.com/percent</link>
+      <guid>literal-percent</guid>
+      <pubDate>Mon, 01 Jan 2024 00:00:00 GMT</pubDate>
+      <description>Percent</description>
+    </item>
+    <item>
+      <title>Budget 100X Launch</title>
+      <link>https://example.com/percent-decoy</link>
+      <guid>literal-percent-decoy</guid>
+      <pubDate>Tue, 02 Jan 2024 00:00:00 GMT</pubDate>
+      <description>Percent decoy</description>
+    </item>
+    <item>
+      <title>Build A_B Release</title>
+      <link>https://example.com/underscore</link>
+      <guid>literal-underscore</guid>
+      <pubDate>Wed, 03 Jan 2024 00:00:00 GMT</pubDate>
+      <description>Underscore</description>
+    </item>
+    <item>
+      <title>Build AXB Release</title>
+      <link>https://example.com/underscore-decoy</link>
+      <guid>literal-underscore-decoy</guid>
+      <pubDate>Thu, 04 Jan 2024 00:00:00 GMT</pubDate>
+      <description>Underscore decoy</description>
+    </item>
+    <item>
+      <title>Path C:\Temp Guide</title>
+      <link>https://example.com/backslash</link>
+      <guid>literal-backslash</guid>
+      <pubDate>Fri, 05 Jan 2024 00:00:00 GMT</pubDate>
+      <description>Backslash</description>
+    </item>
+    <item>
+      <title>Path C:Temp Guide</title>
+      <link>https://example.com/backslash-decoy</link>
+      <guid>literal-backslash-decoy</guid>
+      <pubDate>Sat, 06 Jan 2024 00:00:00 GMT</pubDate>
+      <description>Backslash decoy</description>
+    </item>
+  </channel>
+</rss>
+"#;
+
+    fs::write(&feeds_path, feeds).expect("write feeds");
+    fs::write(&feed_path, feed).expect("write feed");
+
+    SyncFixturePaths {
+        config_path: config_path.display().to_string(),
+        db_path: db_path.display().to_string(),
+    }
+}
+
+fn write_term_group_fixture(temp: &TempDir) -> SyncFixturePaths {
+    let config_path = temp.path().join("config.toml");
+    let feeds_path = temp.path().join("feeds.yaml");
+    let db_path = temp.path().join("db.sqlite");
+    let feed_path = temp.path().join("term-group-feed.xml");
+    write_config_with_feeds_source(&config_path, &db_path, &feeds_path);
+
+    let feed_url = format!("file://{}", feed_path.display());
+    let feeds = format!(
+        r#"picofeedr:
+  tech:
+    tags: [tech]
+    feeds:
+      - url: {feed_url}
+        title: Term Group Feed
+"#
+    );
+    let feed = r#"<?xml version="1.0"?>
+<rss version="2.0">
+  <channel>
+    <title>Term Group Feed</title>
+    <link>https://example.com</link>
+    <description>Term Group Feed</description>
+    <item>
+      <title>alpha beta Launch</title>
+      <link>https://example.com/alpha-beta</link>
+      <guid>group-alpha-beta</guid>
+      <pubDate>Mon, 01 Jan 2024 00:00:00 GMT</pubDate>
+      <description>alpha beta</description>
+    </item>
+    <item>
+      <title>アルファ ベータ News</title>
+      <link>https://example.com/alpha-beta-ja</link>
+      <guid>group-alpha-beta-ja</guid>
+      <pubDate>Tue, 02 Jan 2024 00:00:00 GMT</pubDate>
+      <description>Japanese alpha beta</description>
+    </item>
+    <item>
+      <title>alpha gamma beta</title>
+      <link>https://example.com/alpha-gamma-beta</link>
+      <guid>group-alpha-gamma-beta</guid>
+      <pubDate>Wed, 03 Jan 2024 00:00:00 GMT</pubDate>
+      <description>gamma decoy</description>
+    </item>
+    <item>
+      <title>echo delta memo</title>
+      <link>https://example.com/echo-delta</link>
+      <guid>group-echo-delta</guid>
+      <pubDate>Thu, 04 Jan 2024 00:00:00 GMT</pubDate>
+      <description>echo delta</description>
+    </item>
+    <item>
+      <title>共同声明</title>
+      <link>https://example.com/joint-statement</link>
+      <guid>group-joint-statement</guid>
+      <pubDate>Fri, 05 Jan 2024 00:00:00 GMT</pubDate>
+      <description>Joint statement</description>
+    </item>
+    <item>
+      <title>Literal a|b</title>
+      <link>https://example.com/a-pipe-b</link>
+      <guid>group-a-pipe-b</guid>
+      <pubDate>Sat, 06 Jan 2024 00:00:00 GMT</pubDate>
+      <description>Pipe literal</description>
+    </item>
+    <item>
+      <title>Rust(2024)</title>
+      <link>https://example.com/rust-2024</link>
+      <guid>group-rust-2024</guid>
+      <pubDate>Sun, 07 Jan 2024 00:00:00 GMT</pubDate>
+      <description>Rust literal</description>
+    </item>
+  </channel>
+</rss>
+"#;
+
+    fs::write(&feeds_path, feeds).expect("write feeds");
+    fs::write(&feed_path, feed).expect("write feed");
+
+    SyncFixturePaths {
+        config_path: config_path.display().to_string(),
+        db_path: db_path.display().to_string(),
+    }
 }

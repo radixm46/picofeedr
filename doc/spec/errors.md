@@ -49,6 +49,18 @@
 { "kind": "invalid_cursor", "field": "cursor", "value": "not-a-cursor", "hint": "base64url_decode_failed" }
 ```
 
+```json
+{ "kind": "unknown_filter_prefix", "field": "query", "value": "foo:bar", "hint": "quote_token_to_search_literal_text" }
+```
+
+```json
+{ "kind": "unknown_filter_prefix", "field": "query", "value": "title:\"rust\"", "hint": "title_filter_removed_use_bare_term" }
+```
+
+```json
+{ "kind": "bare_operator_token", "field": "query", "value": "|", "hint": "quote_token_to_search_literal_text" }
+```
+
 ### `ENTRY_NOT_FOUND`
 
 ```json

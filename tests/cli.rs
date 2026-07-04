@@ -97,8 +97,7 @@ fn list_query_json(config_path: &str, db_path: &str, query: &str) -> serde_json:
         .arg("--storage-root")
         .arg(db_root(db_path))
         .arg("list")
-        .arg("--query")
-        .arg(query)
+        .arg(format!("--query={query}"))
         .arg("--sort")
         .arg("first_seen_desc")
         .arg("--limit")
@@ -161,7 +160,7 @@ fn looks_like_human_datetime(value: &str) -> bool {
 
 /// Resolves an entry id from a title query.
 fn entry_id_by_title(config_path: &str, db_path: &str, title: &str) -> String {
-    let data = list_query_json(config_path, db_path, &format!("title:\"{title}\""));
+    let data = list_query_json(config_path, db_path, &format!("\"{title}\""));
     let items = data["items"].as_array().expect("items array");
     items
         .first()

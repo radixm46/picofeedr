@@ -3,9 +3,12 @@
 mod date;
 mod tag;
 
-use crate::error::AppError;
+use crate::error::{AppError, error_details};
 use crate::time::current_epoch;
 use ::time::UtcOffset;
+use serde_json::Value as JsonValue;
+
+const MAX_TITLE_TERMS: usize = 32;
 
 /// Parsed entry query filters.
 #[derive(Debug, Clone, Default)]
@@ -14,8 +17,14 @@ pub struct EntryQuery {
     pub tag_expr: Option<TagExpr>,
     /// Feed filter.
     pub feed: Option<FeedFilter>,
-    /// Entry title keyword.
-    pub title: Option<String>,
+    /// Positive title search terms.
+    pub title_terms: Vec<String>,
+    /// Negative title search terms.
+    pub negated_title_terms: Vec<String>,
+    /// Positive title term boolean groups.
+    pub term_groups: Vec<TermExpr>,
+    /// Negative title term boolean groups.
+    pub negated_term_groups: Vec<TermExpr>,
     /// Lower date bound (inclusive).
     pub after: Option<i64>,
     /// Upper date bound (exclusive).
@@ -42,6 +51,19 @@ pub enum TagExpr {
     And(Vec<TagExpr>),
     /// Disjunction over nested expressions.
     Or(Vec<TagExpr>),
+}
+
+/// Title term boolean expression.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TermExpr {
+    /// Matches entries whose title contains the term.
+    Term(String),
+    /// Negates a nested expression.
+    Not(Box<TermExpr>),
+    /// Conjunction over nested expressions.
+    And(Vec<TermExpr>),
+    /// Disjunction over nested expressions.
+    Or(Vec<TermExpr>),
 }
 
 impl TagExpr {
@@ -121,6 +143,62 @@ impl TagExpr {
     }
 }
 
+impl TermExpr {
+    /// Returns a stable canonical representation used for hash validation.
+    pub(crate) fn canonical(&self) -> String {
+        match self {
+            TermExpr::Term(term) => {
+                format!(
+                    "term:{}",
+                    serde_json::to_string(term).expect("serialize term literal")
+                )
+            }
+            TermExpr::Not(inner) => format!("not({})", inner.canonical()),
+            TermExpr::And(items) => {
+                let mut parts = items.iter().map(TermExpr::canonical).collect::<Vec<_>>();
+                parts.sort();
+                format!("and({})", parts.join(","))
+            }
+            TermExpr::Or(items) => {
+                let mut parts = items.iter().map(TermExpr::canonical).collect::<Vec<_>>();
+                parts.sort();
+                format!("or({})", parts.join(","))
+            }
+        }
+    }
+
+    /// Returns true when expression tree contains NOT.
+    pub(crate) fn contains_not(&self) -> bool {
+        match self {
+            TermExpr::Term(_) => false,
+            TermExpr::Not(_) => true,
+            TermExpr::And(items) | TermExpr::Or(items) => items.iter().any(TermExpr::contains_not),
+        }
+    }
+
+    /// Returns maximum AST depth.
+    pub(crate) fn max_depth(&self) -> usize {
+        match self {
+            TermExpr::Term(_) => 1,
+            TermExpr::Not(inner) => 1 + inner.max_depth(),
+            TermExpr::And(items) | TermExpr::Or(items) => {
+                1 + items.iter().map(TermExpr::max_depth).max().unwrap_or(0)
+            }
+        }
+    }
+
+    /// Counts term literal nodes.
+    pub(crate) fn term_count(&self) -> usize {
+        match self {
+            TermExpr::Term(_) => 1,
+            TermExpr::Not(inner) => inner.term_count(),
+            TermExpr::And(items) | TermExpr::Or(items) => {
+                items.iter().map(TermExpr::term_count).sum()
+            }
+        }
+    }
+}
+
 impl EntryQuery {
     /// Parses a query string into entry filters.
     pub fn parse(raw: Option<&str>, unread_tag: Option<&str>) -> Result<Self, AppError> {
@@ -155,28 +233,23 @@ impl EntryQuery {
                 continue;
             }
             if let Some(value) = token.strip_prefix("tag:") {
-                let expr_source = collect_expr_parts(&tokens, &mut index, value, "tag:")?;
-                let expr = tag::parse_tag_expr(&expr_source)?;
+                let value = require_value(value, "tag:")?;
+                let expr = tag::parse_tag_expr(value)?;
                 tag_terms.push(expr);
+                index += 1;
                 continue;
             }
             if let Some(value) = token.strip_prefix("-tag:") {
-                let expr_source = collect_expr_parts(&tokens, &mut index, value, "-tag:")?;
-                let inner = tag::parse_minus_tag_expr(&expr_source)?;
+                let value = require_value(value, "-tag:")?;
+                let inner = tag::parse_minus_tag_expr(value)?;
                 tag_terms.push(TagExpr::Not(Box::new(inner)));
+                index += 1;
                 continue;
             }
             if let Some(value) = token.strip_prefix("feed:") {
                 let value = require_value(value, "feed:")?;
                 ensure_unique(&query.feed, "feed:")?;
                 query.feed = Some(parse_feed_filter(value)?);
-                index += 1;
-                continue;
-            }
-            if let Some(value) = token.strip_prefix("title:") {
-                let value = require_value(value, "title:")?;
-                ensure_unique(&query.title, "title:")?;
-                query.title = Some(parse_scalar_value(value)?);
                 index += 1;
                 continue;
             }
@@ -204,10 +277,34 @@ impl EntryQuery {
                 index += 1;
                 continue;
             }
-            return Err(AppError::invalid_query(format!(
-                "Unknown query token: {token}"
-            )));
+            if let Some(value) = token.strip_prefix("-(") {
+                let expr = tag::parse_minus_term_expr(&format!("({value}"))?;
+                query.negated_term_groups.push(expr);
+                index += 1;
+                continue;
+            }
+            if token.starts_with('(') {
+                query.term_groups.push(tag::parse_term_expr(token)?);
+                index += 1;
+                continue;
+            }
+            if is_bare_operator_token(token) {
+                return Err(bare_operator_token_error(token));
+            }
+            if token.starts_with('-') {
+                query
+                    .negated_title_terms
+                    .push(parse_negated_title_term(token)?);
+                index += 1;
+                continue;
+            }
+            if token.contains(':') && !is_quoted_scalar(token) {
+                return Err(unknown_filter_prefix_error(token));
+            }
+            query.title_terms.push(parse_title_term(token)?);
+            index += 1;
         }
+        validate_title_terms(&query)?;
 
         if !tag_terms.is_empty() {
             // Each `tag:` fragment is already normalized by the tag parser, but once we combine
@@ -231,29 +328,6 @@ impl EntryQuery {
     }
 }
 
-fn collect_expr_parts(
-    tokens: &[String],
-    index: &mut usize,
-    first_value: &str,
-    prefix: &str,
-) -> Result<String, AppError> {
-    let mut parts = Vec::new();
-    if !first_value.is_empty() {
-        parts.push(first_value.to_string());
-    }
-    *index += 1;
-    while *index < tokens.len() && !is_top_level_token(&tokens[*index]) {
-        parts.push(tokens[*index].clone());
-        *index += 1;
-    }
-    if parts.is_empty() {
-        return Err(AppError::invalid_query(format!(
-            "{prefix} requires a value"
-        )));
-    }
-    Ok(parts.join(" "))
-}
-
 fn require_value<'a>(value: &'a str, prefix: &str) -> Result<&'a str, AppError> {
     if value.is_empty() {
         return Err(AppError::invalid_query(format!(
@@ -272,7 +346,96 @@ fn ensure_unique<T>(slot: &Option<T>, prefix: &str) -> Result<(), AppError> {
     Ok(())
 }
 
-/// Tokenizes query text while honoring quoted segments.
+fn parse_title_term(raw: &str) -> Result<String, AppError> {
+    let term = parse_scalar_value(raw)?;
+    if term.is_empty() {
+        return Err(AppError::invalid_query("title term must not be empty"));
+    }
+    Ok(term)
+}
+
+fn parse_negated_title_term(raw: &str) -> Result<String, AppError> {
+    let term = raw
+        .strip_prefix('-')
+        .expect("negated term should start with '-'");
+    if term.is_empty() || term.starts_with('-') {
+        return Err(AppError::invalid_query("Invalid negated title term"));
+    }
+    if term.contains(':') && !is_quoted_scalar(term) {
+        return Err(unknown_filter_prefix_error(raw));
+    }
+    parse_title_term(term)
+}
+
+fn validate_title_terms(query: &EntryQuery) -> Result<(), AppError> {
+    let term_count = query.title_terms.len() + query.negated_title_terms.len();
+    let term_count = term_count
+        + query
+            .term_groups
+            .iter()
+            .map(TermExpr::term_count)
+            .sum::<usize>()
+        + query
+            .negated_term_groups
+            .iter()
+            .map(TermExpr::term_count)
+            .sum::<usize>();
+    if term_count > MAX_TITLE_TERMS {
+        return Err(AppError::invalid_query(format!(
+            "query must include at most {MAX_TITLE_TERMS} title terms"
+        )));
+    }
+    let positive_terms = query
+        .title_terms
+        .iter()
+        .map(|term| term.to_ascii_lowercase())
+        .collect::<std::collections::HashSet<_>>();
+    if query
+        .negated_title_terms
+        .iter()
+        .map(|term| term.to_ascii_lowercase())
+        .any(|term| positive_terms.contains(&term))
+    {
+        return Err(AppError::invalid_query(
+            "positive and negative title terms cannot match",
+        ));
+    }
+    Ok(())
+}
+
+fn unknown_filter_prefix_error(token: &str) -> AppError {
+    let hint = if token.starts_with("title:") {
+        "title_filter_removed_use_bare_term"
+    } else {
+        "quote_token_to_search_literal_text"
+    };
+    AppError::invalid_query_with_details(
+        format!("Unknown query filter prefix: {token}"),
+        error_details([
+            ("kind", JsonValue::from("unknown_filter_prefix")),
+            ("field", JsonValue::from("query")),
+            ("value", JsonValue::from(token.to_string())),
+            ("hint", JsonValue::from(hint)),
+        ]),
+    )
+}
+
+fn bare_operator_token_error(token: &str) -> AppError {
+    AppError::invalid_query_with_details(
+        format!("Bare operator token in query: {token}"),
+        error_details([
+            ("kind", JsonValue::from("bare_operator_token")),
+            ("field", JsonValue::from("query")),
+            ("value", JsonValue::from(token.to_string())),
+            (
+                "hint",
+                JsonValue::from("quote_token_to_search_literal_text"),
+            ),
+        ]),
+    )
+}
+
+/// Tokenizes query text while honoring quoted and parenthesized expression segments.
 ///
 /// Quoted segments are delimited by `"` and may contain escaped `\"` and `\\`.
 fn tokenize(raw: &str) -> Result<Vec<String>, AppError> {
@@ -280,6 +443,7 @@ fn tokenize(raw: &str) -> Result<Vec<String>, AppError> {
     let mut current = String::new();
     let mut chars = raw.chars().peekable();
     let mut in_quotes = false;
+    let mut paren_depth = 0usize;
     while let Some(ch) = chars.next() {
         match ch {
             '"' => {
@@ -292,17 +456,32 @@ fn tokenize(raw: &str) -> Result<Vec<String>, AppError> {
                     current.push(next);
                 }
             }
-            c if c.is_whitespace() && !in_quotes => {
+            c if c.is_whitespace() && !in_quotes && paren_depth == 0 => {
                 if !current.is_empty() {
-                    tokens.push(current.clone());
-                    current.clear();
+                    tokens.push(std::mem::take(&mut current));
                 }
             }
-            _ => current.push(ch),
+            '(' if !in_quotes && paren_depth > 0 => {
+                paren_depth += 1;
+                current.push(ch);
+            }
+            ')' if !in_quotes && paren_depth > 0 => {
+                paren_depth -= 1;
+                current.push(ch);
+            }
+            _ => {
+                current.push(ch);
+                if !in_quotes && paren_depth == 0 && is_parenthesized_token_start(&current) {
+                    paren_depth = 1;
+                }
+            }
         }
     }
     if in_quotes {
         return Err(AppError::invalid_query("Unclosed quote in query"));
+    }
+    if paren_depth > 0 {
+        return Err(AppError::invalid_query("Unclosed parenthesis in query"));
     }
     if !current.is_empty() {
         tokens.push(current);
@@ -310,15 +489,12 @@ fn tokenize(raw: &str) -> Result<Vec<String>, AppError> {
     Ok(tokens)
 }
 
-/// Returns whether a token starts a top-level query directive.
-fn is_top_level_token(token: &str) -> bool {
-    token == "unread"
-        || token.starts_with("tag:")
-        || token.starts_with("-tag:")
-        || token.starts_with("feed:")
-        || token.starts_with("title:")
-        || token.starts_with("after:")
-        || token.starts_with("before:")
+fn is_parenthesized_token_start(token: &str) -> bool {
+    token == "(" || token == "-(" || token == "tag:(" || token == "-tag:("
+}
+
+fn is_bare_operator_token(token: &str) -> bool {
+    !is_quoted_scalar(token) && matches!(token, "AND" | "OR" | "NOT" | "&" | "|" | "!")
 }
 
 /// Parses scalar query values with optional quote escaping.
@@ -333,6 +509,10 @@ fn parse_scalar_value(raw: &str) -> Result<String, AppError> {
         return Err(AppError::invalid_query("Invalid quoted value"));
     }
     Ok(raw.to_string())
+}
+
+fn is_quoted_scalar(raw: &str) -> bool {
+    raw.starts_with('"') && raw.ends_with('"')
 }
 
 /// Unescapes a quoted string body using `\"` and `\\` rules.
@@ -368,7 +548,7 @@ fn parse_feed_filter(value: &str) -> Result<FeedFilter, AppError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{EntryQuery, FeedFilter};
+    use super::{EntryQuery, FeedFilter, TagExpr, TermExpr};
     use time::{Date, Month, OffsetDateTime, PrimitiveDateTime, Time, UtcOffset};
 
     fn fixed_now_utc() -> i64 {
@@ -409,20 +589,294 @@ mod tests {
     }
 
     #[test]
-    fn parse_title_query() {
-        let query = EntryQuery::parse(Some("title:\"First\""), Some("unread")).expect("query");
-        assert_eq!(query.title.as_deref(), Some("First"));
+    fn rejects_removed_title_filter_with_dedicated_hint() {
+        let error = EntryQuery::parse(Some("title:\"First\""), Some("unread")).unwrap_err();
+        assert_eq!(error.code().as_str(), "INVALID_QUERY");
+        let details = error.details().expect("details");
+        assert_eq!(details["kind"], "unknown_filter_prefix");
+        assert_eq!(details["field"], "query");
+        assert_eq!(details["value"], "title:\"First\"");
+        assert_eq!(details["hint"], "title_filter_removed_use_bare_term");
+    }
+
+    #[test]
+    fn parse_bare_quoted_and_explicit_title_terms() {
+        let query = EntryQuery::parse(Some("First \"Second Entry\" \"tag:rust\""), Some("unread"))
+            .expect("query");
+        assert_eq!(
+            query.title_terms,
+            vec![
+                "First".to_string(),
+                "Second Entry".to_string(),
+                "tag:rust".to_string()
+            ]
+        );
+        assert!(query.negated_title_terms.is_empty());
+    }
+
+    #[test]
+    fn parses_tag_filter_and_following_title_terms_separately() {
+        let query = EntryQuery::parse(Some("tag:rust async"), Some("unread")).expect("query");
+        assert_eq!(query.tag_expr, Some(TagExpr::Tag("rust".to_string())));
+        assert_eq!(query.title_terms, vec!["async".to_string()]);
+
+        let query = EntryQuery::parse(Some("tag:rust -nightly"), Some("unread")).expect("query");
+        assert_eq!(query.tag_expr, Some(TagExpr::Tag("rust".to_string())));
+        assert_eq!(query.negated_title_terms, vec!["nightly".to_string()]);
+
+        let query = EntryQuery::parse(Some("tag:rust \"foo bar\""), Some("unread")).expect("query");
+        assert_eq!(query.tag_expr, Some(TagExpr::Tag("rust".to_string())));
+        assert_eq!(query.title_terms, vec!["foo bar".to_string()]);
+    }
+
+    #[test]
+    fn rejects_unknown_filter_prefix_with_quote_hint() {
+        let error = EntryQuery::parse(Some("foo:bar"), Some("unread")).unwrap_err();
+        assert_eq!(error.code().as_str(), "INVALID_QUERY");
+        let details = error.details().expect("details");
+        assert_eq!(details["kind"], "unknown_filter_prefix");
+        assert_eq!(details["field"], "query");
+        assert_eq!(details["value"], "foo:bar");
+        assert_eq!(details["hint"], "quote_token_to_search_literal_text");
+    }
+
+    #[test]
+    fn rejects_capitalized_filter_prefix_as_unknown() {
+        let error = EntryQuery::parse(Some("Tag:rust"), Some("unread")).unwrap_err();
+        assert_eq!(error.code().as_str(), "INVALID_QUERY");
+        let details = error.details().expect("details");
+        assert_eq!(details["kind"], "unknown_filter_prefix");
+        assert_eq!(details["value"], "Tag:rust");
+
+        let query = EntryQuery::parse(Some("\"Tag:rust\""), Some("unread")).expect("query");
+        assert_eq!(query.title_terms, vec!["Tag:rust".to_string()]);
+    }
+
+    #[test]
+    fn rejects_bare_operator_tokens_with_quote_hint() {
+        for token in ["AND", "OR", "NOT", "&", "|", "!"] {
+            let error = EntryQuery::parse(Some(token), Some("unread")).unwrap_err();
+            assert_eq!(error.code().as_str(), "INVALID_QUERY");
+            let details = error.details().expect("details");
+            assert_eq!(details["kind"], "bare_operator_token");
+            assert_eq!(details["field"], "query");
+            assert_eq!(details["value"], token);
+            assert_eq!(details["hint"], "quote_token_to_search_literal_text");
+        }
+
+        let error = EntryQuery::parse(Some("tag:A | B"), Some("unread")).unwrap_err();
+        assert_eq!(error.code().as_str(), "INVALID_QUERY");
+        let details = error.details().expect("details");
+        assert_eq!(details["kind"], "bare_operator_token");
+        assert_eq!(details["field"], "query");
+        assert_eq!(details["value"], "|");
+        assert_eq!(details["hint"], "quote_token_to_search_literal_text");
+    }
+
+    #[test]
+    fn parses_quoted_operator_token_as_title_term() {
+        let query = EntryQuery::parse(Some("\"OR\""), Some("unread")).expect("query");
+        assert_eq!(query.title_terms, vec!["OR".to_string()]);
+    }
+
+    #[test]
+    fn parses_parenthesized_expressions_across_whitespace() {
+        let query = EntryQuery::parse(
+            Some(r#"tag:( A | B ) -tag:( C | D ) ( rust cli | "machine learning" ) -( sponsored | 広告 )"#),
+            Some("unread"),
+        )
+        .expect("query");
+
+        assert_eq!(
+            query.tag_expr,
+            Some(TagExpr::And(vec![
+                TagExpr::Not(Box::new(TagExpr::Or(vec![
+                    TagExpr::Tag("C".to_string()),
+                    TagExpr::Tag("D".to_string()),
+                ]))),
+                TagExpr::Or(vec![
+                    TagExpr::Tag("A".to_string()),
+                    TagExpr::Tag("B".to_string()),
+                ]),
+            ]))
+        );
+        assert_eq!(
+            query.term_groups,
+            vec![TermExpr::Or(vec![
+                TermExpr::And(vec![
+                    TermExpr::Term("cli".to_string()),
+                    TermExpr::Term("rust".to_string()),
+                ]),
+                TermExpr::Term("machine learning".to_string()),
+            ])]
+        );
+        assert_eq!(
+            query.negated_term_groups,
+            vec![TermExpr::Or(vec![
+                TermExpr::Term("sponsored".to_string()),
+                TermExpr::Term("広告".to_string()),
+            ])]
+        );
+    }
+
+    #[test]
+    fn parse_negated_title_terms() {
+        let query = EntryQuery::parse(
+            Some("rust -nightly -\"sponsored post\" \"-rc1\""),
+            Some("unread"),
+        )
+        .expect("query");
+        assert_eq!(
+            query.title_terms,
+            vec!["rust".to_string(), "-rc1".to_string()]
+        );
+        assert_eq!(
+            query.negated_title_terms,
+            vec!["nightly".to_string(), "sponsored post".to_string()]
+        );
+    }
+
+    #[test]
+    fn parse_title_term_groups() {
+        let query = EntryQuery::parse(
+            Some("(alpha|アルファ) (beta|ベータ) -(gamma|ガンマ)"),
+            Some("unread"),
+        )
+        .expect("query");
+        assert_eq!(
+            query.term_groups,
+            vec![
+                TermExpr::Or(vec![
+                    TermExpr::Term("alpha".to_string()),
+                    TermExpr::Term("アルファ".to_string()),
+                ]),
+                TermExpr::Or(vec![
+                    TermExpr::Term("beta".to_string()),
+                    TermExpr::Term("ベータ".to_string()),
+                ]),
+            ]
+        );
+        assert_eq!(
+            query.negated_term_groups,
+            vec![TermExpr::Or(vec![
+                TermExpr::Term("gamma".to_string()),
+                TermExpr::Term("ガンマ".to_string()),
+            ])]
+        );
+    }
+
+    #[test]
+    fn parse_nested_title_term_group() {
+        let query =
+            EntryQuery::parse(Some("((echo&delta)|\"共同声明\")"), Some("unread")).expect("query");
+        assert_eq!(
+            query.term_groups,
+            vec![TermExpr::Or(vec![
+                TermExpr::And(vec![
+                    TermExpr::Term("delta".to_string()),
+                    TermExpr::Term("echo".to_string()),
+                ]),
+                TermExpr::Term("共同声明".to_string()),
+            ])]
+        );
+    }
+
+    #[test]
+    fn parses_group_operator_characters_outside_groups_as_literal_terms() {
+        let query = EntryQuery::parse(Some("a|b Rust(2024)"), Some("unread")).expect("query");
+        assert_eq!(
+            query.title_terms,
+            vec!["a|b".to_string(), "Rust(2024)".to_string()]
+        );
+        assert!(query.term_groups.is_empty());
+    }
+
+    #[test]
+    fn rejects_not_inside_negated_title_term_group() {
+        for raw in ["-(!A)", "-(NOT A)"] {
+            let error = EntryQuery::parse(Some(raw), Some("unread")).unwrap_err();
+            assert_eq!(error.code().as_str(), "INVALID_QUERY");
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_prefix_inside_title_term_group() {
+        let error = EntryQuery::parse(Some("(foo:bar|baz)"), Some("unread")).unwrap_err();
+        assert_eq!(error.code().as_str(), "INVALID_QUERY");
+        let details = error.details().expect("details");
+        assert_eq!(details["kind"], "unknown_filter_prefix");
+        assert_eq!(details["field"], "query");
+        assert_eq!(details["value"], "foo:bar");
+        assert_eq!(details["hint"], "quote_token_to_search_literal_text");
+    }
+
+    #[test]
+    fn counts_title_term_group_members_toward_limit() {
+        let raw = format!(
+            "({})",
+            (0..33)
+                .map(|i| format!("t{i}"))
+                .collect::<Vec<_>>()
+                .join("|")
+        );
+        let error = EntryQuery::parse(Some(&raw), Some("unread")).unwrap_err();
+        assert_eq!(error.code().as_str(), "INVALID_QUERY");
+    }
+
+    #[test]
+    fn rejects_invalid_negated_title_terms() {
+        for raw in ["-", "--foo"] {
+            let error = EntryQuery::parse(Some(raw), Some("unread")).unwrap_err();
+            assert_eq!(error.code().as_str(), "INVALID_QUERY");
+        }
+    }
+
+    #[test]
+    fn rejects_negated_unknown_filter_prefix_with_quote_hint() {
+        let error = EntryQuery::parse(Some("-title:x"), Some("unread")).unwrap_err();
+        assert_eq!(error.code().as_str(), "INVALID_QUERY");
+        let details = error.details().expect("details");
+        assert_eq!(details["kind"], "unknown_filter_prefix");
+        assert_eq!(details["field"], "query");
+        assert_eq!(details["value"], "-title:x");
+        assert_eq!(details["hint"], "quote_token_to_search_literal_text");
+    }
+
+    #[test]
+    fn rejects_empty_title_terms() {
+        for raw in [r#""""#, r#"-"""#] {
+            let error = EntryQuery::parse(Some(raw), Some("unread")).unwrap_err();
+            assert_eq!(error.code().as_str(), "INVALID_QUERY");
+        }
+    }
+
+    #[test]
+    fn rejects_empty_quoted_literals_inside_query_expressions() {
+        for raw in [r#"tag:"""#, r#"(""|foo)"#] {
+            let error = EntryQuery::parse(Some(raw), Some("unread")).unwrap_err();
+            assert_eq!(error.code().as_str(), "INVALID_QUERY");
+        }
+    }
+
+    #[test]
+    fn rejects_title_term_count_over_limit() {
+        let raw = (0..33)
+            .map(|i| format!("t{i}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let error = EntryQuery::parse(Some(&raw), Some("unread")).unwrap_err();
+        assert_eq!(error.code().as_str(), "INVALID_QUERY");
+    }
+
+    #[test]
+    fn rejects_direct_title_term_contradiction() {
+        let error = EntryQuery::parse(Some("Foo -foo"), Some("unread")).unwrap_err();
+        assert_eq!(error.code().as_str(), "INVALID_QUERY");
     }
 
     #[test]
     fn rejects_duplicate_feed_tokens() {
         let error = EntryQuery::parse(Some("feed:1 feed:2"), Some("unread")).unwrap_err();
-        assert_eq!(error.code().as_str(), "INVALID_QUERY");
-    }
-
-    #[test]
-    fn rejects_duplicate_title_tokens() {
-        let error = EntryQuery::parse(Some("title:foo title:bar"), Some("unread")).unwrap_err();
         assert_eq!(error.code().as_str(), "INVALID_QUERY");
     }
 
@@ -590,9 +1044,9 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unknown_tokens() {
-        let error = EntryQuery::parse(Some("oops"), Some("unread")).unwrap_err();
-        assert_eq!(error.code().as_str(), "INVALID_QUERY");
+    fn parses_unknown_tokens_as_title_terms() {
+        let query = EntryQuery::parse(Some("oops"), Some("unread")).expect("query");
+        assert_eq!(query.title_terms, vec!["oops".to_string()]);
     }
 
     #[test]

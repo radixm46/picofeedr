@@ -1,4 +1,4 @@
-use super::TagExpr;
+use super::{TagExpr, TermExpr};
 use crate::error::AppError;
 use std::collections::HashSet;
 
@@ -126,7 +126,7 @@ pub(super) fn has_direct_tag_conflict(expr: &TagExpr) -> bool {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum TagToken {
     /// Literal tag name.
-    Literal(String),
+    Literal { value: String, quoted: bool },
     /// `(`
     LParen,
     /// `)`
@@ -173,7 +173,10 @@ fn lex_tag_expr(raw: &str) -> Result<Vec<TagToken>, AppError> {
             }
             '"' => {
                 let (literal, consumed) = read_quoted_literal(&chars[index..])?;
-                tokens.push(TagToken::Literal(literal));
+                tokens.push(TagToken::Literal {
+                    value: literal,
+                    quoted: true,
+                });
                 index += consumed;
             }
             _ => {
@@ -193,7 +196,10 @@ fn lex_tag_expr(raw: &str) -> Result<Vec<TagToken>, AppError> {
                     "AND" => tokens.push(TagToken::And),
                     "OR" => tokens.push(TagToken::Or),
                     "NOT" => tokens.push(TagToken::Not),
-                    _ => tokens.push(TagToken::Literal(literal)),
+                    _ => tokens.push(TagToken::Literal {
+                        value: literal,
+                        quoted: false,
+                    }),
                 }
             }
         }
@@ -211,6 +217,9 @@ fn read_quoted_literal(chars: &[char]) -> Result<(String, usize), AppError> {
     while index < chars.len() {
         let ch = chars[index];
         if ch == '"' {
+            if out.is_empty() {
+                return Err(AppError::invalid_query("quoted literal must not be empty"));
+            }
             return Ok((out, index + 1));
         }
         if ch == '\\' {
@@ -285,7 +294,7 @@ impl TagExprParser {
             }
             if matches!(
                 self.peek(),
-                Some(TagToken::Literal(_)) | Some(TagToken::LParen) | Some(TagToken::Not)
+                Some(TagToken::Literal { .. }) | Some(TagToken::LParen) | Some(TagToken::Not)
             ) {
                 terms.push(self.parse_unary()?);
                 continue;
@@ -311,7 +320,7 @@ impl TagExprParser {
     /// Parses primary expression.
     fn parse_primary(&mut self) -> Result<TagExpr, AppError> {
         match self.next() {
-            Some(TagToken::Literal(value)) => Ok(TagExpr::Tag(value)),
+            Some(TagToken::Literal { value, .. }) => Ok(TagExpr::Tag(value)),
             Some(TagToken::LParen) => {
                 let expr = self.parse_or()?;
                 match self.next() {
@@ -322,6 +331,167 @@ impl TagExprParser {
                 }
             }
             _ => Err(AppError::invalid_query("Invalid tag expression")),
+        }
+    }
+}
+
+/// Parses a title-term expression.
+pub(super) fn parse_term_expr(raw: &str) -> Result<TermExpr, AppError> {
+    let tokens = lex_tag_expr(raw)?;
+    if tokens.is_empty() {
+        return Err(AppError::invalid_query("term group requires a value"));
+    }
+    let mut parser = TermExprParser::new(tokens);
+    let expr = parser.parse_or()?;
+    if parser.peek().is_some() {
+        return Err(AppError::invalid_query("Invalid term expression"));
+    }
+    let normalized = normalize_term_expr(expr);
+    validate_term_expr_limits(&normalized)?;
+    Ok(normalized)
+}
+
+/// Parses `-(...)` value and rejects nested NOT expressions.
+pub(super) fn parse_minus_term_expr(raw: &str) -> Result<TermExpr, AppError> {
+    let expr = parse_term_expr(raw)?;
+    if expr.contains_not() {
+        return Err(AppError::invalid_query(
+            "-(...) expression must not include NOT/!",
+        ));
+    }
+    Ok(expr)
+}
+
+fn validate_term_expr_limits(expr: &TermExpr) -> Result<(), AppError> {
+    if expr.max_depth() > MAX_TAG_AST_DEPTH {
+        return Err(AppError::invalid_query("Term expression exceeds max depth"));
+    }
+    Ok(())
+}
+
+fn normalize_term_expr(expr: TermExpr) -> TermExpr {
+    match expr {
+        TermExpr::Term(_) => expr,
+        TermExpr::Not(inner) => TermExpr::Not(Box::new(normalize_term_expr(*inner))),
+        TermExpr::And(items) => normalize_term_variadic(items, true),
+        TermExpr::Or(items) => normalize_term_variadic(items, false),
+    }
+}
+
+fn normalize_term_variadic(items: Vec<TermExpr>, is_and: bool) -> TermExpr {
+    let mut flat = Vec::new();
+    for item in items.into_iter().map(normalize_term_expr) {
+        match item {
+            TermExpr::And(children) if is_and => flat.extend(children),
+            TermExpr::Or(children) if !is_and => flat.extend(children),
+            other => flat.push(other),
+        }
+    }
+
+    let mut unique = Vec::new();
+    let mut seen = HashSet::new();
+    for item in flat {
+        let canonical = item.canonical();
+        if seen.insert(canonical) {
+            unique.push(item);
+        }
+    }
+    unique.sort_by_key(TermExpr::canonical);
+    if unique.len() == 1 {
+        return unique.remove(0);
+    }
+    if is_and {
+        TermExpr::And(unique)
+    } else {
+        TermExpr::Or(unique)
+    }
+}
+
+struct TermExprParser {
+    tokens: Vec<TagToken>,
+    index: usize,
+}
+
+impl TermExprParser {
+    fn new(tokens: Vec<TagToken>) -> Self {
+        Self { tokens, index: 0 }
+    }
+
+    fn peek(&self) -> Option<&TagToken> {
+        self.tokens.get(self.index)
+    }
+
+    fn next(&mut self) -> Option<TagToken> {
+        let token = self.tokens.get(self.index).cloned();
+        if token.is_some() {
+            self.index += 1;
+        }
+        token
+    }
+
+    fn parse_or(&mut self) -> Result<TermExpr, AppError> {
+        let mut terms = vec![self.parse_and()?];
+        while matches!(self.peek(), Some(TagToken::Or)) {
+            self.next();
+            terms.push(self.parse_and()?);
+        }
+        if terms.len() == 1 {
+            Ok(terms.remove(0))
+        } else {
+            Ok(TermExpr::Or(terms))
+        }
+    }
+
+    fn parse_and(&mut self) -> Result<TermExpr, AppError> {
+        let mut terms = vec![self.parse_unary()?];
+        loop {
+            if matches!(self.peek(), Some(TagToken::And)) {
+                self.next();
+                terms.push(self.parse_unary()?);
+                continue;
+            }
+            if matches!(
+                self.peek(),
+                Some(TagToken::Literal { .. }) | Some(TagToken::LParen) | Some(TagToken::Not)
+            ) {
+                terms.push(self.parse_unary()?);
+                continue;
+            }
+            break;
+        }
+        if terms.len() == 1 {
+            Ok(terms.remove(0))
+        } else {
+            Ok(TermExpr::And(terms))
+        }
+    }
+
+    fn parse_unary(&mut self) -> Result<TermExpr, AppError> {
+        if matches!(self.peek(), Some(TagToken::Not)) {
+            self.next();
+            return Ok(TermExpr::Not(Box::new(self.parse_unary()?)));
+        }
+        self.parse_primary()
+    }
+
+    fn parse_primary(&mut self) -> Result<TermExpr, AppError> {
+        match self.next() {
+            Some(TagToken::Literal { value, quoted }) => {
+                if !quoted && value.contains(':') {
+                    return Err(super::unknown_filter_prefix_error(&value));
+                }
+                Ok(TermExpr::Term(value))
+            }
+            Some(TagToken::LParen) => {
+                let expr = self.parse_or()?;
+                match self.next() {
+                    Some(TagToken::RParen) => Ok(expr),
+                    _ => Err(AppError::invalid_query(
+                        "Unclosed parenthesis in term expression",
+                    )),
+                }
+            }
+            _ => Err(AppError::invalid_query("Invalid term expression")),
         }
     }
 }
@@ -339,6 +509,20 @@ mod tests {
             TagExpr::Tag("unread".to_string()),
             TagExpr::Tag("tech".to_string()),
             TagExpr::Not(Box::new(TagExpr::Tag("misc".to_string()))),
+        ]));
+        assert_eq!(query.tag_expr, Some(expected));
+    }
+
+    #[test]
+    fn parse_single_token_tag_and_minus_tag_expressions() {
+        let query =
+            EntryQuery::parse(Some("tag:tech -tag:hot|rust"), Some("unread")).expect("query");
+        let expected = normalize_tag_expr(TagExpr::And(vec![
+            TagExpr::Tag("tech".to_string()),
+            TagExpr::Not(Box::new(TagExpr::Or(vec![
+                TagExpr::Tag("hot".to_string()),
+                TagExpr::Tag("rust".to_string()),
+            ]))),
         ]));
         assert_eq!(query.tag_expr, Some(expected));
     }
@@ -402,7 +586,7 @@ mod tests {
 
     #[test]
     fn parse_tag_implicit_and_expression() {
-        let query = EntryQuery::parse(Some("tag:A B"), Some("unread")).expect("query");
+        let query = EntryQuery::parse(Some("tag:A(B)"), Some("unread")).expect("query");
         let expected = normalize_tag_expr(TagExpr::And(vec![
             TagExpr::Tag("A".to_string()),
             TagExpr::Tag("B".to_string()),
@@ -412,7 +596,8 @@ mod tests {
 
     #[test]
     fn parse_tag_keywords_case_insensitive() {
-        let query = EntryQuery::parse(Some("tag:a and b Or not c"), Some("unread")).expect("query");
+        let query =
+            EntryQuery::parse(Some("tag:( a and b Or not c )"), Some("unread")).expect("query");
         let expected = normalize_tag_expr(TagExpr::Or(vec![
             TagExpr::And(vec![
                 TagExpr::Tag("a".to_string()),

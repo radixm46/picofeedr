@@ -86,8 +86,53 @@ pub(super) fn compute_query_hash(query: &EntryQuery) -> String {
             FeedFilter::Title(title) => components.push(format!("feed_title={title}")),
         }
     }
-    if let Some(title) = &query.title {
-        components.push(format!("title={title}"));
+    if !query.title_terms.is_empty() {
+        let mut terms = query
+            .title_terms
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        terms.sort_unstable();
+        components.push(format!(
+            "title_terms={}",
+            serde_json::to_string(&terms).expect("serialize title terms")
+        ));
+    }
+    if !query.negated_title_terms.is_empty() {
+        let mut terms = query
+            .negated_title_terms
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        terms.sort_unstable();
+        components.push(format!(
+            "negated_title_terms={}",
+            serde_json::to_string(&terms).expect("serialize negated title terms")
+        ));
+    }
+    if !query.term_groups.is_empty() {
+        let mut groups = query
+            .term_groups
+            .iter()
+            .map(|expr| expr.canonical())
+            .collect::<Vec<_>>();
+        groups.sort_unstable();
+        components.push(format!(
+            "term_groups={}",
+            serde_json::to_string(&groups).expect("serialize term groups")
+        ));
+    }
+    if !query.negated_term_groups.is_empty() {
+        let mut groups = query
+            .negated_term_groups
+            .iter()
+            .map(|expr| expr.canonical())
+            .collect::<Vec<_>>();
+        groups.sort_unstable();
+        components.push(format!(
+            "negated_term_groups={}",
+            serde_json::to_string(&groups).expect("serialize negated term groups")
+        ));
     }
     if let Some(after) = query.after {
         components.push(format!("after={after}"));
