@@ -302,7 +302,7 @@ fn list_filters_by_bare_title_term() {
 }
 
 #[test]
-fn list_rejects_removed_title_filter_with_dedicated_hint() {
+fn list_rejects_title_prefix_with_quote_hint() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
     picofeedr_cmd_json()
@@ -331,11 +331,11 @@ fn list_rejects_removed_title_filter_with_dedicated_hint() {
     assert_eq!(details["kind"], "unknown_filter_prefix");
     assert_eq!(details["field"], "query");
     assert_eq!(details["value"], "title:\"First\"");
-    assert_eq!(details["hint"], "title_filter_removed_use_bare_term");
+    assert_eq!(details["hint"], "quote_token_to_search_literal_text");
 }
 
 #[test]
-fn list_title_filter_treats_like_metacharacters_as_literals() {
+fn list_title_term_treats_like_metacharacters_as_literals() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_title_literal_fixture(&temp);
     picofeedr_cmd_json()
@@ -356,7 +356,7 @@ fn list_title_filter_treats_like_metacharacters_as_literals() {
         "Build A_B Release",
     );
     assert_single_title(
-        list_query_json(&paths.config_path, &paths.db_path, "\"C:\\Temp\""),
+        list_query_json(&paths.config_path, &paths.db_path, "\"C:\\\\Temp\""),
         "Path C:\\Temp Guide",
     );
 }
@@ -454,7 +454,7 @@ fn list_filters_by_title_term_groups() {
 }
 
 #[test]
-fn list_treats_group_operator_characters_as_literals_outside_groups() {
+fn list_rejects_operator_characters_inside_unquoted_bare_terms() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_term_group_fixture(&temp);
     picofeedr_cmd_json()
@@ -466,8 +466,29 @@ fn list_treats_group_operator_characters_as_literals_outside_groups() {
         .assert()
         .success();
 
+    for raw in ["a|b", "a&b", "!foo", "-a|b", "-a&b", "-!foo"] {
+        let output = picofeedr_cmd_json()
+            .arg("--config")
+            .arg(&paths.config_path)
+            .arg("--storage-root")
+            .arg(db_root(&paths.db_path))
+            .arg("list")
+            .arg("--query")
+            .arg(raw)
+            .assert()
+            .failure()
+            .get_output()
+            .stdout
+            .clone();
+        let details = extract_error_details(&output);
+        assert_eq!(details["kind"], "bare_operator_token");
+        assert_eq!(details["field"], "query");
+        assert_eq!(details["value"], raw);
+        assert_eq!(details["hint"], "quote_token_to_search_literal_text");
+    }
+
     assert_single_title(
-        list_query_json(&paths.config_path, &paths.db_path, "a|b"),
+        list_query_json(&paths.config_path, &paths.db_path, "\"a|b\""),
         "Literal a|b",
     );
     assert_single_title(

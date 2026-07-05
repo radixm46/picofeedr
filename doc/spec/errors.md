@@ -54,11 +54,21 @@
 ```
 
 ```json
-{ "kind": "unknown_filter_prefix", "field": "query", "value": "title:\"rust\"", "hint": "title_filter_removed_use_bare_term" }
+{ "kind": "bare_operator_token", "field": "query", "value": "|", "hint": "quote_token_to_search_literal_text" }
+```
+
+`bare_operator_token` は、`a|b` のように unquoted bare term 内へトップレベルで使えない演算子文字が入った場合にも同じ hint で返す。
+
+```json
+{ "kind": "invalid_escape_sequence", "field": "query", "value": "\\x", "hint": "escape_backslash_as_double_backslash" }
 ```
 
 ```json
-{ "kind": "bare_operator_token", "field": "query", "value": "|", "hint": "quote_token_to_search_literal_text" }
+{ "kind": "duplicate_query_filter", "field": "query", "value": "tag:", "hint": "merge_into_single_tag_expression" }
+```
+
+```json
+{ "kind": "duplicate_query_filter", "field": "query", "value": "feed:", "hint": "remove_duplicate_filter" }
 ```
 
 ### `ENTRY_NOT_FOUND`

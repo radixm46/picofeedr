@@ -87,7 +87,7 @@
 ### 6.2 実装メモ
 
 - DST（月/日境界）による揺れを避けるため、先に TZ でカレンダー演算し、その結果を UTC へ変換する
-- cursor 再評価時の一貫性担保のため、`query_hash` には `as_of_epoch_utc` と `timezone` を含める
+- cursor 再評価時の一貫性担保のため、解決後の境界エポック（`after` / `before`）が `query_hash` に反映される
 
 ## 7. エラー仕様（追加）
 

@@ -82,15 +82,21 @@ When `manage_unread = false`, automatic unread-tag assignment is disabled, but `
 picofeedr list --query 'unread'
 picofeedr list --query 'tag:(rust & cli)'
 picofeedr list --query 'after:1w'
-picofeedr list --query 'title:"example"'
+picofeedr list --query 'foo -bar'
+picofeedr list --query '"quoted term"'
+picofeedr list --query '(color|colour) -(draft|sponsored)'
 ```
 
 Supported terms:
 - `unread` - unread entries (`tag:<unread_tag>` shorthand)
-- `tag:<expr>` - tag expression (AND/OR/NOT supported)
-- `title:"<text>"` - title search
+- `tag:<expr>` - tag expression: `AND` / `OR` / `NOT`, `&` / `|` / `!`, and `()`
+- `-tag:<expr>` - exclude tags
+- `<term>` or `"<term>"` - title search term
+- `-<term>` or `-"<term>"` - exclude title search term
+- `(<expr>)` - title term expression group
+- `-(<expr>)` - exclude title term expression group
 - `feed:<id>` or `feed:"<title>"` - filter by feed
-- `after:<date>`, `before:<date>` - date range
+- `after:<YYYY-MM-DD|Nd|Nw|Nm|Ny>`, `before:<YYYY-MM-DD|Nd|Nw|Nm|Ny>` - date range
 
 ### List Options
 

@@ -1,5 +1,6 @@
 use super::{TagExpr, TermExpr};
-use crate::error::AppError;
+use crate::error::{AppError, error_details};
+use serde_json::Value as JsonValue;
 use std::collections::HashSet;
 
 const MAX_TAG_TOKENS: usize = 64;
@@ -12,7 +13,7 @@ pub(super) fn parse_tag_expr(raw: &str) -> Result<TagExpr, AppError> {
         return Err(AppError::invalid_query("tag: requires a value"));
     }
     let mut parser = TagExprParser::new(tokens);
-    let expr = parser.parse_or()?;
+    let expr = parser.parse_or(1)?;
     if parser.peek().is_some() {
         return Err(AppError::invalid_query("Invalid tag expression"));
     }
@@ -41,6 +42,20 @@ fn validate_tag_expr_limits(expr: &TagExpr) -> Result<(), AppError> {
     }
     if expr.max_depth() > MAX_TAG_AST_DEPTH {
         return Err(AppError::invalid_query("Tag expression exceeds max depth"));
+    }
+    Ok(())
+}
+
+fn validate_tag_parse_depth(depth: usize) -> Result<(), AppError> {
+    if depth > MAX_TAG_AST_DEPTH {
+        return Err(AppError::invalid_query("Tag expression exceeds max depth"));
+    }
+    Ok(())
+}
+
+fn validate_term_parse_depth(depth: usize) -> Result<(), AppError> {
+    if depth > MAX_TAG_AST_DEPTH {
+        return Err(AppError::invalid_query("Term expression exceeds max depth"));
     }
     Ok(())
 }
@@ -208,7 +223,7 @@ fn lex_tag_expr(raw: &str) -> Result<Vec<TagToken>, AppError> {
 }
 
 /// Reads a quoted literal from a char slice.
-fn read_quoted_literal(chars: &[char]) -> Result<(String, usize), AppError> {
+pub(super) fn read_quoted_literal(chars: &[char]) -> Result<(String, usize), AppError> {
     if chars.first() != Some(&'"') {
         return Err(AppError::invalid_query("Invalid quoted tag literal"));
     }
@@ -225,14 +240,11 @@ fn read_quoted_literal(chars: &[char]) -> Result<(String, usize), AppError> {
         if ch == '\\' {
             index += 1;
             if index >= chars.len() {
-                return Err(AppError::invalid_query("Invalid escape sequence"));
+                return Err(invalid_escape_sequence_error("\\"));
             }
             match chars[index] {
                 '\\' | '"' => out.push(chars[index]),
-                other => {
-                    out.push('\\');
-                    out.push(other);
-                }
+                other => return Err(invalid_escape_sequence_error(format!("\\{other}"))),
             }
             index += 1;
             continue;
@@ -241,6 +253,21 @@ fn read_quoted_literal(chars: &[char]) -> Result<(String, usize), AppError> {
         index += 1;
     }
     Err(AppError::invalid_query("Unclosed quote in query"))
+}
+
+fn invalid_escape_sequence_error(value: impl Into<String>) -> AppError {
+    AppError::invalid_query_with_details(
+        "Invalid escape sequence",
+        error_details([
+            ("kind", JsonValue::from("invalid_escape_sequence")),
+            ("field", JsonValue::from("query")),
+            ("value", JsonValue::from(value.into())),
+            (
+                "hint",
+                JsonValue::from("escape_backslash_as_double_backslash"),
+            ),
+        ]),
+    )
 }
 
 /// Tag expression parser.
@@ -270,11 +297,12 @@ impl TagExprParser {
     }
 
     /// Parses OR-level expression.
-    fn parse_or(&mut self) -> Result<TagExpr, AppError> {
-        let mut terms = vec![self.parse_and()?];
+    fn parse_or(&mut self, depth: usize) -> Result<TagExpr, AppError> {
+        validate_tag_parse_depth(depth)?;
+        let mut terms = vec![self.parse_and(depth)?];
         while matches!(self.peek(), Some(TagToken::Or)) {
             self.next();
-            terms.push(self.parse_and()?);
+            terms.push(self.parse_and(depth)?);
         }
         if terms.len() == 1 {
             Ok(terms.remove(0))
@@ -284,19 +312,20 @@ impl TagExprParser {
     }
 
     /// Parses AND-level expression with implicit AND.
-    fn parse_and(&mut self) -> Result<TagExpr, AppError> {
-        let mut terms = vec![self.parse_unary()?];
+    fn parse_and(&mut self, depth: usize) -> Result<TagExpr, AppError> {
+        validate_tag_parse_depth(depth)?;
+        let mut terms = vec![self.parse_unary(depth)?];
         loop {
             if matches!(self.peek(), Some(TagToken::And)) {
                 self.next();
-                terms.push(self.parse_unary()?);
+                terms.push(self.parse_unary(depth)?);
                 continue;
             }
             if matches!(
                 self.peek(),
                 Some(TagToken::Literal { .. }) | Some(TagToken::LParen) | Some(TagToken::Not)
             ) {
-                terms.push(self.parse_unary()?);
+                terms.push(self.parse_unary(depth)?);
                 continue;
             }
             break;
@@ -309,20 +338,22 @@ impl TagExprParser {
     }
 
     /// Parses unary `NOT` expression.
-    fn parse_unary(&mut self) -> Result<TagExpr, AppError> {
+    fn parse_unary(&mut self, depth: usize) -> Result<TagExpr, AppError> {
+        validate_tag_parse_depth(depth)?;
         if matches!(self.peek(), Some(TagToken::Not)) {
             self.next();
-            return Ok(TagExpr::Not(Box::new(self.parse_unary()?)));
+            return Ok(TagExpr::Not(Box::new(self.parse_unary(depth + 1)?)));
         }
-        self.parse_primary()
+        self.parse_primary(depth)
     }
 
     /// Parses primary expression.
-    fn parse_primary(&mut self) -> Result<TagExpr, AppError> {
+    fn parse_primary(&mut self, depth: usize) -> Result<TagExpr, AppError> {
+        validate_tag_parse_depth(depth)?;
         match self.next() {
             Some(TagToken::Literal { value, .. }) => Ok(TagExpr::Tag(value)),
             Some(TagToken::LParen) => {
-                let expr = self.parse_or()?;
+                let expr = self.parse_or(depth + 1)?;
                 match self.next() {
                     Some(TagToken::RParen) => Ok(expr),
                     _ => Err(AppError::invalid_query(
@@ -342,7 +373,7 @@ pub(super) fn parse_term_expr(raw: &str) -> Result<TermExpr, AppError> {
         return Err(AppError::invalid_query("term group requires a value"));
     }
     let mut parser = TermExprParser::new(tokens);
-    let expr = parser.parse_or()?;
+    let expr = parser.parse_or(1)?;
     if parser.peek().is_some() {
         return Err(AppError::invalid_query("Invalid term expression"));
     }
@@ -429,11 +460,12 @@ impl TermExprParser {
         token
     }
 
-    fn parse_or(&mut self) -> Result<TermExpr, AppError> {
-        let mut terms = vec![self.parse_and()?];
+    fn parse_or(&mut self, depth: usize) -> Result<TermExpr, AppError> {
+        validate_term_parse_depth(depth)?;
+        let mut terms = vec![self.parse_and(depth)?];
         while matches!(self.peek(), Some(TagToken::Or)) {
             self.next();
-            terms.push(self.parse_and()?);
+            terms.push(self.parse_and(depth)?);
         }
         if terms.len() == 1 {
             Ok(terms.remove(0))
@@ -442,19 +474,20 @@ impl TermExprParser {
         }
     }
 
-    fn parse_and(&mut self) -> Result<TermExpr, AppError> {
-        let mut terms = vec![self.parse_unary()?];
+    fn parse_and(&mut self, depth: usize) -> Result<TermExpr, AppError> {
+        validate_term_parse_depth(depth)?;
+        let mut terms = vec![self.parse_unary(depth)?];
         loop {
             if matches!(self.peek(), Some(TagToken::And)) {
                 self.next();
-                terms.push(self.parse_unary()?);
+                terms.push(self.parse_unary(depth)?);
                 continue;
             }
             if matches!(
                 self.peek(),
                 Some(TagToken::Literal { .. }) | Some(TagToken::LParen) | Some(TagToken::Not)
             ) {
-                terms.push(self.parse_unary()?);
+                terms.push(self.parse_unary(depth)?);
                 continue;
             }
             break;
@@ -466,15 +499,17 @@ impl TermExprParser {
         }
     }
 
-    fn parse_unary(&mut self) -> Result<TermExpr, AppError> {
+    fn parse_unary(&mut self, depth: usize) -> Result<TermExpr, AppError> {
+        validate_term_parse_depth(depth)?;
         if matches!(self.peek(), Some(TagToken::Not)) {
             self.next();
-            return Ok(TermExpr::Not(Box::new(self.parse_unary()?)));
+            return Ok(TermExpr::Not(Box::new(self.parse_unary(depth + 1)?)));
         }
-        self.parse_primary()
+        self.parse_primary(depth)
     }
 
-    fn parse_primary(&mut self) -> Result<TermExpr, AppError> {
+    fn parse_primary(&mut self, depth: usize) -> Result<TermExpr, AppError> {
+        validate_term_parse_depth(depth)?;
         match self.next() {
             Some(TagToken::Literal { value, quoted }) => {
                 if !quoted && value.contains(':') {
@@ -483,7 +518,7 @@ impl TermExprParser {
                 Ok(TermExpr::Term(value))
             }
             Some(TagToken::LParen) => {
-                let expr = self.parse_or()?;
+                let expr = self.parse_or(depth + 1)?;
                 match self.next() {
                     Some(TagToken::RParen) => Ok(expr),
                     _ => Err(AppError::invalid_query(
@@ -528,23 +563,43 @@ mod tests {
     }
 
     #[test]
-    fn deduplicates_repeated_tag_tokens() {
-        let query = EntryQuery::parse(
-            Some("tag:rust tag:rust -tag:misc -tag:misc"),
-            Some("unread"),
-        )
-        .expect("query");
-        let expected = normalize_tag_expr(TagExpr::And(vec![
-            TagExpr::Tag("rust".to_string()),
-            TagExpr::Not(Box::new(TagExpr::Tag("misc".to_string()))),
-        ]));
-        assert_eq!(query.tag_expr, Some(expected));
+    fn rejects_repeated_tag_filter_tokens() {
+        for (raw, prefix, hint) in [
+            (
+                "tag:rust tag:async",
+                "tag:",
+                "merge_into_single_tag_expression",
+            ),
+            (
+                "-tag:misc -tag:junk",
+                "-tag:",
+                "merge_into_single_minus_tag_expression",
+            ),
+        ] {
+            let error = EntryQuery::parse(Some(raw), Some("unread")).unwrap_err();
+            assert_eq!(error.code().as_str(), "INVALID_QUERY");
+            assert_eq!(
+                error.message(),
+                format!("{prefix} cannot be specified multiple times")
+            );
+            let details = error.details().expect("details");
+            assert_eq!(details["kind"], "duplicate_query_filter");
+            assert_eq!(details["field"], "query");
+            assert_eq!(details["value"], prefix);
+            assert_eq!(details["hint"], hint);
+        }
     }
 
     #[test]
     fn rejects_conflicting_tag_filters() {
-        let error = EntryQuery::parse(Some("tag:rust -tag:rust"), Some("unread")).unwrap_err();
-        assert_eq!(error.code().as_str(), "INVALID_QUERY");
+        for raw in ["tag:rust -tag:rust", "tag:(rust & !rust)"] {
+            let error = EntryQuery::parse(Some(raw), Some("unread")).unwrap_err();
+            assert_eq!(error.code().as_str(), "INVALID_QUERY");
+            assert_eq!(
+                error.message(),
+                "tag expression requires and excludes the same tag"
+            );
+        }
     }
 
     #[test]
@@ -567,6 +622,19 @@ mod tests {
                 TagExpr::Tag("B".to_string()),
                 TagExpr::Tag("C".to_string()),
             ]),
+        ]));
+        assert_eq!(query.tag_expr, Some(expected));
+    }
+
+    #[test]
+    fn parses_adjacent_tag_after_group_as_implicit_and() {
+        let query = EntryQuery::parse(Some("tag:(A|B)x"), Some("unread")).expect("query");
+        let expected = normalize_tag_expr(TagExpr::And(vec![
+            TagExpr::Or(vec![
+                TagExpr::Tag("A".to_string()),
+                TagExpr::Tag("B".to_string()),
+            ]),
+            TagExpr::Tag("x".to_string()),
         ]));
         assert_eq!(query.tag_expr, Some(expected));
     }
@@ -663,6 +731,34 @@ mod tests {
     #[test]
     fn rejects_tag_expression_over_max_depth() {
         let raw = format!("tag:{}A", "!".repeat(16));
+        let error = EntryQuery::parse(Some(&raw), Some("unread")).unwrap_err();
+        assert_eq!(error.code().as_str(), "INVALID_QUERY");
+    }
+
+    #[test]
+    fn accepts_tag_expression_at_max_depth() {
+        let raw = format!("tag:{}A", "!".repeat(15));
+        let query = EntryQuery::parse(Some(&raw), Some("unread")).expect("query");
+        assert!(query.tag_expr.is_some());
+    }
+
+    #[test]
+    fn rejects_deeply_nested_tag_parentheses_without_stack_overflow() {
+        let raw = format!("tag:{}A{}", "(".repeat(100_000), ")".repeat(100_000));
+        let error = EntryQuery::parse(Some(&raw), Some("unread")).unwrap_err();
+        assert_eq!(error.code().as_str(), "INVALID_QUERY");
+    }
+
+    #[test]
+    fn rejects_deeply_nested_tag_not_without_stack_overflow() {
+        let raw = format!("tag:{}A", "!".repeat(100_000));
+        let error = EntryQuery::parse(Some(&raw), Some("unread")).unwrap_err();
+        assert_eq!(error.code().as_str(), "INVALID_QUERY");
+    }
+
+    #[test]
+    fn rejects_deeply_nested_term_parentheses_without_stack_overflow() {
+        let raw = format!("{}A{}", "(".repeat(100_000), ")".repeat(100_000));
         let error = EntryQuery::parse(Some(&raw), Some("unread")).unwrap_err();
         assert_eq!(error.code().as_str(), "INVALID_QUERY");
     }
