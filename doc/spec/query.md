@@ -101,7 +101,7 @@ BareTerm     ::= <whitespace / '"' / ASCII ':' / '|' / '&' を含まない1文�
 - `(` がグループ開始として解釈されるのはトークン先頭（および `-(`）のみ。`Rust(2024)` は素の term
 - グループ内の unquoted リテラルに ASCII `:` を含む場合も Top-Level Rules と同様に `INVALID_QUERY`
 - グループには Tag Expression と同じ AST 深さ上限（最大 16）を適用する。上限は書かれた括弧ネスト（冗長括弧を含む）と `NOT` / `!` 連鎖に対してパース中に適用する。リテラル数は Word Search の term 総数上限（32個）に算入して制約する
-- 直接矛盾の検出は単独 term 同士（`foo -foo`）のみ。グループを含む恒偽式は検出せず0件を返す
+- 直接矛盾の検出は単独 term 同士（`foo -foo`）のみ。単一 term へ畳まれるグループ（`(foo)` / `-(foo)`）は bare term に正規化されるため、直接矛盾検出と `query_hash` は bare form と同一。複数 term やネストを含むグループの恒偽式は検出せず0件を返す
 
 ## Tag Expression
 

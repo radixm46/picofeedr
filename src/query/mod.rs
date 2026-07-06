@@ -295,12 +295,19 @@ impl EntryQuery {
             }
             if let Some(value) = token.strip_prefix("-(") {
                 let expr = tag::parse_minus_term_expr(&format!("({value}"))?;
-                query.negated_term_groups.push(expr);
+                match expr {
+                    TermExpr::Term(term) => query.negated_title_terms.push(term),
+                    expr => query.negated_term_groups.push(expr),
+                }
                 index += 1;
                 continue;
             }
             if token.starts_with('(') {
-                query.term_groups.push(tag::parse_term_expr(token)?);
+                let expr = tag::parse_term_expr(token)?;
+                match expr {
+                    TermExpr::Term(term) => query.title_terms.push(term),
+                    expr => query.term_groups.push(expr),
+                }
                 index += 1;
                 continue;
             }
@@ -814,6 +821,45 @@ mod tests {
             vec![TermExpr::Or(vec![
                 TermExpr::Term("gamma".to_string()),
                 TermExpr::Term("ガンマ".to_string()),
+            ])]
+        );
+    }
+
+    #[test]
+    fn rejects_collapsed_title_term_group_contradictions() {
+        for raw in ["(foo) -foo", "foo -(foo)"] {
+            let error = EntryQuery::parse(Some(raw), Some("unread")).unwrap_err();
+            assert_eq!(error.code().as_str(), "INVALID_QUERY");
+            assert_eq!(
+                error.message(),
+                "positive and negative title terms cannot match"
+            );
+        }
+    }
+
+    #[test]
+    fn hoists_collapsed_positive_title_term_group() {
+        let query = EntryQuery::parse(Some("(foo)"), Some("unread")).expect("query");
+        assert_eq!(query.title_terms, vec!["foo".to_string()]);
+        assert!(query.term_groups.is_empty());
+    }
+
+    #[test]
+    fn hoists_collapsed_negated_title_term_group() {
+        let query = EntryQuery::parse(Some("-(foo)"), Some("unread")).expect("query");
+        assert_eq!(query.negated_title_terms, vec!["foo".to_string()]);
+        assert!(query.negated_term_groups.is_empty());
+    }
+
+    #[test]
+    fn keeps_multi_term_title_groups_grouped() {
+        let query = EntryQuery::parse(Some("(a|b)"), Some("unread")).expect("query");
+        assert!(query.title_terms.is_empty());
+        assert_eq!(
+            query.term_groups,
+            vec![TermExpr::Or(vec![
+                TermExpr::Term("a".to_string()),
+                TermExpr::Term("b".to_string()),
             ])]
         );
     }

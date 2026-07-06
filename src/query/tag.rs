@@ -5,6 +5,8 @@ use std::collections::HashSet;
 
 const MAX_TAG_TOKENS: usize = 64;
 const MAX_TAG_AST_DEPTH: usize = 16;
+const TAG_DEPTH_ERROR: &str = "Tag expression exceeds max depth";
+const TERM_DEPTH_ERROR: &str = "Term expression exceeds max depth";
 
 /// Parses a tag expression.
 pub(super) fn parse_tag_expr(raw: &str) -> Result<TagExpr, AppError> {
@@ -40,22 +42,12 @@ fn validate_tag_expr_limits(expr: &TagExpr) -> Result<(), AppError> {
             "Tag expression exceeds max tag tokens",
         ));
     }
-    if expr.max_depth() > MAX_TAG_AST_DEPTH {
-        return Err(AppError::invalid_query("Tag expression exceeds max depth"));
-    }
-    Ok(())
+    validate_expr_depth(expr.max_depth(), TAG_DEPTH_ERROR)
 }
 
-fn validate_tag_parse_depth(depth: usize) -> Result<(), AppError> {
+fn validate_expr_depth(depth: usize, message: &'static str) -> Result<(), AppError> {
     if depth > MAX_TAG_AST_DEPTH {
-        return Err(AppError::invalid_query("Tag expression exceeds max depth"));
-    }
-    Ok(())
-}
-
-fn validate_term_parse_depth(depth: usize) -> Result<(), AppError> {
-    if depth > MAX_TAG_AST_DEPTH {
-        return Err(AppError::invalid_query("Term expression exceeds max depth"));
+        return Err(AppError::invalid_query(message));
     }
     Ok(())
 }
@@ -75,22 +67,98 @@ pub(super) fn and_all(mut terms: Vec<TagExpr>) -> TagExpr {
 
 /// Normalizes tag expressions for deterministic hashing and SQL generation.
 pub(super) fn normalize_tag_expr(expr: TagExpr) -> TagExpr {
-    match expr {
-        TagExpr::Tag(_) => expr,
-        TagExpr::Not(inner) => TagExpr::Not(Box::new(normalize_tag_expr(*inner))),
-        TagExpr::And(items) => normalize_variadic(items, true),
-        TagExpr::Or(items) => normalize_variadic(items, false),
+    normalize_expr(expr)
+}
+
+enum ExprParts<T> {
+    Leaf(T),
+    Not(Box<T>),
+    And(Vec<T>),
+    Or(Vec<T>),
+}
+
+trait BooleanExpr: Sized {
+    fn canonical(&self) -> String;
+    fn split(self) -> ExprParts<Self>;
+    fn not(inner: Self) -> Self;
+    fn and(items: Vec<Self>) -> Self;
+    fn or(items: Vec<Self>) -> Self;
+}
+
+impl BooleanExpr for TagExpr {
+    fn canonical(&self) -> String {
+        TagExpr::canonical(self)
+    }
+
+    fn split(self) -> ExprParts<Self> {
+        match self {
+            TagExpr::Tag(tag) => ExprParts::Leaf(TagExpr::Tag(tag)),
+            TagExpr::Not(inner) => ExprParts::Not(inner),
+            TagExpr::And(items) => ExprParts::And(items),
+            TagExpr::Or(items) => ExprParts::Or(items),
+        }
+    }
+
+    fn not(inner: Self) -> Self {
+        TagExpr::Not(Box::new(inner))
+    }
+
+    fn and(items: Vec<Self>) -> Self {
+        TagExpr::And(items)
+    }
+
+    fn or(items: Vec<Self>) -> Self {
+        TagExpr::Or(items)
+    }
+}
+
+impl BooleanExpr for TermExpr {
+    fn canonical(&self) -> String {
+        TermExpr::canonical(self)
+    }
+
+    fn split(self) -> ExprParts<Self> {
+        match self {
+            TermExpr::Term(term) => ExprParts::Leaf(TermExpr::Term(term)),
+            TermExpr::Not(inner) => ExprParts::Not(inner),
+            TermExpr::And(items) => ExprParts::And(items),
+            TermExpr::Or(items) => ExprParts::Or(items),
+        }
+    }
+
+    fn not(inner: Self) -> Self {
+        TermExpr::Not(Box::new(inner))
+    }
+
+    fn and(items: Vec<Self>) -> Self {
+        TermExpr::And(items)
+    }
+
+    fn or(items: Vec<Self>) -> Self {
+        TermExpr::Or(items)
+    }
+}
+
+fn normalize_expr<T: BooleanExpr>(expr: T) -> T {
+    match expr.split() {
+        ExprParts::Leaf(expr) => expr,
+        ExprParts::Not(inner) => T::not(normalize_expr(*inner)),
+        ExprParts::And(items) => normalize_variadic(items, true),
+        ExprParts::Or(items) => normalize_variadic(items, false),
     }
 }
 
 /// Normalizes variadic operators by flattening, deduplicating, and sorting.
-fn normalize_variadic(items: Vec<TagExpr>, is_and: bool) -> TagExpr {
+fn normalize_variadic<T: BooleanExpr>(items: Vec<T>, is_and: bool) -> T {
     let mut flat = Vec::new();
-    for item in items.into_iter().map(normalize_tag_expr) {
-        match item {
-            TagExpr::And(children) if is_and => flat.extend(children),
-            TagExpr::Or(children) if !is_and => flat.extend(children),
-            other => flat.push(other),
+    for item in items.into_iter().map(normalize_expr) {
+        match item.split() {
+            ExprParts::And(children) if is_and => flat.extend(children),
+            ExprParts::Or(children) if !is_and => flat.extend(children),
+            ExprParts::Leaf(expr) => flat.push(expr),
+            ExprParts::Not(inner) => flat.push(T::not(*inner)),
+            ExprParts::And(children) => flat.push(T::and(children)),
+            ExprParts::Or(children) => flat.push(T::or(children)),
         }
     }
 
@@ -103,14 +171,14 @@ fn normalize_variadic(items: Vec<TagExpr>, is_and: bool) -> TagExpr {
         }
     }
     // TODO: If parser constraints ever change, reject or model empty variadic expressions explicitly.
-    unique.sort_by_key(TagExpr::canonical);
+    unique.sort_by_key(BooleanExpr::canonical);
     if unique.len() == 1 {
         return unique.remove(0);
     }
     if is_and {
-        TagExpr::And(unique)
+        T::and(unique)
     } else {
-        TagExpr::Or(unique)
+        T::or(unique)
     }
 }
 
@@ -298,7 +366,7 @@ impl TagExprParser {
 
     /// Parses OR-level expression.
     fn parse_or(&mut self, depth: usize) -> Result<TagExpr, AppError> {
-        validate_tag_parse_depth(depth)?;
+        validate_expr_depth(depth, TAG_DEPTH_ERROR)?;
         let mut terms = vec![self.parse_and(depth)?];
         while matches!(self.peek(), Some(TagToken::Or)) {
             self.next();
@@ -313,7 +381,7 @@ impl TagExprParser {
 
     /// Parses AND-level expression with implicit AND.
     fn parse_and(&mut self, depth: usize) -> Result<TagExpr, AppError> {
-        validate_tag_parse_depth(depth)?;
+        validate_expr_depth(depth, TAG_DEPTH_ERROR)?;
         let mut terms = vec![self.parse_unary(depth)?];
         loop {
             if matches!(self.peek(), Some(TagToken::And)) {
@@ -339,7 +407,7 @@ impl TagExprParser {
 
     /// Parses unary `NOT` expression.
     fn parse_unary(&mut self, depth: usize) -> Result<TagExpr, AppError> {
-        validate_tag_parse_depth(depth)?;
+        validate_expr_depth(depth, TAG_DEPTH_ERROR)?;
         if matches!(self.peek(), Some(TagToken::Not)) {
             self.next();
             return Ok(TagExpr::Not(Box::new(self.parse_unary(depth + 1)?)));
@@ -349,7 +417,7 @@ impl TagExprParser {
 
     /// Parses primary expression.
     fn parse_primary(&mut self, depth: usize) -> Result<TagExpr, AppError> {
-        validate_tag_parse_depth(depth)?;
+        validate_expr_depth(depth, TAG_DEPTH_ERROR)?;
         match self.next() {
             Some(TagToken::Literal { value, .. }) => Ok(TagExpr::Tag(value)),
             Some(TagToken::LParen) => {
@@ -394,48 +462,11 @@ pub(super) fn parse_minus_term_expr(raw: &str) -> Result<TermExpr, AppError> {
 }
 
 fn validate_term_expr_limits(expr: &TermExpr) -> Result<(), AppError> {
-    if expr.max_depth() > MAX_TAG_AST_DEPTH {
-        return Err(AppError::invalid_query("Term expression exceeds max depth"));
-    }
-    Ok(())
+    validate_expr_depth(expr.max_depth(), TERM_DEPTH_ERROR)
 }
 
 fn normalize_term_expr(expr: TermExpr) -> TermExpr {
-    match expr {
-        TermExpr::Term(_) => expr,
-        TermExpr::Not(inner) => TermExpr::Not(Box::new(normalize_term_expr(*inner))),
-        TermExpr::And(items) => normalize_term_variadic(items, true),
-        TermExpr::Or(items) => normalize_term_variadic(items, false),
-    }
-}
-
-fn normalize_term_variadic(items: Vec<TermExpr>, is_and: bool) -> TermExpr {
-    let mut flat = Vec::new();
-    for item in items.into_iter().map(normalize_term_expr) {
-        match item {
-            TermExpr::And(children) if is_and => flat.extend(children),
-            TermExpr::Or(children) if !is_and => flat.extend(children),
-            other => flat.push(other),
-        }
-    }
-
-    let mut unique = Vec::new();
-    let mut seen = HashSet::new();
-    for item in flat {
-        let canonical = item.canonical();
-        if seen.insert(canonical) {
-            unique.push(item);
-        }
-    }
-    unique.sort_by_key(TermExpr::canonical);
-    if unique.len() == 1 {
-        return unique.remove(0);
-    }
-    if is_and {
-        TermExpr::And(unique)
-    } else {
-        TermExpr::Or(unique)
-    }
+    normalize_expr(expr)
 }
 
 struct TermExprParser {
@@ -461,7 +492,7 @@ impl TermExprParser {
     }
 
     fn parse_or(&mut self, depth: usize) -> Result<TermExpr, AppError> {
-        validate_term_parse_depth(depth)?;
+        validate_expr_depth(depth, TERM_DEPTH_ERROR)?;
         let mut terms = vec![self.parse_and(depth)?];
         while matches!(self.peek(), Some(TagToken::Or)) {
             self.next();
@@ -475,7 +506,7 @@ impl TermExprParser {
     }
 
     fn parse_and(&mut self, depth: usize) -> Result<TermExpr, AppError> {
-        validate_term_parse_depth(depth)?;
+        validate_expr_depth(depth, TERM_DEPTH_ERROR)?;
         let mut terms = vec![self.parse_unary(depth)?];
         loop {
             if matches!(self.peek(), Some(TagToken::And)) {
@@ -500,7 +531,7 @@ impl TermExprParser {
     }
 
     fn parse_unary(&mut self, depth: usize) -> Result<TermExpr, AppError> {
-        validate_term_parse_depth(depth)?;
+        validate_expr_depth(depth, TERM_DEPTH_ERROR)?;
         if matches!(self.peek(), Some(TagToken::Not)) {
             self.next();
             return Ok(TermExpr::Not(Box::new(self.parse_unary(depth + 1)?)));
@@ -509,7 +540,7 @@ impl TermExprParser {
     }
 
     fn parse_primary(&mut self, depth: usize) -> Result<TermExpr, AppError> {
-        validate_term_parse_depth(depth)?;
+        validate_expr_depth(depth, TERM_DEPTH_ERROR)?;
         match self.next() {
             Some(TagToken::Literal { value, quoted }) => {
                 if !quoted && value.contains(':') {
