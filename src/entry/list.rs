@@ -12,9 +12,11 @@ use cursor::{compute_query_hash, decode_cursor, encode_cursor_with_query};
 use rusqlite::types::Value;
 use serde_json::Value as JsonValue;
 use setops::{UniverseView, intersect_sorted_into, merge_union_sorted_into};
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 type EntryListPage = (Vec<EntrySummary>, Vec<FeedSummary>, Option<String>);
+type SqlClause = Cow<'static, str>;
 
 enum FeedIdPredicate {
     NotRequested,
@@ -30,6 +32,7 @@ enum TagEvalPath {
 const SIMPLE_PATH_MAX_NODE_COUNT: usize = 12;
 const SIMPLE_PATH_MAX_DEPTH: usize = 4;
 const SIMPLE_PATH_MAX_OR_FANOUT: usize = 6;
+const TERM_LITERAL_CLAUSE: &str = r#"(e.title IS NOT NULL AND e.title LIKE ? ESCAPE '\')"#;
 
 /// Lists entries using tag filters and cursor pagination.
 pub fn list_entries(
@@ -299,7 +302,7 @@ fn build_where_clause(
     let (mut clauses, mut params) =
         build_non_tag_predicates(query, sort, cursor, query_hash, feed_id_predicate)?;
     if let Some(extra_clause) = extra_clause {
-        clauses.insert(0, format!("({extra_clause})"));
+        clauses.insert(0, Cow::Owned(format!("({extra_clause})")));
         let mut merged = extra_params.to_vec();
         merged.extend(params);
         params = merged;
@@ -318,14 +321,14 @@ fn build_non_tag_predicates(
     cursor: Option<&str>,
     query_hash: &str,
     feed_id_predicate: &FeedIdPredicate,
-) -> Result<(Vec<String>, Vec<Value>), AppError> {
+) -> Result<(Vec<SqlClause>, Vec<Value>), AppError> {
     let mut clauses = Vec::new();
     let mut params = Vec::new();
     if let Some(feed) = &query.feed {
         match feed {
             FeedFilter::Id(_) => match feed_id_predicate {
                 FeedIdPredicate::Resolved(feed_pk) => {
-                    clauses.push(q::ENTRY_FEED_PK_EQ.to_string());
+                    clauses.push(Cow::Borrowed(q::ENTRY_FEED_PK_EQ));
                     params.push(Value::from(*feed_pk));
                 }
                 FeedIdPredicate::NotRequested => {
@@ -333,34 +336,37 @@ fn build_non_tag_predicates(
                 }
             },
             FeedFilter::Title(title) => {
-                clauses.push(q::EXISTS_FEED_TITLE_FOR_ENTRY.to_string());
+                clauses.push(Cow::Borrowed(q::EXISTS_FEED_TITLE_FOR_ENTRY));
                 params.push(Value::from(title.clone()));
             }
         }
     }
     for title in &query.title_terms {
-        clauses.push(term_literal_clause());
+        clauses.push(Cow::Borrowed(TERM_LITERAL_CLAUSE));
         params.push(Value::from(like_contains_pattern(title)));
     }
     for title in &query.negated_title_terms {
-        clauses.push(r#"(e.title IS NULL OR e.title NOT LIKE ? ESCAPE '\')"#.to_string());
+        clauses.push(Cow::Owned(negate_clause(TERM_LITERAL_CLAUSE)));
         params.push(Value::from(like_contains_pattern(title)));
     }
     for expr in &query.term_groups {
-        clauses.push(format!("({})", build_term_expr_clause(expr, &mut params)));
+        clauses.push(Cow::Owned(format!(
+            "({})",
+            build_term_expr_clause(expr, &mut params)
+        )));
     }
     for expr in &query.negated_term_groups {
-        clauses.push(format!(
+        clauses.push(Cow::Owned(format!(
             "NOT ({})",
             build_term_expr_clause(expr, &mut params)
-        ));
+        )));
     }
     if let Some(after) = query.after {
-        clauses.push(format!("({}) >= ?", effective_date_expr()));
+        clauses.push(Cow::Owned(format!("({}) >= ?", effective_date_expr())));
         params.push(Value::from(after));
     }
     if let Some(before) = query.before {
-        clauses.push(format!("({}) < ?", effective_date_expr()));
+        clauses.push(Cow::Owned(format!("({}) < ?", effective_date_expr())));
         params.push(Value::from(before));
     }
     if let Some(cursor) = cursor {
@@ -374,7 +380,7 @@ fn build_non_tag_predicates(
                 format!("({key_expr}, e.id) > (? , ?)")
             }
         };
-        clauses.push(predicate);
+        clauses.push(Cow::Owned(predicate));
         params.push(Value::from(cursor.k));
         params.push(Value::from(cursor.id));
     }
@@ -385,24 +391,31 @@ fn build_term_expr_clause(expr: &TermExpr, params: &mut Vec<Value>) -> String {
     match expr {
         TermExpr::Term(term) => {
             params.push(Value::from(like_contains_pattern(term)));
-            term_literal_clause()
+            TERM_LITERAL_CLAUSE.to_string()
         }
-        TermExpr::Not(inner) => format!("NOT ({})", build_term_expr_clause(inner, params)),
-        TermExpr::And(items) => items
-            .iter()
-            .map(|item| format!("({})", build_term_expr_clause(item, params)))
-            .collect::<Vec<_>>()
-            .join(" AND "),
-        TermExpr::Or(items) => items
-            .iter()
-            .map(|item| format!("({})", build_term_expr_clause(item, params)))
-            .collect::<Vec<_>>()
-            .join(" OR "),
+        TermExpr::Not(inner) => negate_clause(&build_term_expr_clause(inner, params)),
+        TermExpr::And(items) => {
+            join_boolean_clauses(items, " AND ", params, build_term_expr_clause)
+        }
+        TermExpr::Or(items) => join_boolean_clauses(items, " OR ", params, build_term_expr_clause),
     }
 }
 
-fn term_literal_clause() -> String {
-    r#"(e.title IS NOT NULL AND e.title LIKE ? ESCAPE '\')"#.to_string()
+fn negate_clause(clause: &str) -> String {
+    format!("NOT ({clause})")
+}
+
+fn join_boolean_clauses<T>(
+    items: &[T],
+    separator: &str,
+    params: &mut Vec<Value>,
+    mut build_clause: impl FnMut(&T, &mut Vec<Value>) -> String,
+) -> String {
+    items
+        .iter()
+        .map(|item| format!("({})", build_clause(item, params)))
+        .collect::<Vec<_>>()
+        .join(separator)
 }
 
 fn like_contains_pattern(value: &str) -> String {
@@ -578,23 +591,11 @@ fn build_tag_expr_clause(
             None => "0=1".to_string(),
         },
         TagExpr::Not(inner) => {
-            format!(
-                "NOT ({})",
-                build_tag_expr_clause(inner, params, resolved_tag_ids)
-            )
+            negate_clause(&build_tag_expr_clause(inner, params, resolved_tag_ids))
         }
-        TagExpr::And(items) => {
-            let clauses = items
-                .iter()
-                .map(|item| {
-                    format!(
-                        "({})",
-                        build_tag_expr_clause(item, params, resolved_tag_ids)
-                    )
-                })
-                .collect::<Vec<_>>();
-            clauses.join(" AND ")
-        }
+        TagExpr::And(items) => join_boolean_clauses(items, " AND ", params, |item, params| {
+            build_tag_expr_clause(item, params, resolved_tag_ids)
+        }),
         TagExpr::Or(items) => {
             // When every child is a plain Tag, collapse into a single IN clause.
             if items.iter().all(|item| matches!(item, TagExpr::Tag(_))) {
@@ -617,16 +618,9 @@ fn build_tag_expr_clause(
                 }
                 return q::exists_tag_ids_for_entry(&placeholders);
             }
-            let clauses = items
-                .iter()
-                .map(|item| {
-                    format!(
-                        "({})",
-                        build_tag_expr_clause(item, params, resolved_tag_ids)
-                    )
-                })
-                .collect::<Vec<_>>();
-            clauses.join(" OR ")
+            join_boolean_clauses(items, " OR ", params, |item, params| {
+                build_tag_expr_clause(item, params, resolved_tag_ids)
+            })
         }
     }
 }
