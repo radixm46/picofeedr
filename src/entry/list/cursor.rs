@@ -74,74 +74,83 @@ pub(super) fn decode_cursor(
     Ok(cursor)
 }
 
+#[derive(Serialize)]
+struct QueryHashPayload {
+    tag_expr: Option<String>,
+    feed: Option<QueryHashFeed>,
+    title_terms: Vec<String>,
+    negated_title_terms: Vec<String>,
+    term_groups: Vec<String>,
+    negated_term_groups: Vec<String>,
+    after: Option<i64>,
+    before: Option<i64>,
+}
+
+#[derive(Serialize)]
+enum QueryHashFeed {
+    Id(String),
+    Title(String),
+}
+
 /// Computes a stable hash for query validation.
 pub(super) fn compute_query_hash(query: &EntryQuery) -> String {
-    let mut components = Vec::new();
-    if let Some(tag_expr) = &query.tag_expr {
-        components.push(format!("tag_expr={}", tag_expr.canonical()));
-    }
-    if let Some(feed) = &query.feed {
-        match feed {
-            FeedFilter::Id(id) => components.push(format!("feed_id={id}")),
-            FeedFilter::Title(title) => components.push(format!("feed_title={title}")),
-        }
-    }
-    if !query.title_terms.is_empty() {
-        let mut terms = query
-            .title_terms
-            .iter()
-            .map(String::as_str)
-            .collect::<Vec<_>>();
-        terms.sort_unstable();
-        components.push(format!(
-            "title_terms={}",
-            serde_json::to_string(&terms).expect("serialize title terms")
-        ));
-    }
-    if !query.negated_title_terms.is_empty() {
-        let mut terms = query
-            .negated_title_terms
-            .iter()
-            .map(String::as_str)
-            .collect::<Vec<_>>();
-        terms.sort_unstable();
-        components.push(format!(
-            "negated_title_terms={}",
-            serde_json::to_string(&terms).expect("serialize negated title terms")
-        ));
-    }
-    if !query.term_groups.is_empty() {
-        let mut groups = query
-            .term_groups
-            .iter()
-            .map(|expr| expr.canonical())
-            .collect::<Vec<_>>();
-        groups.sort_unstable();
-        components.push(format!(
-            "term_groups={}",
-            serde_json::to_string(&groups).expect("serialize term groups")
-        ));
-    }
-    if !query.negated_term_groups.is_empty() {
-        let mut groups = query
-            .negated_term_groups
-            .iter()
-            .map(|expr| expr.canonical())
-            .collect::<Vec<_>>();
-        groups.sort_unstable();
-        components.push(format!(
-            "negated_term_groups={}",
-            serde_json::to_string(&groups).expect("serialize negated term groups")
-        ));
-    }
-    if let Some(after) = query.after {
-        components.push(format!("after={after}"));
-    }
-    if let Some(before) = query.before {
-        components.push(format!("before={before}"));
-    }
-    let payload = components.join("|");
+    let mut title_terms = query.title_terms.clone();
+    title_terms.sort_unstable();
+    let mut negated_title_terms = query.negated_title_terms.clone();
+    negated_title_terms.sort_unstable();
+    let mut term_groups = query
+        .term_groups
+        .iter()
+        .map(|expr| expr.canonical())
+        .collect::<Vec<_>>();
+    term_groups.sort_unstable();
+    let mut negated_term_groups = query
+        .negated_term_groups
+        .iter()
+        .map(|expr| expr.canonical())
+        .collect::<Vec<_>>();
+    negated_term_groups.sort_unstable();
+    let payload = QueryHashPayload {
+        tag_expr: query.tag_expr.as_ref().map(|expr| expr.canonical()),
+        feed: query.feed.as_ref().map(|feed| match feed {
+            FeedFilter::Id(id) => QueryHashFeed::Id(id.clone()),
+            FeedFilter::Title(title) => QueryHashFeed::Title(title.clone()),
+        }),
+        title_terms,
+        negated_title_terms,
+        term_groups,
+        negated_term_groups,
+        after: query.after,
+        before: query.before,
+    };
+    let payload = serde_json::to_vec(&payload).expect("serialize query hash payload");
     let mut hasher = Sha1::new();
-    hasher.update(payload.as_bytes());
+    hasher.update(payload);
     hex::encode(hasher.finalize())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::compute_query_hash;
+    use crate::query::EntryQuery;
+
+    #[test]
+    fn query_hash_distinguishes_tag_content_from_other_fields() {
+        let embedded = EntryQuery::parse(Some(r#"tag:"x|feed_title=y""#), Some("unread"))
+            .expect("query with quoted tag");
+        let separate = EntryQuery::parse(Some(r#"tag:x feed:"y""#), Some("unread"))
+            .expect("query with tag and feed title");
+
+        assert_ne!(compute_query_hash(&embedded), compute_query_hash(&separate));
+    }
+
+    #[test]
+    fn query_hash_is_stable_for_reordered_equivalent_terms() {
+        let first =
+            EntryQuery::parse(Some("alpha beta tag:A|B"), Some("unread")).expect("first query");
+        let reordered =
+            EntryQuery::parse(Some("beta alpha tag:B|A"), Some("unread")).expect("reordered query");
+
+        assert_eq!(compute_query_hash(&first), compute_query_hash(&reordered));
+    }
 }

@@ -9,6 +9,7 @@
 - `next_page_token` は不透明文字列（内部は `{\"k\": <sort_key>, \"id\": <entry_pk>, \"sort\": \"<sort>\", \"query_hash\": \"<sha1-hex>\"}` を JSON→base64url）
 - タイブレークは常に `id` を使う（`ORDER BY ..., id ...`）
 - トークンの `sort` または `query_hash` が現在の要求と不一致なら `INVALID_QUERY` で失敗させる
+- `query_hash` は正規化済みの検索条件を構造化JSONとして直列化してから計算し、各文字列値が他フィールドの境界として解釈されないようにする
 - クライアントは `next_page_token` の内部JSONを解釈せず、受け取った値をそのまま次ページ要求へ再送する
 
 ### A8.2 first_seen_desc（推奨：安定）
