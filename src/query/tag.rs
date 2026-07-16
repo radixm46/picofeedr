@@ -1,5 +1,6 @@
 use super::{TagExpr, TermExpr};
 use crate::error::{AppError, error_details};
+use crate::tag::{invalid_tag_name_error, validate_tag_name};
 use serde_json::Value as JsonValue;
 use std::collections::HashSet;
 
@@ -419,7 +420,12 @@ impl TagExprParser {
     fn parse_primary(&mut self, depth: usize) -> Result<TagExpr, AppError> {
         validate_expr_depth(depth, TAG_DEPTH_ERROR)?;
         match self.next() {
-            Some(TagToken::Literal { value, .. }) => Ok(TagExpr::Tag(value)),
+            Some(TagToken::Literal { value, .. }) => {
+                validate_tag_name(&value).map_err(|violation| {
+                    invalid_tag_name_error(value.clone(), "query", violation)
+                })?;
+                Ok(TagExpr::Tag(value))
+            }
             Some(TagToken::LParen) => {
                 let expr = self.parse_or(depth + 1)?;
                 match self.next() {
@@ -749,6 +755,90 @@ mod tests {
             let error = EntryQuery::parse(Some(raw), Some("unread")).unwrap_err();
             assert_eq!(error.code().as_str(), "INVALID_QUERY");
         }
+    }
+
+    #[test]
+    fn rejects_reserved_comma_in_tag_literal() {
+        let error = EntryQuery::parse(Some(r#"tag:"rust,cli""#), Some("unread"))
+            .expect_err("comma must be rejected in a tag name");
+
+        assert_eq!(error.code().as_str(), "INVALID_QUERY");
+        let details = error.details().expect("error details");
+        assert_eq!(details["kind"], "invalid_tag_name");
+        assert_eq!(details["field"], "query");
+        assert_eq!(details["value"], "rust,cli");
+        assert_eq!(details["hint"], "remove_reserved_comma");
+    }
+
+    #[test]
+    fn rejects_control_character_in_tag_literal() {
+        let error = EntryQuery::parse(Some("tag:\"line\nbreak\""), Some("unread"))
+            .expect_err("control characters must be rejected in a tag name");
+
+        assert_eq!(error.code().as_str(), "INVALID_QUERY");
+        let details = error.details().expect("error details");
+        assert_eq!(details["kind"], "invalid_tag_name");
+        assert_eq!(details["field"], "query");
+        assert_eq!(details["hint"], "remove_control_characters");
+    }
+
+    #[test]
+    fn rejects_tag_literal_over_64_unicode_characters() {
+        let tag = "技".repeat(65);
+        let raw = format!(r#"tag:"{tag}""#);
+        let error = EntryQuery::parse(Some(&raw), Some("unread"))
+            .expect_err("tag names over 64 characters must be rejected");
+
+        assert_eq!(error.code().as_str(), "INVALID_QUERY");
+        let details = error.details().expect("error details");
+        assert_eq!(details["kind"], "invalid_tag_name");
+        assert_eq!(details["field"], "query");
+        assert_eq!(details["value"], tag);
+        assert_eq!(details["hint"], "shorten_tag_name");
+    }
+
+    #[test]
+    fn accepts_cjk_tag_literal_at_64_unicode_characters() {
+        let tag = "技".repeat(64);
+        let raw = format!(r#"tag:"{tag}""#);
+        let query = EntryQuery::parse(Some(&raw), Some("unread"))
+            .expect("64 CJK characters must be accepted");
+
+        assert_eq!(query.tag_expr, Some(TagExpr::Tag(tag)));
+    }
+
+    #[test]
+    fn accepts_unicode_and_quoted_special_tag_literals() {
+        for (raw, expected) in [
+            ("tag:日本語", "日本語"),
+            (r#"tag:"機械 学習""#, "機械 学習"),
+            (r#"tag:"rust🦀""#, "rust🦀"),
+            (r#"tag:"分類/開発""#, "分類/開発"),
+            (r#"tag:"a|b""#, "a|b"),
+            (r#"tag:"and""#, "and"),
+        ] {
+            let query = EntryQuery::parse(Some(raw), Some("unread"))
+                .expect("Unicode and quoted special characters must be accepted");
+
+            assert_eq!(
+                query.tag_expr,
+                Some(TagExpr::Tag(expected.to_string())),
+                "query: {raw}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_surrounding_whitespace_in_tag_literal() {
+        let error = EntryQuery::parse(Some(r#"tag:" rust ""#), Some("unread"))
+            .expect_err("surrounding whitespace must be rejected in a tag name");
+
+        assert_eq!(error.code().as_str(), "INVALID_QUERY");
+        let details = error.details().expect("error details");
+        assert_eq!(details["kind"], "invalid_tag_name");
+        assert_eq!(details["field"], "query");
+        assert_eq!(details["value"], " rust ");
+        assert_eq!(details["hint"], "remove_surrounding_whitespace");
     }
 
     #[test]

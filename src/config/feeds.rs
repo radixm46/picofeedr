@@ -2,6 +2,7 @@
 
 use crate::error::{AppError, error_details};
 use crate::string_set::{duplicated_strings_preserve_order, merge_unique_strings};
+use crate::tag::validate_tag_name;
 use regex::Regex;
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -116,13 +117,7 @@ impl FeedsConfig {
         }
 
         for scoped in &self.tag_lists {
-            if scoped.tags.iter().any(|tag| tag.is_empty()) {
-                errors.push(ValidationIssue {
-                    code: "EMPTY_TAG_NAME".to_string(),
-                    message: "tag name must not be empty".to_string(),
-                    path: Some(scoped.path.clone()),
-                });
-            }
+            append_tag_name_issues(&scoped.tags, &scoped.path, &mut errors);
             let non_empty_tags = scoped
                 .tags
                 .iter()
@@ -159,13 +154,11 @@ impl FeedsConfig {
                     path: Some(format!("{}.add_tags", scoped.path)),
                 });
             }
-            if scoped.rule.add_tags.iter().any(|tag| tag.is_empty()) {
-                errors.push(ValidationIssue {
-                    code: "EMPTY_TAG_NAME".to_string(),
-                    message: "tag name must not be empty".to_string(),
-                    path: Some(format!("{}.add_tags", scoped.path)),
-                });
-            }
+            append_tag_name_issues(
+                &scoped.rule.add_tags,
+                &format!("{}.add_tags", scoped.path),
+                &mut errors,
+            );
             if scoped.rule.title_regex.is_none() && scoped.rule.title_contains.is_none() {
                 errors.push(ValidationIssue {
                     code: "INVALID_AUTO_TAG_RULE".to_string(),
@@ -222,6 +215,25 @@ impl FeedsConfig {
             ));
         }
         Ok(())
+    }
+}
+
+fn append_tag_name_issues(tags: &[String], path: &str, errors: &mut Vec<ValidationIssue>) {
+    if tags.iter().any(|tag| tag.is_empty()) {
+        errors.push(ValidationIssue {
+            code: "EMPTY_TAG_NAME".to_string(),
+            message: "tag name must not be empty".to_string(),
+            path: Some(path.to_string()),
+        });
+    }
+    for tag in tags.iter().filter(|tag| !tag.is_empty()) {
+        if let Err(violation) = validate_tag_name(tag) {
+            errors.push(ValidationIssue {
+                code: "INVALID_TAG_NAME".to_string(),
+                message: violation.message().to_string(),
+                path: Some(path.to_string()),
+            });
+        }
     }
 }
 

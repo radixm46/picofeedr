@@ -71,7 +71,8 @@ level = "info"
 - `log.level = "info"`
 
 `manage_unread = false` のときは unread タグの自動付与を無効化する。  
-`unread_tag` は `manage_unread` の値に関わらず non-empty を必須とする。
+`unread_tag` は前後の空白を除去してから、`manage_unread` の値に関わらず
+`doc/spec/feeds.md` の Tag Name Contract で検証する。
 
 ### `[storage]`
 

@@ -213,6 +213,87 @@ fn mark_updates_tags() {
 }
 
 #[test]
+fn mark_tag_rejects_tag_over_64_unicode_characters() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let unread_data = list_query_json(&paths.config_path, &paths.db_path, "unread");
+    let entry_id = collect_item_ids(&unread_data).remove(0);
+    let tag = "技".repeat(65);
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("mark")
+        .arg("tag")
+        .arg(entry_id)
+        .arg("--add")
+        .arg(&tag)
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    let error = extract_error_payload(&output);
+    assert_eq!(error["code"], "INVALID_QUERY");
+    let details = extract_error_details(&output);
+    assert_eq!(details["kind"], "invalid_tag_name");
+    assert_eq!(details["field"], "tag");
+    assert_eq!(details["value"], tag);
+    assert_eq!(details["hint"], "shorten_tag_name");
+}
+
+#[test]
+fn mark_tag_accepts_unicode_tag_names() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let unread_data = list_query_json(&paths.config_path, &paths.db_path, "unread");
+    let entry_id = collect_item_ids(&unread_data).remove(0);
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("mark")
+        .arg("tag")
+        .arg(entry_id)
+        .arg("--add")
+        .arg("日本語 ニュース,rust🦀")
+        .assert()
+        .success();
+
+    let cjk = list_query_json(
+        &paths.config_path,
+        &paths.db_path,
+        r#"tag:"日本語 ニュース""#,
+    );
+    let emoji = list_query_json(&paths.config_path, &paths.db_path, "tag:rust🦀");
+    assert_eq!(cjk["total_count"], 1);
+    assert_eq!(emoji["total_count"], 1);
+}
+
+#[test]
 fn mark_read_fails_when_any_entry_is_missing() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);

@@ -1,6 +1,7 @@
 use crate::db::sqlite::SqliteStore;
 use crate::error::AppError;
 use crate::string_set::dedupe_strings_preserve_order;
+use crate::tag::{invalid_tag_name_error, validate_tag_name};
 
 /// Updates entry tags and returns the number of affected entries.
 ///
@@ -11,6 +12,10 @@ pub fn mark_entries(
     add_tags: &[String],
     remove_tags: &[String],
 ) -> Result<usize, AppError> {
+    for tag in add_tags.iter().chain(remove_tags) {
+        validate_tag_name(tag)
+            .map_err(|violation| invalid_tag_name_error(tag.clone(), "tag", violation))?;
+    }
     if add_tags.is_empty() && remove_tags.is_empty() {
         return Err(AppError::invalid_query(
             "mark tag requires --add or --remove",

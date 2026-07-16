@@ -1193,7 +1193,7 @@ mod tests {
     }
 
     #[test]
-    fn unread_keyword_is_noop_when_unread_management_is_disabled() {
+    fn unread_keyword_is_noop_when_alias_is_unavailable() {
         let query = EntryQuery::parse(Some("unread"), None).expect("query");
         assert!(query.tag_expr.is_none());
     }

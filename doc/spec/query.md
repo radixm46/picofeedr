@@ -22,7 +22,8 @@
 ## Top-Level Rules
 
 - `unread` は小文字完全一致のキーワードで、`unread_tag` のショートカット。`Unread` などは通常の term
-- `unread` は各1回制限の対象外で反復可能。重複は dedupe される。unread 管理が無効なときは no-op（フィルタなしと同義）
+- `unread` は各1回制限の対象外で反復可能。重複は dedupe される
+- `manage_unread = false` は同期時の `unread_tag` 自動付与だけを無効化する。`unread` は引き続き `tag:<unread_tag>` のショートカットとして評価する
 - フィルタ prefix は `tag:` `-tag:` `feed:` `after:` `before:` の5種のみ。小文字完全一致だけをフィルタとして解釈する（`Tag:rust` はフィルタにならず、ASCII `:` を含む未知 prefix として `INVALID_QUERY`。リテラル検索は `"Tag:rust"` と書く）
 - フィルタにも `unread` にも該当しないトークンは検索語（term）またはグループとして扱う
 - ただしクォートされていないトークンが ASCII `:` を含む場合、フィルタ prefix で始まらなければ `INVALID_QUERY` とし、`details.hint` で引用符による literal 検索を案内する
@@ -119,6 +120,10 @@ BareTerm     ::= <whitespace / '"' / ASCII ':' / '|' / '&' を含まない1文�
 - `tag:(a)(b)` は1つの tag 式内の暗黙 AND（`tag:(a&b)` と等価）。`tag:(a) (b)` は tag `a` とトップレベル term グループ `(b)` の暗黙 AND
 - リテラル自体に空白を含めるには quoted リテラルを使う（`tag:("rust news"|tech)`）
 - 空の quoted リテラル（`tag:""`）は `INVALID_QUERY`
+- tag リテラルは `doc/spec/feeds.md` の Tag Name Contract で検証する
+- CJK文字や絵文字を含むUnicode名を許可する（例: `tag:日本語` / `tag:"機械 学習"` / `tag:rust🦀`）
+- tag 名は最大64 Unicode scalar values とし、カンマ、Unicode制御文字、前後空白を含む名前は `INVALID_QUERY`
+- `&` `|` `!` `(` `)` や語形演算子と同じ名前はタグとして許可し、検索時は quoted リテラルで表す（例: `tag:"a|b"` / `tag:"and"`）
 - tag 式の literal は1式あたり最大 64 個。AND/OR のフラット化と dedupe による正規化後にカウントする
 - AST 深さ上限は最大 16。書かれた括弧ネスト（冗長括弧を含む）と `NOT` / `!` 連鎖に対してパース中に適用する
 

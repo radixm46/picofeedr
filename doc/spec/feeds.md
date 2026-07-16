@@ -94,6 +94,23 @@ L2 declarations do not create L1 dictionary rows by themselves. L1 rows are
 created when a command writes actual tag facts, such as sync ingest creating L3
 entry tags or `mark tag --add` adding tags to existing entries.
 
+## Tag Name Contract
+
+Tag names use the shared contract applied to `feeds.yaml`, `unread_tag`,
+`mark tag`, and tag literals in search queries.
+
+- surrounding whitespace is trimmed when tags are read from configuration or CLI tag lists
+- the normalized name must not be empty
+- the name may contain at most 64 Unicode scalar values
+- Unicode text, including CJK characters and emoji, is allowed
+- internal spaces and punctuation are allowed
+- comma is reserved as the CLI tag-list delimiter and is not allowed in a tag name
+- Unicode control characters are not allowed
+
+Query operator characters such as `&`, `|`, `!`, `(`, and `)` remain valid tag
+content. Such names must be quoted when used as query literals, for example
+`tag:"a|b"`.
+
 ## Auto Tags
 
 - `auto_tags` may be defined at the root and at any nested group
@@ -111,6 +128,8 @@ The shared validator checks at least the following:
 - duplicated feed URL -> error (`DUPLICATE_FEED_URL`)
 - invalid auto-tag rule shape -> error (`INVALID_AUTO_TAG_RULE`)
 - invalid `title_regex` pattern -> error (`INVALID_TITLE_REGEX`)
+- empty tag name -> error (`EMPTY_TAG_NAME`)
+- tag name that violates the shared tag contract -> error (`INVALID_TAG_NAME`)
 - duplicated tags within a feed entry -> warning (`DUPLICATE_FEED_TAG`)
 
 Feeds with `skip: true` remain part of validation and are counted in `checked_feeds`.

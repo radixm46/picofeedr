@@ -355,6 +355,89 @@ fn config_check_fails_on_blank_feed_tag() {
 }
 
 #[test]
+fn config_check_fails_on_reserved_comma_in_feed_tag() {
+    let temp = TempDir::new().expect("tempdir");
+    let feeds = r#"picofeedr:
+  group:
+    feeds:
+      - url: https://example.com/feed
+        title: Example
+        tags: ["rust,cli"]
+"#;
+    let paths = write_feeds_case(&temp, feeds);
+
+    assert_sync_check_has_issue(
+        &paths.config_path,
+        &paths.db_path,
+        "INVALID_TAG_NAME",
+        "picofeedr.group.feeds[0].tags",
+    );
+}
+
+#[test]
+fn config_check_fails_on_control_character_in_feed_tag() {
+    let temp = TempDir::new().expect("tempdir");
+    let feeds = r#"picofeedr:
+  group:
+    feeds:
+      - url: https://example.com/feed
+        title: Example
+        tags: ["line\nbreak"]
+"#;
+    let paths = write_feeds_case(&temp, feeds);
+
+    assert_sync_check_has_issue(
+        &paths.config_path,
+        &paths.db_path,
+        "INVALID_TAG_NAME",
+        "picofeedr.group.feeds[0].tags",
+    );
+}
+
+#[test]
+fn config_check_fails_on_feed_tag_over_64_unicode_characters() {
+    let temp = TempDir::new().expect("tempdir");
+    let tag = "技".repeat(65);
+    let feeds = format!(
+        r#"picofeedr:
+  group:
+    feeds:
+      - url: https://example.com/feed
+        title: Example
+        tags: ["{tag}"]
+"#
+    );
+    let paths = write_feeds_case(&temp, &feeds);
+
+    assert_sync_check_has_issue(
+        &paths.config_path,
+        &paths.db_path,
+        "INVALID_TAG_NAME",
+        "picofeedr.group.feeds[0].tags",
+    );
+}
+
+#[test]
+fn config_check_accepts_unicode_feed_tags() {
+    let temp = TempDir::new().expect("tempdir");
+    let max_length_tag = "技".repeat(64);
+    let feeds = format!(
+        r#"picofeedr:
+  group:
+    feeds:
+      - url: https://example.com/feed
+        title: Example
+        tags: [日本語, "機械 学習", "rust🦀", "分類/開発", "a|b", "{max_length_tag}"]
+"#
+    );
+    let paths = write_feeds_case(&temp, &feeds);
+
+    sync_check_json_cmd(&paths.config_path, &paths.db_path)
+        .assert()
+        .success();
+}
+
+#[test]
 fn config_check_fails_on_blank_auto_tag_value() {
     let temp = TempDir::new().expect("tempdir");
     let feeds = r#"picofeedr:
@@ -369,6 +452,25 @@ fn config_check_fails_on_blank_auto_tag_value() {
         &paths.config_path,
         &paths.db_path,
         "EMPTY_TAG_NAME",
+        "picofeedr.group.auto_tags[0].add_tags",
+    );
+}
+
+#[test]
+fn config_check_fails_on_reserved_comma_in_auto_tag_value() {
+    let temp = TempDir::new().expect("tempdir");
+    let feeds = r#"picofeedr:
+  group:
+    auto_tags:
+      - title_contains: [Steam]
+        add_tags: ["game,news"]
+"#;
+    let paths = write_feeds_case(&temp, feeds);
+
+    assert_sync_check_has_issue(
+        &paths.config_path,
+        &paths.db_path,
+        "INVALID_TAG_NAME",
         "picofeedr.group.auto_tags[0].add_tags",
     );
 }
@@ -1009,6 +1111,55 @@ fn blank_unread_tag_is_rejected_even_when_unread_management_is_disabled() {
     assert_error_envelope(&output, "CONFIG_ERROR", false);
     let details = extract_error_details(&output);
     assert_eq!(details["path"], "unread_tag");
+}
+
+#[test]
+fn reserved_comma_in_unread_tag_is_rejected() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = SyncFixtureBuilder::new(&temp)
+        .unread_tag("fresh,unread")
+        .build_db();
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("tags")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    assert_error_envelope(&output, "CONFIG_ERROR", false);
+    let details = extract_error_details(&output);
+    assert_eq!(details["path"], "unread_tag");
+    assert_eq!(details["hint"], "remove_reserved_comma");
+}
+
+#[test]
+fn overlong_unread_tag_is_rejected() {
+    let temp = TempDir::new().expect("tempdir");
+    let tag = "技".repeat(65);
+    let paths = SyncFixtureBuilder::new(&temp).unread_tag(&tag).build_db();
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("tags")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    assert_error_envelope(&output, "CONFIG_ERROR", false);
+    let details = extract_error_details(&output);
+    assert_eq!(details["path"], "unread_tag");
+    assert_eq!(details["hint"], "shorten_tag_name");
 }
 
 #[test]

@@ -3,6 +3,7 @@
 pub mod feeds;
 
 use crate::error::{AppError, error_details};
+use crate::tag::validate_tag_name;
 use serde::Deserialize;
 use serde_json::Value;
 use std::ffi::OsStr;
@@ -324,6 +325,15 @@ fn normalize_unread_tag(value: Option<String>) -> Result<String, AppError> {
                     ]),
                 ))
             } else {
+                validate_tag_name(trimmed).map_err(|violation| {
+                    AppError::config_with_details(
+                        violation.message(),
+                        error_details([
+                            ("path", Value::from("unread_tag")),
+                            ("hint", Value::from(violation.hint())),
+                        ]),
+                    )
+                })?;
                 Ok(trimmed.to_string())
             }
         }

@@ -71,6 +71,13 @@
 { "kind": "duplicate_query_filter", "field": "query", "value": "feed:", "hint": "remove_duplicate_filter" }
 ```
 
+```json
+{ "kind": "invalid_tag_name", "field": "<query|tag>", "value": "<tag_name>", "hint": "<remove_surrounding_whitespace|remove_reserved_comma|remove_control_characters|shorten_tag_name>" }
+```
+
+`field = "query"` は検索クエリの tag リテラル、`field = "tag"` は `mark tag`
+の入力を表す。
+
 ### `ENTRY_NOT_FOUND`
 
 ```json
