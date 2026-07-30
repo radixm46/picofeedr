@@ -10,12 +10,11 @@ const TAG_DEPTH_ERROR: &str = "Tag expression exceeds max depth";
 const TERM_DEPTH_ERROR: &str = "Term expression exceeds max depth";
 
 /// Parses a tag expression.
-pub(super) fn parse_tag_expr(raw: &str) -> Result<TagExpr, AppError> {
-    let tokens = lex_tag_expr(raw)?;
+pub(super) fn parse_tag_expr(tokens: Vec<ExprToken>) -> Result<TagExpr, AppError> {
     if tokens.is_empty() {
         return Err(AppError::invalid_query("tag: requires a value"));
     }
-    let mut parser = TagExprParser::new(tokens);
+    let mut parser = ExprParser::<TagPolicy>::new(tokens);
     let expr = parser.parse_or(1)?;
     if parser.peek().is_some() {
         return Err(AppError::invalid_query("Invalid tag expression"));
@@ -26,8 +25,8 @@ pub(super) fn parse_tag_expr(raw: &str) -> Result<TagExpr, AppError> {
 }
 
 /// Parses `-tag:` value and rejects nested NOT expressions.
-pub(super) fn parse_minus_tag_expr(raw: &str) -> Result<TagExpr, AppError> {
-    let expr = parse_tag_expr(raw)?;
+pub(super) fn parse_minus_tag_expr(tokens: Vec<ExprToken>) -> Result<TagExpr, AppError> {
+    let expr = parse_tag_expr(tokens)?;
     if expr.contains_not() {
         return Err(AppError::invalid_query(
             "-tag: expression must not include NOT/!",
@@ -206,9 +205,16 @@ pub(super) fn has_direct_tag_conflict(expr: &TagExpr) -> bool {
     include.iter().any(|tag| exclude.contains(tag))
 }
 
-/// Token used by tag expression parser.
+/// Token used by the shared boolean expression parser.
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum TagToken {
+pub(super) struct ExprToken {
+    pub(super) kind: ExprTokenKind,
+    pub(super) span: std::ops::Range<usize>,
+    pub(super) whitespace_before: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum ExprTokenKind {
     /// Literal tag name.
     Literal { value: String, quoted: bool },
     /// `(`
@@ -223,51 +229,56 @@ enum TagToken {
     Not,
 }
 
-/// Lexes a tag expression into tokens.
-fn lex_tag_expr(raw: &str) -> Result<Vec<TagToken>, AppError> {
-    let chars = raw.chars().collect::<Vec<_>>();
+/// Lexes query text into the shared token stream.
+pub(super) fn lex_expr(raw: &str) -> Result<Vec<ExprToken>, AppError> {
+    let chars = raw.char_indices().collect::<Vec<_>>();
     let mut tokens = Vec::new();
     let mut index = 0usize;
+    let mut whitespace_before = false;
     while index < chars.len() {
-        let ch = chars[index];
+        let (start_byte, ch) = chars[index];
         if ch.is_whitespace() {
+            whitespace_before = true;
             index += 1;
             continue;
         }
-        match ch {
+        let kind = match ch {
             '(' => {
-                tokens.push(TagToken::LParen);
                 index += 1;
+                ExprTokenKind::LParen
             }
             ')' => {
-                tokens.push(TagToken::RParen);
                 index += 1;
+                ExprTokenKind::RParen
             }
             '&' => {
-                tokens.push(TagToken::And);
                 index += 1;
+                ExprTokenKind::And
             }
             '|' => {
-                tokens.push(TagToken::Or);
                 index += 1;
+                ExprTokenKind::Or
             }
             '!' => {
-                tokens.push(TagToken::Not);
                 index += 1;
+                ExprTokenKind::Not
             }
             '"' => {
-                let (literal, consumed) = read_quoted_literal(&chars[index..])?;
-                tokens.push(TagToken::Literal {
+                let remaining = chars[index..].iter().map(|(_, ch)| *ch).collect::<Vec<_>>();
+                let (literal, consumed) = read_quoted_literal(&remaining)?;
+                index += consumed;
+                ExprTokenKind::Literal {
                     value: literal,
                     quoted: true,
-                });
-                index += consumed;
+                }
             }
             _ => {
                 let start = index;
                 while index < chars.len() {
-                    let current = chars[index];
-                    if current.is_whitespace() || matches!(current, '(' | ')' | '&' | '|' | '!') {
+                    let current = chars[index].1;
+                    if current.is_whitespace()
+                        || matches!(current, '"' | '(' | ')' | '&' | '|' | '!')
+                    {
                         break;
                     }
                     index += 1;
@@ -275,18 +286,28 @@ fn lex_tag_expr(raw: &str) -> Result<Vec<TagToken>, AppError> {
                 if start == index {
                     return Err(AppError::invalid_query("Invalid tag expression"));
                 }
-                let literal = chars[start..index].iter().collect::<String>();
+                let literal = chars[start..index]
+                    .iter()
+                    .map(|(_, ch)| *ch)
+                    .collect::<String>();
                 match literal.to_ascii_uppercase().as_str() {
-                    "AND" => tokens.push(TagToken::And),
-                    "OR" => tokens.push(TagToken::Or),
-                    "NOT" => tokens.push(TagToken::Not),
-                    _ => tokens.push(TagToken::Literal {
+                    "AND" => ExprTokenKind::And,
+                    "OR" => ExprTokenKind::Or,
+                    "NOT" => ExprTokenKind::Not,
+                    _ => ExprTokenKind::Literal {
                         value: literal,
                         quoted: false,
-                    }),
+                    },
                 }
             }
-        }
+        };
+        let end_byte = chars.get(index).map_or(raw.len(), |(byte, _)| *byte);
+        tokens.push(ExprToken {
+            kind,
+            span: start_byte..end_byte,
+            whitespace_before,
+        });
+        whitespace_before = false;
     }
     Ok(tokens)
 }
@@ -339,25 +360,69 @@ fn invalid_escape_sequence_error(value: impl Into<String>) -> AppError {
     )
 }
 
-/// Tag expression parser.
-struct TagExprParser {
-    tokens: Vec<TagToken>,
-    index: usize,
+trait ExprPolicy {
+    type Expr: BooleanExpr;
+
+    const DEPTH_ERROR: &'static str;
+    const INVALID_ERROR: &'static str;
+    const UNCLOSED_ERROR: &'static str;
+
+    fn leaf(value: String, quoted: bool) -> Result<Self::Expr, AppError>;
 }
 
-impl TagExprParser {
-    /// Creates a parser instance.
-    fn new(tokens: Vec<TagToken>) -> Self {
-        Self { tokens, index: 0 }
+struct TagPolicy;
+
+impl ExprPolicy for TagPolicy {
+    type Expr = TagExpr;
+
+    const DEPTH_ERROR: &'static str = TAG_DEPTH_ERROR;
+    const INVALID_ERROR: &'static str = "Invalid tag expression";
+    const UNCLOSED_ERROR: &'static str = "Unclosed parenthesis in tag expression";
+
+    fn leaf(value: String, _quoted: bool) -> Result<Self::Expr, AppError> {
+        validate_tag_name(&value)
+            .map_err(|violation| invalid_tag_name_error(value.clone(), "query", violation))?;
+        Ok(TagExpr::Tag(value))
+    }
+}
+
+struct TermPolicy;
+
+impl ExprPolicy for TermPolicy {
+    type Expr = TermExpr;
+
+    const DEPTH_ERROR: &'static str = TERM_DEPTH_ERROR;
+    const INVALID_ERROR: &'static str = "Invalid term expression";
+    const UNCLOSED_ERROR: &'static str = "Unclosed parenthesis in term expression";
+
+    fn leaf(value: String, quoted: bool) -> Result<Self::Expr, AppError> {
+        if !quoted && value.contains(':') {
+            return Err(super::unknown_filter_prefix_error(&value));
+        }
+        Ok(TermExpr::Term(value))
+    }
+}
+
+struct ExprParser<P> {
+    tokens: Vec<ExprToken>,
+    index: usize,
+    policy: std::marker::PhantomData<P>,
+}
+
+impl<P: ExprPolicy> ExprParser<P> {
+    fn new(tokens: Vec<ExprToken>) -> Self {
+        Self {
+            tokens,
+            index: 0,
+            policy: std::marker::PhantomData,
+        }
     }
 
-    /// Returns current token.
-    fn peek(&self) -> Option<&TagToken> {
+    fn peek(&self) -> Option<&ExprToken> {
         self.tokens.get(self.index)
     }
 
-    /// Consumes and returns current token.
-    fn next(&mut self) -> Option<TagToken> {
+    fn next(&mut self) -> Option<ExprToken> {
         let token = self.tokens.get(self.index).cloned();
         if token.is_some() {
             self.index += 1;
@@ -365,35 +430,42 @@ impl TagExprParser {
         token
     }
 
-    /// Parses OR-level expression.
-    fn parse_or(&mut self, depth: usize) -> Result<TagExpr, AppError> {
-        validate_expr_depth(depth, TAG_DEPTH_ERROR)?;
+    fn parse_or(&mut self, depth: usize) -> Result<P::Expr, AppError> {
+        validate_expr_depth(depth, P::DEPTH_ERROR)?;
         let mut terms = vec![self.parse_and(depth)?];
-        while matches!(self.peek(), Some(TagToken::Or)) {
+        while matches!(
+            self.peek().map(|token| &token.kind),
+            Some(ExprTokenKind::Or)
+        ) {
             self.next();
             terms.push(self.parse_and(depth)?);
         }
         if terms.len() == 1 {
             Ok(terms.remove(0))
         } else {
-            Ok(TagExpr::Or(terms))
+            Ok(P::Expr::or(terms))
         }
     }
 
-    /// Parses AND-level expression with implicit AND.
-    fn parse_and(&mut self, depth: usize) -> Result<TagExpr, AppError> {
-        validate_expr_depth(depth, TAG_DEPTH_ERROR)?;
+    fn parse_and(&mut self, depth: usize) -> Result<P::Expr, AppError> {
+        validate_expr_depth(depth, P::DEPTH_ERROR)?;
         let mut terms = vec![self.parse_unary(depth)?];
         loop {
-            if matches!(self.peek(), Some(TagToken::And)) {
+            if matches!(
+                self.peek().map(|token| &token.kind),
+                Some(ExprTokenKind::And)
+            ) {
                 self.next();
                 terms.push(self.parse_unary(depth)?);
                 continue;
             }
-            if matches!(
-                self.peek(),
-                Some(TagToken::Literal { .. }) | Some(TagToken::LParen) | Some(TagToken::Not)
-            ) {
+            if self.peek().is_some_and(|token| {
+                token.whitespace_before
+                    && matches!(
+                        token.kind,
+                        ExprTokenKind::Literal { .. } | ExprTokenKind::LParen | ExprTokenKind::Not
+                    )
+            }) {
                 terms.push(self.parse_unary(depth)?);
                 continue;
             }
@@ -402,51 +474,44 @@ impl TagExprParser {
         if terms.len() == 1 {
             Ok(terms.remove(0))
         } else {
-            Ok(TagExpr::And(terms))
+            Ok(P::Expr::and(terms))
         }
     }
 
-    /// Parses unary `NOT` expression.
-    fn parse_unary(&mut self, depth: usize) -> Result<TagExpr, AppError> {
-        validate_expr_depth(depth, TAG_DEPTH_ERROR)?;
-        if matches!(self.peek(), Some(TagToken::Not)) {
+    fn parse_unary(&mut self, depth: usize) -> Result<P::Expr, AppError> {
+        validate_expr_depth(depth, P::DEPTH_ERROR)?;
+        if matches!(
+            self.peek().map(|token| &token.kind),
+            Some(ExprTokenKind::Not)
+        ) {
             self.next();
-            return Ok(TagExpr::Not(Box::new(self.parse_unary(depth + 1)?)));
+            return Ok(P::Expr::not(self.parse_unary(depth + 1)?));
         }
         self.parse_primary(depth)
     }
 
-    /// Parses primary expression.
-    fn parse_primary(&mut self, depth: usize) -> Result<TagExpr, AppError> {
-        validate_expr_depth(depth, TAG_DEPTH_ERROR)?;
-        match self.next() {
-            Some(TagToken::Literal { value, .. }) => {
-                validate_tag_name(&value).map_err(|violation| {
-                    invalid_tag_name_error(value.clone(), "query", violation)
-                })?;
-                Ok(TagExpr::Tag(value))
-            }
-            Some(TagToken::LParen) => {
+    fn parse_primary(&mut self, depth: usize) -> Result<P::Expr, AppError> {
+        validate_expr_depth(depth, P::DEPTH_ERROR)?;
+        match self.next().map(|token| token.kind) {
+            Some(ExprTokenKind::Literal { value, quoted }) => P::leaf(value, quoted),
+            Some(ExprTokenKind::LParen) => {
                 let expr = self.parse_or(depth + 1)?;
-                match self.next() {
-                    Some(TagToken::RParen) => Ok(expr),
-                    _ => Err(AppError::invalid_query(
-                        "Unclosed parenthesis in tag expression",
-                    )),
+                match self.next().map(|token| token.kind) {
+                    Some(ExprTokenKind::RParen) => Ok(expr),
+                    _ => Err(AppError::invalid_query(P::UNCLOSED_ERROR)),
                 }
             }
-            _ => Err(AppError::invalid_query("Invalid tag expression")),
+            _ => Err(AppError::invalid_query(P::INVALID_ERROR)),
         }
     }
 }
 
 /// Parses a title-term expression.
-pub(super) fn parse_term_expr(raw: &str) -> Result<TermExpr, AppError> {
-    let tokens = lex_tag_expr(raw)?;
+pub(super) fn parse_term_expr(tokens: Vec<ExprToken>) -> Result<TermExpr, AppError> {
     if tokens.is_empty() {
         return Err(AppError::invalid_query("term group requires a value"));
     }
-    let mut parser = TermExprParser::new(tokens);
+    let mut parser = ExprParser::<TermPolicy>::new(tokens);
     let expr = parser.parse_or(1)?;
     if parser.peek().is_some() {
         return Err(AppError::invalid_query("Invalid term expression"));
@@ -457,8 +522,8 @@ pub(super) fn parse_term_expr(raw: &str) -> Result<TermExpr, AppError> {
 }
 
 /// Parses `-(...)` value and rejects nested NOT expressions.
-pub(super) fn parse_minus_term_expr(raw: &str) -> Result<TermExpr, AppError> {
-    let expr = parse_term_expr(raw)?;
+pub(super) fn parse_minus_term_expr(tokens: Vec<ExprToken>) -> Result<TermExpr, AppError> {
+    let expr = parse_term_expr(tokens)?;
     if expr.contains_not() {
         return Err(AppError::invalid_query(
             "-(...) expression must not include NOT/!",
@@ -473,99 +538,6 @@ fn validate_term_expr_limits(expr: &TermExpr) -> Result<(), AppError> {
 
 fn normalize_term_expr(expr: TermExpr) -> TermExpr {
     normalize_expr(expr)
-}
-
-struct TermExprParser {
-    tokens: Vec<TagToken>,
-    index: usize,
-}
-
-impl TermExprParser {
-    fn new(tokens: Vec<TagToken>) -> Self {
-        Self { tokens, index: 0 }
-    }
-
-    fn peek(&self) -> Option<&TagToken> {
-        self.tokens.get(self.index)
-    }
-
-    fn next(&mut self) -> Option<TagToken> {
-        let token = self.tokens.get(self.index).cloned();
-        if token.is_some() {
-            self.index += 1;
-        }
-        token
-    }
-
-    fn parse_or(&mut self, depth: usize) -> Result<TermExpr, AppError> {
-        validate_expr_depth(depth, TERM_DEPTH_ERROR)?;
-        let mut terms = vec![self.parse_and(depth)?];
-        while matches!(self.peek(), Some(TagToken::Or)) {
-            self.next();
-            terms.push(self.parse_and(depth)?);
-        }
-        if terms.len() == 1 {
-            Ok(terms.remove(0))
-        } else {
-            Ok(TermExpr::Or(terms))
-        }
-    }
-
-    fn parse_and(&mut self, depth: usize) -> Result<TermExpr, AppError> {
-        validate_expr_depth(depth, TERM_DEPTH_ERROR)?;
-        let mut terms = vec![self.parse_unary(depth)?];
-        loop {
-            if matches!(self.peek(), Some(TagToken::And)) {
-                self.next();
-                terms.push(self.parse_unary(depth)?);
-                continue;
-            }
-            if matches!(
-                self.peek(),
-                Some(TagToken::Literal { .. }) | Some(TagToken::LParen) | Some(TagToken::Not)
-            ) {
-                terms.push(self.parse_unary(depth)?);
-                continue;
-            }
-            break;
-        }
-        if terms.len() == 1 {
-            Ok(terms.remove(0))
-        } else {
-            Ok(TermExpr::And(terms))
-        }
-    }
-
-    fn parse_unary(&mut self, depth: usize) -> Result<TermExpr, AppError> {
-        validate_expr_depth(depth, TERM_DEPTH_ERROR)?;
-        if matches!(self.peek(), Some(TagToken::Not)) {
-            self.next();
-            return Ok(TermExpr::Not(Box::new(self.parse_unary(depth + 1)?)));
-        }
-        self.parse_primary(depth)
-    }
-
-    fn parse_primary(&mut self, depth: usize) -> Result<TermExpr, AppError> {
-        validate_expr_depth(depth, TERM_DEPTH_ERROR)?;
-        match self.next() {
-            Some(TagToken::Literal { value, quoted }) => {
-                if !quoted && value.contains(':') {
-                    return Err(super::unknown_filter_prefix_error(&value));
-                }
-                Ok(TermExpr::Term(value))
-            }
-            Some(TagToken::LParen) => {
-                let expr = self.parse_or(depth + 1)?;
-                match self.next() {
-                    Some(TagToken::RParen) => Ok(expr),
-                    _ => Err(AppError::invalid_query(
-                        "Unclosed parenthesis in term expression",
-                    )),
-                }
-            }
-            _ => Err(AppError::invalid_query("Invalid term expression")),
-        }
-    }
 }
 
 #[cfg(test)]
@@ -664,16 +636,9 @@ mod tests {
     }
 
     #[test]
-    fn parses_adjacent_tag_after_group_as_implicit_and() {
-        let query = EntryQuery::parse(Some("tag:(A|B)x"), Some("unread")).expect("query");
-        let expected = normalize_tag_expr(TagExpr::And(vec![
-            TagExpr::Or(vec![
-                TagExpr::Tag("A".to_string()),
-                TagExpr::Tag("B".to_string()),
-            ]),
-            TagExpr::Tag("x".to_string()),
-        ]));
-        assert_eq!(query.tag_expr, Some(expected));
+    fn rejects_adjacent_tag_after_group_without_separator() {
+        let error = EntryQuery::parse(Some("tag:(A|B)x"), Some("unread")).unwrap_err();
+        assert_eq!(error.code().as_str(), "INVALID_QUERY");
     }
 
     #[test]
@@ -690,11 +655,17 @@ mod tests {
     }
 
     #[test]
-    fn parse_tag_implicit_and_expression() {
-        let query = EntryQuery::parse(Some("tag:A(B)"), Some("unread")).expect("query");
+    fn rejects_adjacent_tag_group_without_separator() {
+        let error = EntryQuery::parse(Some("tag:A(B)"), Some("unread")).unwrap_err();
+        assert_eq!(error.code().as_str(), "INVALID_QUERY");
+    }
+
+    #[test]
+    fn parses_whitespace_separated_tag_primaries_as_implicit_and() {
+        let query = EntryQuery::parse(Some("tag:(a b)"), Some("unread")).expect("query");
         let expected = normalize_tag_expr(TagExpr::And(vec![
-            TagExpr::Tag("A".to_string()),
-            TagExpr::Tag("B".to_string()),
+            TagExpr::Tag("a".to_string()),
+            TagExpr::Tag("b".to_string()),
         ]));
         assert_eq!(query.tag_expr, Some(expected));
     }

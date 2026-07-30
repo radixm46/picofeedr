@@ -1,7 +1,7 @@
 //! Query parser for entry filters.
 
 mod date;
-mod tag;
+mod expr;
 
 use crate::error::{AppError, error_details};
 use crate::time::current_epoch;
@@ -70,7 +70,7 @@ impl TagExpr {
     /// Returns a stable canonical representation used for hash validation.
     pub(crate) fn canonical(&self) -> String {
         match self {
-            TagExpr::Tag(tag) => format!("tag:{}", tag::escape_tag_literal(tag)),
+            TagExpr::Tag(tag) => format!("tag:{}", expr::escape_tag_literal(tag)),
             TagExpr::Not(inner) => format!("not({})", inner.canonical()),
             TagExpr::And(items) => {
                 let mut parts = items.iter().map(TagExpr::canonical).collect::<Vec<_>>();
@@ -226,7 +226,9 @@ impl EntryQuery {
         let mut minus_tag_seen = false;
         let mut index = 0usize;
         while index < tokens.len() {
-            let token = &tokens[index];
+            let item = &tokens[index];
+            let token = &item.value;
+            debug_assert!(index == 0 || item.whitespace_before);
             if token == "unread" {
                 if let Some(unread_tag) = unread_tag {
                     tag_terms.push(TagExpr::Tag(unread_tag.to_string()));
@@ -235,7 +237,7 @@ impl EntryQuery {
                 continue;
             }
             if let Some(value) = token.strip_prefix("tag:") {
-                let value = require_value(value, "tag:")?;
+                require_value(value, "tag:")?;
                 if tag_seen {
                     return Err(duplicate_query_filter_error(
                         "tag:",
@@ -243,13 +245,13 @@ impl EntryQuery {
                     ));
                 }
                 tag_seen = true;
-                let expr = tag::parse_tag_expr(value)?;
+                let expr = expr::parse_tag_expr(item.expression_after_prefix("tag:")?)?;
                 tag_terms.push(expr);
                 index += 1;
                 continue;
             }
             if let Some(value) = token.strip_prefix("-tag:") {
-                let value = require_value(value, "-tag:")?;
+                require_value(value, "-tag:")?;
                 if minus_tag_seen {
                     return Err(duplicate_query_filter_error(
                         "-tag:",
@@ -257,7 +259,7 @@ impl EntryQuery {
                     ));
                 }
                 minus_tag_seen = true;
-                let inner = tag::parse_minus_tag_expr(value)?;
+                let inner = expr::parse_minus_tag_expr(item.expression_after_prefix("-tag:")?)?;
                 tag_terms.push(TagExpr::Not(Box::new(inner)));
                 index += 1;
                 continue;
@@ -293,8 +295,8 @@ impl EntryQuery {
                 index += 1;
                 continue;
             }
-            if let Some(value) = token.strip_prefix("-(") {
-                let expr = tag::parse_minus_term_expr(&format!("({value}"))?;
+            if token.strip_prefix("-(").is_some() {
+                let expr = expr::parse_minus_term_expr(item.expression_after_prefix("-")?)?;
                 match expr {
                     TermExpr::Term(term) => query.negated_title_terms.push(term),
                     expr => query.negated_term_groups.push(expr),
@@ -303,7 +305,7 @@ impl EntryQuery {
                 continue;
             }
             if token.starts_with('(') {
-                let expr = tag::parse_term_expr(token)?;
+                let expr = expr::parse_term_expr(item.expression_tokens.clone())?;
                 match expr {
                     TermExpr::Term(term) => query.title_terms.push(term),
                     expr => query.term_groups.push(expr),
@@ -332,8 +334,8 @@ impl EntryQuery {
         if !tag_terms.is_empty() {
             // Each `tag:` fragment is already normalized by the tag parser, but once we combine
             // multiple top-level fragments we normalize again to flatten and dedupe across terms.
-            let expr = tag::normalize_tag_expr(tag::and_all(tag_terms));
-            if tag::has_direct_tag_conflict(&expr) {
+            let expr = expr::normalize_tag_expr(expr::and_all(tag_terms));
+            if expr::has_direct_tag_conflict(&expr) {
                 return Err(AppError::invalid_query(
                     "tag expression requires and excludes the same tag",
                 ));
@@ -484,59 +486,95 @@ fn bare_operator_token_error(token: &str) -> AppError {
 /// Tokenizes query text while honoring quoted and parenthesized expression segments.
 ///
 /// Quoted segments are delimited by `"` and may contain escaped `\"` and `\\`.
-fn tokenize(raw: &str) -> Result<Vec<String>, AppError> {
-    let mut tokens = Vec::new();
-    let mut current = String::new();
-    let mut chars = raw.chars().peekable();
-    let mut in_quotes = false;
-    let mut paren_depth = 0usize;
-    while let Some(ch) = chars.next() {
-        match ch {
-            '"' => {
-                in_quotes = !in_quotes;
-                current.push(ch);
-            }
-            '\\' if in_quotes => {
-                current.push(ch);
-                if let Some(next) = chars.next() {
-                    current.push(next);
-                }
-            }
-            c if c.is_whitespace() && !in_quotes && paren_depth == 0 => {
-                if !current.is_empty() {
-                    tokens.push(std::mem::take(&mut current));
-                }
-            }
-            '(' if !in_quotes && paren_depth > 0 => {
-                paren_depth += 1;
-                current.push(ch);
-            }
-            ')' if !in_quotes && paren_depth > 0 => {
-                paren_depth -= 1;
-                current.push(ch);
-            }
-            _ => {
-                current.push(ch);
-                if !in_quotes && paren_depth == 0 && is_parenthesized_token_start(&current) {
-                    paren_depth = 1;
-                }
-            }
-        }
-    }
-    if in_quotes {
-        return Err(AppError::invalid_query("Unclosed quote in query"));
-    }
-    if paren_depth > 0 {
-        return Err(AppError::invalid_query("Unclosed parenthesis in query"));
-    }
-    if !current.is_empty() {
-        tokens.push(current);
-    }
-    Ok(tokens)
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct QueryToken {
+    value: String,
+    span: std::ops::Range<usize>,
+    whitespace_before: bool,
+    expression_tokens: Vec<expr::ExprToken>,
 }
 
-fn is_parenthesized_token_start(token: &str) -> bool {
-    token == "(" || token == "-(" || token == "tag:(" || token == "-tag:("
+impl QueryToken {
+    fn expression_after_prefix(&self, prefix: &str) -> Result<Vec<expr::ExprToken>, AppError> {
+        let mut tokens = self.expression_tokens.clone();
+        let Some(first) = tokens.first_mut() else {
+            return Ok(tokens);
+        };
+        let expr::ExprTokenKind::Literal { value, quoted } = &mut first.kind else {
+            return Err(AppError::invalid_query("Invalid query expression"));
+        };
+        let Some(remainder) = value.strip_prefix(prefix) else {
+            return Err(AppError::invalid_query("Invalid query expression"));
+        };
+        let replacement_kind = match remainder.to_ascii_uppercase().as_str() {
+            "AND" => Some(expr::ExprTokenKind::And),
+            "OR" => Some(expr::ExprTokenKind::Or),
+            "NOT" => Some(expr::ExprTokenKind::Not),
+            _ => None,
+        };
+        *value = remainder.to_string();
+        *quoted = false;
+        if value.is_empty() {
+            tokens.remove(0);
+            if let Some(first) = tokens.first_mut() {
+                first.whitespace_before = false;
+            }
+        } else if let Some(kind) = replacement_kind {
+            tokens[0].kind = kind;
+        }
+        Ok(tokens)
+    }
+}
+
+fn tokenize(raw: &str) -> Result<Vec<QueryToken>, AppError> {
+    let expression_tokens = expr::lex_expr(raw)?;
+    let mut items = Vec::<QueryToken>::new();
+    let mut depth = 0usize;
+    for token in expression_tokens {
+        let starts_new_item = token.whitespace_before && depth == 0;
+        if starts_new_item || items.is_empty() {
+            items.push(QueryToken {
+                value: String::new(),
+                span: token.span.clone(),
+                whitespace_before: token.whitespace_before,
+                expression_tokens: Vec::new(),
+            });
+        }
+        let item = items.last_mut().expect("query item");
+        item.span.end = token.span.end;
+        match token.kind {
+            expr::ExprTokenKind::LParen
+                if depth > 0
+                    || item.expression_tokens.is_empty()
+                    || item.expression_tokens.last().is_some_and(|previous| {
+                        matches!(
+                            &previous.kind,
+                            expr::ExprTokenKind::Literal { value, quoted: false }
+                                if matches!(value.as_str(), "-" | "tag:" | "-tag:")
+                        ) || matches!(
+                            previous.kind,
+                            expr::ExprTokenKind::And
+                                | expr::ExprTokenKind::Or
+                                | expr::ExprTokenKind::Not
+                        )
+                    }) =>
+            {
+                depth += 1;
+            }
+            expr::ExprTokenKind::RParen => {
+                depth = depth.saturating_sub(1);
+            }
+            _ => {}
+        }
+        item.expression_tokens.push(token);
+    }
+    if depth > 0 {
+        return Err(AppError::invalid_query("Unclosed parenthesis in query"));
+    }
+    for item in &mut items {
+        item.value = raw[item.span.clone()].to_string();
+    }
+    Ok(items)
 }
 
 fn is_bare_operator_token(token: &str) -> bool {
@@ -547,7 +585,7 @@ fn is_bare_operator_token(token: &str) -> bool {
 fn parse_scalar_value(raw: &str) -> Result<String, AppError> {
     if raw.starts_with('"') {
         let chars = raw.chars().collect::<Vec<_>>();
-        let (literal, consumed) = tag::read_quoted_literal(&chars)?;
+        let (literal, consumed) = expr::read_quoted_literal(&chars)?;
         if consumed != chars.len() {
             return Err(AppError::invalid_query("Invalid quoted value"));
         }
@@ -687,6 +725,10 @@ mod tests {
         let query = EntryQuery::parse(Some("tag:rust \"foo bar\""), Some("unread")).expect("query");
         assert_eq!(query.tag_expr, Some(TagExpr::Tag("rust".to_string())));
         assert_eq!(query.title_terms, vec!["foo bar".to_string()]);
+
+        let query = EntryQuery::parse(Some("tag:(a) (b)"), Some("unread")).expect("query");
+        assert_eq!(query.tag_expr, Some(TagExpr::Tag("a".to_string())));
+        assert_eq!(query.title_terms, vec!["b".to_string()]);
     }
 
     #[test]
@@ -881,17 +923,49 @@ mod tests {
     }
 
     #[test]
-    fn parses_adjacent_term_after_group_as_implicit_and() {
-        let query = EntryQuery::parse(Some("(a|b)x"), Some("unread")).expect("query");
+    fn rejects_adjacent_term_primary_without_separator() {
+        let error = EntryQuery::parse(Some("(a|b)x"), Some("unread")).unwrap_err();
+        assert_eq!(error.code().as_str(), "INVALID_QUERY");
+    }
+
+    #[test]
+    fn rejects_adjacent_tag_primary_without_separator() {
+        for raw in ["tag:(a)(b)", "tag:(a)( b )"] {
+            let error = EntryQuery::parse(Some(raw), Some("unread")).unwrap_err();
+            assert_eq!(error.code().as_str(), "INVALID_QUERY");
+        }
+    }
+
+    #[test]
+    fn parses_explicit_and_before_whitespace_padded_tag_group() {
+        let query = EntryQuery::parse(Some("tag:(a)&( b )"), Some("unread")).expect("query");
+        assert_eq!(
+            query.tag_expr,
+            Some(TagExpr::And(vec![
+                TagExpr::Tag("a".to_string()),
+                TagExpr::Tag("b".to_string()),
+            ]))
+        );
+    }
+
+    #[test]
+    fn parses_explicit_and_before_whitespace_padded_groups() {
+        let query = EntryQuery::parse(Some("(a)&( b )"), Some("unread")).expect("query");
         assert_eq!(
             query.term_groups,
             vec![TermExpr::And(vec![
-                TermExpr::Or(vec![
-                    TermExpr::Term("a".to_string()),
-                    TermExpr::Term("b".to_string()),
-                ]),
-                TermExpr::Term("x".to_string()),
+                TermExpr::Term("a".to_string()),
+                TermExpr::Term("b".to_string()),
             ])]
+        );
+
+        let query = EntryQuery::parse(Some("tag:a&( b )"), Some("unread")).expect("query");
+        assert_eq!(
+            query.tag_expr,
+            Some(TagExpr::And(vec![
+                TagExpr::Tag("a".to_string()),
+                TagExpr::Tag("b".to_string()),
+            ]))
         );
     }
 

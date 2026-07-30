@@ -38,7 +38,7 @@
 - `tag:` / `-tag:` / `feed:` / `after:` / `before:` はそれぞれ 1 回のみ指定可能
 - 同じ種類のフィルタトークンを複数回使った場合は `INVALID_QUERY`。`tag:` / `-tag:` は `details.hint` で単一式への統合を案内する（`tag:a tag:b` は `tag:(a&b)`、`-tag:a -tag:b` は `-tag:(a|b)` と等価）。`feed:` / `after:` / `before:` は `remove_duplicate_filter` を返す
 - `after` と `before` を同時指定した場合は `after < before` を必須とする
-- トークン間は暗黙 AND で合成する
+- トップレベルの `WS+` で区切られた query item は暗黙 AND で合成する
 
 ### 未知 prefix をエラーにする理由
 
@@ -96,7 +96,8 @@ BareTerm     ::= <whitespace / '"' / ASCII ':' / '|' / '&' を含まない1文�
 
 - `(<expr>)` はブール式グループ。文法・演算子・優先順位は Tag Expression と同一で、葉が term リテラルになる（例: `((A&B)|"c d")`）
 - `-(<expr>)` はグループ全体の否定糖衣。`-tag:` と同じく内部で `NOT` / `!` を禁止する（違反は `INVALID_QUERY`）
-- グループは対応する閉じ括弧 `)` まで空白を跨げる（`( "machine learning" | ML )`）。空白は語の区切りとしてのみ働き、隣接は暗黙 AND（`(rust cli)` は `(rust&cli)` と等価）
+- グループは対応する閉じ括弧 `)` まで空白を跨げる（`( "machine learning" | ML )`）。`WS+` は primary 間の暗黙 AND（`(rust cli)` は `(rust&cli)` と等価）
+- primary 間には `WS+` または明示演算子が必要。空白も演算子もない隣接（`(A|B)x`）は `INVALID_QUERY`
 - `|` `&` `!` が演算子として解釈されるのはグループおよび `tag:` 式の内部のみ。トップレベルの素の term で `|` / `&` または先頭 `!` を literal として検索するには quote する（例: `"a|b"`）
 - グループ内の `-x` は否定ではなくリテラル term。式内否定は `!x` または `NOT x` を使う
 - `(` がグループ開始として解釈されるのはトークン先頭（および `-(`）のみ。`Rust(2024)` は素の term
@@ -114,10 +115,11 @@ BareTerm     ::= <whitespace / '"' / ASCII ':' / '|' / '&' を含まない1文�
 - 語形を bare literal ではなく演算子として予約するのは、`tag:(a AND b)` の `AND` が tag literal へ silent に化け、3タグの暗黙 AND として解釈されることを防ぐため。これは未知 prefix をエラーにする理由と同じく、入力ミスを別の意味へ落とさないため
 - 優先順位は `NOT > AND > OR`
 - 括弧 `(` `)` で優先順位を明示できる
-- 暗黙ANDを許可する
+- `WS+` による暗黙ANDを許可する
 - 括弧で開く式（`tag:(...)` / `-tag:(...)`）内では空白を自由に使える（`tag:( rust | cli )`）
 - 括弧を伴わない形（`tag:A|B`）は空白で終端する（`tag:A | B` は bare operator エラー）
-- `tag:(a)(b)` は1つの tag 式内の暗黙 AND（`tag:(a&b)` と等価）。`tag:(a) (b)` は tag `a` とトップレベル term グループ `(b)` の暗黙 AND
+- primary 間には `WS+` または明示演算子が必要。`tag:(a b)` は `tag:(a&b)` と等価だが、`tag:(a)(b)` は `INVALID_QUERY`
+- `tag:(a) (b)` は tag `a` とトップレベル term グループ `(b)` の暗黙 AND
 - リテラル自体に空白を含めるには quoted リテラルを使う（`tag:("rust news"|tech)`）
 - 空の quoted リテラル（`tag:""`）は `INVALID_QUERY`
 - tag リテラルは `doc/spec/feeds.md` の Tag Name Contract で検証する
@@ -139,7 +141,7 @@ Primary      ::= TagLiteral | "(" OrExpr ")"
 OrOp         ::= "OR" | "|"
 AndOp        ::= "AND" | "&"
 NotOp        ::= "NOT" | "!"
-ImplicitAnd  ::= <adjacent terms>
+ImplicitAnd  ::= WS+
 
 TagLiteral   ::= BareLiteral | QuotedLiteral
 BareLiteral  ::= <whitespace / operator / parenthesis 以外の文字列>
@@ -168,7 +170,7 @@ QuotedLiteral::= '"' ( '\\"' | '\\\\' | <quote / backslash 以外の文字> )+ '
 - トークンが式開始 prefix（`(` `-(` `tag:(` `-tag:(`）で始まる場合、対応する閉じ括弧 `)` まで空白でトークンを終端しない
 - 括弧の対応はネストを数える。quoted リテラル内の `(` `)` は数えない
 - 括弧が閉じる前にクエリ末尾へ達した場合は `INVALID_QUERY`（unclosed parenthesis）
-- 括弧の対応が取れた後も、次の空白までは同一トークンとして読む。`(A|B)x` は暗黙 AND として解釈する（`(A|B)&x` と等価。`tag:(A|B)x` も同様）
+- 括弧の対応が取れた後、空白なしで別の primary が続く場合は `INVALID_QUERY`（`(A|B)x` / `tag:(A|B)x`）。AND は空白または `&` / `AND` で明示する
 - トークン先頭以外の `(` `)` は式モードに入らない（`Rust(2024)` は1つの term。Term Groups を参照）
 - 未閉じクォートは `INVALID_QUERY`
 
