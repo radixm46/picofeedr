@@ -3,14 +3,10 @@
 use crate::db::EntryContentStorage as Storage;
 use crate::db::sqlite::query::{entries as q, sql_placeholders};
 use crate::db::sqlite::tags;
-use crate::error::{AppError, error_details};
+use crate::error::AppError;
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, Row, params, params_from_iter};
-use serde_json::Value as JsonValue;
 use std::collections::{HashMap, HashSet};
-use std::fs;
-use std::io::ErrorKind;
-use std::path::Path;
 
 /// Payload for the entry detail base row selected from SQLite.
 pub(crate) struct EntryDetailRow {
@@ -23,6 +19,14 @@ pub(crate) struct EntryDetailRow {
     pub author: Option<String>,
     pub published_at: Option<i64>,
     pub first_seen_at: i64,
+}
+
+/// Content row selected from SQLite.
+pub(crate) struct EntryContentRow {
+    pub storage: Storage,
+    pub reference: Option<String>,
+    pub content_type: Option<String>,
+    pub content: Option<String>,
 }
 
 /// Enclosure row selected from SQLite.
@@ -271,12 +275,11 @@ impl<'a> EntryReadRepo<'a> {
             .map_err(AppError::from)
     }
 
-    /// Loads content payload and content type for one entry.
-    pub fn load_content(
+    /// Loads and parses one entry content row.
+    pub(crate) fn load_content_row(
         &self,
-        data_dir: &Path,
         entry_pk: i64,
-    ) -> Result<(Option<String>, Option<String>), AppError> {
+    ) -> Result<Option<EntryContentRow>, AppError> {
         let row = self
             .conn
             .query_row(
@@ -293,37 +296,17 @@ impl<'a> EntryReadRepo<'a> {
             )
             .optional()?;
         let Some((storage, reference, content_type, content)) = row else {
-            return Ok((None, None));
+            return Ok(None);
         };
         let storage = storage
             .parse::<Storage>()
             .map_err(|_| AppError::internal(format!("Unknown content storage: {storage}")))?;
-        match storage {
-            Storage::Db => Ok((content, content_type)),
-            Storage::Fs => {
-                let Some(reference) = reference else {
-                    return Ok((None, content_type));
-                };
-                let path = match crate::content_ref::sha256_path(data_dir, &reference) {
-                    Ok(path) => path,
-                    Err(_) => return Ok((None, content_type)),
-                };
-                match fs::read_to_string(&path) {
-                    Ok(content) => Ok((Some(content), content_type)),
-                    Err(error) if error.kind() == ErrorKind::NotFound => Ok((None, content_type)),
-                    Err(error) => Err(AppError::io_with_details_and_source(
-                        "Failed to read entry content from filesystem",
-                        error_details([
-                            ("path", JsonValue::from(path.to_string_lossy().to_string())),
-                            ("reference", JsonValue::from(reference)),
-                            ("hint", JsonValue::from("failed_to_read_entry_content")),
-                        ]),
-                        error,
-                    )),
-                }
-            }
-            Storage::None => Ok((None, content_type)),
-        }
+        Ok(Some(EntryContentRow {
+            storage,
+            reference,
+            content_type,
+            content,
+        }))
     }
 
     /// Finds persisted content references from the provided candidates.
@@ -467,23 +450,6 @@ mod tests {
     use crate::db::migrate;
     use crate::db::sqlite::feeds::upsert_feed_with_conn;
     use rusqlite::{Connection, params};
-    use serde_json::Value as JsonValue;
-    use std::fs;
-    use tempfile::TempDir;
-
-    fn create_entry_contents_table(conn: &Connection) {
-        conn.execute(
-            "CREATE TABLE entry_contents (
-                entry_pk INTEGER PRIMARY KEY,
-                storage TEXT NOT NULL,
-                ref TEXT,
-                content_type TEXT,
-                content TEXT
-            )",
-            [],
-        )
-        .expect("create entry_contents table");
-    }
 
     fn create_store_schema(conn: &Connection) {
         migrate::migrate(conn).expect("migrate schema");
@@ -574,63 +540,6 @@ mod tests {
         assert_eq!(row.feed_id, "feed-1");
         assert_eq!(row.feed_title.as_deref(), Some("Feed Title"));
         assert_eq!(row.title.as_deref(), Some("Entry Title"));
-    }
-
-    #[test]
-    fn load_content_fs_not_found_returns_none_with_content_type() {
-        let conn = Connection::open_in_memory().expect("open in-memory sqlite");
-        create_entry_contents_table(&conn);
-        let reference = "a".repeat(64);
-        conn.execute(
-            "INSERT INTO entry_contents (entry_pk, storage, ref, content_type, content)
-             VALUES (1, 'fs', ?1, 'text/html', NULL)",
-            [&reference],
-        )
-        .expect("insert entry content");
-        let temp = TempDir::new().expect("tempdir");
-
-        let (content, content_type) = EntryReadRepo::new(&conn)
-            .load_content(temp.path(), 1)
-            .expect("load content");
-
-        assert_eq!(content, None);
-        assert_eq!(content_type.as_deref(), Some("text/html"));
-    }
-
-    #[test]
-    fn load_content_fs_read_error_returns_io_error() {
-        let conn = Connection::open_in_memory().expect("open in-memory sqlite");
-        create_entry_contents_table(&conn);
-        let reference = "a".repeat(64);
-        conn.execute(
-            "INSERT INTO entry_contents (entry_pk, storage, ref, content_type, content)
-             VALUES (1, 'fs', ?1, 'text/html', NULL)",
-            [&reference],
-        )
-        .expect("insert entry content");
-        let temp = TempDir::new().expect("tempdir");
-        let path = temp.path().join("aa").join(&reference);
-        fs::create_dir_all(&path).expect("create directory at content path");
-
-        let error = EntryReadRepo::new(&conn)
-            .load_content(temp.path(), 1)
-            .expect_err("directory read should fail");
-
-        assert_eq!(error.code().as_str(), "IO_ERROR");
-        let details = error.details().expect("details");
-        assert_eq!(details["hint"], "failed_to_read_entry_content");
-        assert!(
-            details
-                .get("reference")
-                .and_then(JsonValue::as_str)
-                .is_some_and(|value| !value.is_empty())
-        );
-        assert!(
-            details
-                .get("path")
-                .and_then(JsonValue::as_str)
-                .is_some_and(|value| !value.is_empty())
-        );
     }
 
     #[test]
