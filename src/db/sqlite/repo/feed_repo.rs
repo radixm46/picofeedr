@@ -1,12 +1,8 @@
 //! Feed repositories for SQLite-backed operations.
 
-use crate::config::feeds::{FeedConfig, FeedsConfig};
 use crate::db::sqlite::feeds;
-use crate::db::{FeedInput, FeedRow};
+use crate::db::{FeedInput, FeedMetadataInput, FeedRow};
 use crate::error::AppError;
-use crate::feed::feed_id_from_url;
-use crate::sync::model::FeedMetadata;
-use crate::time::current_epoch;
 use rusqlite::Connection;
 use std::collections::HashMap;
 
@@ -46,17 +42,13 @@ impl<'a> FeedWriteRepo<'a> {
         Self { conn }
     }
 
-    /// Upserts one feed row.
-    /// Refreshes non-empty feed metadata on an existing feed row.
+    /// Refreshes observed feed metadata on an existing feed row.
     pub(crate) fn refresh_feed_metadata(
         &self,
         feed_pk: i64,
-        metadata: &FeedMetadata,
+        metadata: &FeedMetadataInput,
         now: i64,
     ) -> Result<(), AppError> {
-        if !metadata.has_values() {
-            return Ok(());
-        }
         feeds::refresh_feed_metadata_with_conn(
             self.conn,
             feed_pk,
@@ -67,71 +59,50 @@ impl<'a> FeedWriteRepo<'a> {
         )
     }
 
-    /// Ensures active feeds from config exist in SQLite.
-    pub fn ensure_active_feeds(&self, config: &FeedsConfig) -> Result<(), AppError> {
-        let now = current_epoch();
-        for feed in config.active_feeds() {
-            let input = feed_input(feed);
-            feeds::upsert_feed_from_config_with_conn(self.conn, &input, now)?;
+    /// Ensures configured feeds exist in SQLite.
+    pub(crate) fn ensure_feeds(&self, feed_inputs: &[FeedInput], now: i64) -> Result<(), AppError> {
+        for feed in feed_inputs {
+            feeds::upsert_feed_from_config_with_conn(self.conn, feed, now)?;
         }
         Ok(())
-    }
-}
-
-/// Builds a FeedInput payload from a FeedConfig entry.
-fn feed_input(feed: &FeedConfig) -> FeedInput {
-    FeedInput {
-        feed_id: feed_id_from_url(&feed.url),
-        url: feed.url.clone(),
-        title: feed.title.clone(),
-        author: None,
-        site_url: None,
-        meta_json: None,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::FeedWriteRepo;
-    use crate::config::feeds::FeedsConfig;
     use crate::db::FeedInput;
     use crate::db::migrate::migrate;
     use crate::db::sqlite::feeds::list_feeds_with_conn;
-    use crate::db::sqlite::repo::feed_repo::feed_input;
     use rusqlite::Connection;
-    use tempfile::TempDir;
-
-    fn write_feeds_yaml(temp: &TempDir, url: &str, title: &str) -> std::path::PathBuf {
-        let path = temp.path().join("feeds.yaml");
-        std::fs::write(
-            &path,
-            format!(
-                "picofeedr:\n  feeds:\n    - url: \"{url}\"\n      title: \"{title}\"\n      tags: [tech]\n"
-            ),
-        )
-        .expect("write feeds yaml");
-        path
-    }
 
     #[test]
-    fn ensure_active_feeds_preserves_existing_metadata_fields() {
+    fn ensure_feeds_preserves_existing_metadata_fields() {
         let conn = Connection::open_in_memory().expect("in-memory sqlite");
         migrate(&conn).expect("migrate");
-        let temp = TempDir::new().expect("temp dir");
         let feed_url = "https://example.com/feed.xml";
-        let feeds_path = write_feeds_yaml(&temp, feed_url, "Configured Title");
-        let config = FeedsConfig::load(&feeds_path).expect("load feeds");
         let existing = FeedInput {
+            feed_id: "feed-id".to_string(),
+            url: feed_url.to_string(),
+            title: Some("Configured Title".to_string()),
             author: Some("Stored Author".to_string()),
             site_url: Some("https://example.com/site".to_string()),
-            ..feed_input(&config.feeds[0])
+            meta_json: None,
+        };
+        let configured = FeedInput {
+            feed_id: existing.feed_id.clone(),
+            url: existing.url.clone(),
+            title: existing.title.clone(),
+            author: None,
+            site_url: None,
+            meta_json: None,
         };
 
         crate::db::sqlite::feeds::upsert_feed_with_conn(&conn, &existing, 1).expect("seed feed");
 
         FeedWriteRepo::new(&conn)
-            .ensure_active_feeds(&config)
-            .expect("ensure active feeds");
+            .ensure_feeds(std::slice::from_ref(&configured), 2)
+            .expect("ensure feeds");
 
         let feeds = list_feeds_with_conn(&conn).expect("list feeds");
         assert_eq!(feeds.len(), 1);
@@ -141,82 +112,5 @@ mod tests {
             feeds[0].site_url.as_deref(),
             Some("https://example.com/site")
         );
-    }
-
-    #[test]
-    fn ensure_active_feeds_does_not_ensure_tags_declared_for_active_feeds() {
-        let conn = Connection::open_in_memory().expect("in-memory sqlite");
-        migrate(&conn).expect("migrate");
-        let temp = TempDir::new().expect("temp dir");
-        let feeds_path = temp.path().join("feeds.yaml");
-        std::fs::write(
-            &feeds_path,
-            r#"picofeedr:
-  active:
-    tags: [active-group]
-    auto_tags:
-      - title_contains: [active]
-        add_tags: [active-auto]
-    feeds:
-      - url: "https://example.com/active.xml"
-        title: Active
-        tags: [active-feed]
-  skipped:
-    tags: [skipped-group]
-    auto_tags:
-      - title_contains: [skipped]
-        add_tags: [skipped-auto]
-    feeds:
-      - url: "https://example.com/skipped.xml"
-        title: Skipped
-        tags: [skipped-feed]
-        skip: true
-"#,
-        )
-        .expect("write feeds yaml");
-        let config = FeedsConfig::load(&feeds_path).expect("load feeds");
-
-        FeedWriteRepo::new(&conn)
-            .ensure_active_feeds(&config)
-            .expect("ensure active feeds");
-
-        let tag_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM tags", [], |row| row.get(0))
-            .expect("count tags");
-        assert_eq!(tag_count, 0);
-    }
-
-    #[test]
-    fn ensure_active_feeds_does_not_ensure_unread_or_auto_tags_without_active_feeds() {
-        let conn = Connection::open_in_memory().expect("in-memory sqlite");
-        migrate(&conn).expect("migrate");
-        let temp = TempDir::new().expect("temp dir");
-        let feeds_path = temp.path().join("feeds.yaml");
-        std::fs::write(
-            &feeds_path,
-            r#"picofeedr:
-  auto_tags:
-    - title_contains: [anything]
-      add_tags: [root-auto]
-  skipped:
-    tags: [skipped-group]
-    feeds:
-      - url: "https://example.com/skipped.xml"
-        title: Skipped
-        tags: [skipped-feed]
-        skip: true
-"#,
-        )
-        .expect("write feeds yaml");
-        let config = FeedsConfig::load(&feeds_path).expect("load feeds");
-
-        FeedWriteRepo::new(&conn)
-            .ensure_active_feeds(&config)
-            .expect("ensure active feeds");
-
-        let tag_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM tags", [], |row| row.get(0))
-            .expect("count tags");
-        assert_eq!(tag_count, 0);
     }
 }

@@ -9,8 +9,8 @@ mod normalize;
 
 use crate::config::AppConfig;
 use crate::config::feeds::FeedsConfig;
-use crate::db::EntryContentStorage;
 use crate::db::sqlite::SqliteStore;
+use crate::db::{EntryContentStorage, FeedInput, FeedMetadataInput};
 use crate::error::AppError;
 use crate::feed::feed_id_from_url;
 use crate::sync::content::{remove_content_fs, write_content_fs};
@@ -84,8 +84,13 @@ fn prepare_sync_ingest(
     feeds_config: &FeedsConfig,
     targets: &[SyncTarget],
 ) -> Result<HashMap<String, i64>, AppError> {
+    let feed_inputs = feeds_config
+        .active_feeds()
+        .map(feed_input)
+        .collect::<Vec<_>>();
     let tx = store.tx()?;
-    tx.feed_write_repo().ensure_active_feeds(feeds_config)?;
+    tx.feed_write_repo()
+        .ensure_feeds(&feed_inputs, current_epoch())?;
     tx.commit()?;
 
     let feed_ids = targets
@@ -93,6 +98,18 @@ fn prepare_sync_ingest(
         .map(|target| target.ctx.feed_id.clone())
         .collect::<Vec<_>>();
     store.feed_read_repo().find_feed_pks_by_ids(&feed_ids)
+}
+
+/// Builds database input for a configured active feed.
+fn feed_input(feed: &crate::config::feeds::FeedConfig) -> FeedInput {
+    FeedInput {
+        feed_id: feed_id_from_url(&feed.url),
+        url: feed.url.clone(),
+        title: feed.title.clone(),
+        author: None,
+        site_url: None,
+        meta_json: None,
+    }
 }
 
 fn cleanup_created_content_files(
@@ -141,8 +158,17 @@ fn ingest_sync_result(
     let mut created_content_refs = Vec::new();
     let count = match (|| -> Result<usize, AppError> {
         let now = current_epoch();
-        tx.feed_write_repo()
-            .refresh_feed_metadata(feed_pk, &result.feed_metadata, now)?;
+        if result.feed_metadata.has_values() {
+            tx.feed_write_repo().refresh_feed_metadata(
+                feed_pk,
+                &FeedMetadataInput {
+                    title: result.feed_metadata.title.clone(),
+                    author: result.feed_metadata.author.clone(),
+                    site_url: result.feed_metadata.site_url.clone(),
+                },
+                now,
+            )?;
+        }
         let mut ingest = tx.ingest_context()?;
         let mut new_entries = 0;
         for entry in result.entries {

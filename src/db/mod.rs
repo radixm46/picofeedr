@@ -37,6 +37,17 @@ pub struct FeedInput {
     pub meta_json: Option<String>,
 }
 
+/// Observed feed metadata for persistence.
+#[derive(Debug, Clone)]
+pub(crate) struct FeedMetadataInput {
+    /// Observed feed title.
+    pub(crate) title: Option<String>,
+    /// Observed feed author.
+    pub(crate) author: Option<String>,
+    /// Observed feed site URL.
+    pub(crate) site_url: Option<String>,
+}
+
 /// Entry insert payload for the database.
 #[derive(Debug, Clone)]
 pub struct EntryInput {
