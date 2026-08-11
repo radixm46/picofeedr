@@ -86,6 +86,27 @@ fn content_hash(content: &str) -> String {
     hex::encode(digest)
 }
 
+fn write_content_file<W: Write>(
+    path: &Path,
+    reference: &str,
+    mut file: W,
+    content: &str,
+) -> Result<(), AppError> {
+    file.write_all(content.as_bytes()).map_err(|error| {
+        let _ = fs::remove_file(path);
+        AppError::io_with_details_and_source(
+            format!("Failed to write content file: {error}"),
+            error_details([
+                ("path", Value::from(path.to_string_lossy().to_string())),
+                ("reference", Value::from(reference.to_string())),
+                ("hint", Value::from("failed_to_write_content_file")),
+            ]),
+            error,
+        )
+    })?;
+    Ok(())
+}
+
 /// Stores content on filesystem if missing and returns whether it was created.
 pub(crate) fn write_content_fs(
     root: &Path,
@@ -107,7 +128,7 @@ pub(crate) fn write_content_fs(
             error,
         )
     })?;
-    let mut file = match OpenOptions::new().write(true).create_new(true).open(&path) {
+    let file = match OpenOptions::new().write(true).create_new(true).open(&path) {
         Ok(file) => file,
         Err(error) if error.kind() == ErrorKind::AlreadyExists => return Ok(false),
         Err(error) => {
@@ -122,17 +143,7 @@ pub(crate) fn write_content_fs(
             ));
         }
     };
-    file.write_all(content.as_bytes()).map_err(|error| {
-        AppError::io_with_details_and_source(
-            format!("Failed to write content file: {error}"),
-            error_details([
-                ("path", Value::from(path.to_string_lossy().to_string())),
-                ("reference", Value::from(reference.to_string())),
-                ("hint", Value::from("failed_to_write_content_file")),
-            ]),
-            error,
-        )
-    })?;
+    write_content_file(&path, reference, file, content)?;
     Ok(true)
 }
 
@@ -148,10 +159,28 @@ pub(crate) fn remove_content_fs(root: &Path, reference: &str) -> Result<(), AppE
 
 #[cfg(test)]
 mod tests {
-    use super::write_content_fs;
+    use super::{write_content_file, write_content_fs};
     use serde_json::Value;
     use std::fs;
+    use std::fs::{File, OpenOptions};
+    use std::io::{self, Write};
     use tempfile::tempdir;
+
+    struct PartialWriter {
+        file: File,
+    }
+
+    impl Write for PartialWriter {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            let partial_len = bytes.len().min(2);
+            self.file.write_all(&bytes[..partial_len])?;
+            Err(io::Error::other("forced write failure"))
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            self.file.flush()
+        }
+    }
 
     #[test]
     fn write_content_fs_returns_contextual_error_when_directory_creation_fails() {
@@ -177,5 +206,24 @@ mod tests {
                 .and_then(Value::as_str)
                 .is_some_and(|value| !value.is_empty())
         );
+    }
+
+    #[test]
+    fn write_content_file_removes_partial_file_after_write_failure() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("content");
+        let reference = "b".repeat(64);
+        let file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .expect("content file");
+
+        let error = write_content_file(&path, &reference, PartialWriter { file }, "payload")
+            .expect_err("write fails");
+
+        assert_eq!(error.code().as_str(), "IO_ERROR");
+        assert!(error.to_string().contains("forced write failure"));
+        assert!(!path.exists());
     }
 }

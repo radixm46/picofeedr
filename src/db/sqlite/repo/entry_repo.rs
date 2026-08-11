@@ -8,7 +8,7 @@ use crate::error::{AppError, error_details};
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, Row, params, params_from_iter};
 use serde_json::Value as JsonValue;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
@@ -318,6 +318,27 @@ impl<'a> EntryReadRepo<'a> {
             }
             Storage::None => Ok((None, content_type)),
         }
+    }
+
+    /// Finds persisted content references from the provided candidates.
+    pub(crate) fn find_content_refs(
+        &self,
+        references: &[String],
+    ) -> Result<HashSet<String>, AppError> {
+        if references.is_empty() {
+            return Ok(HashSet::new());
+        }
+        let mut found = HashSet::new();
+        for chunk in references.chunks(Self::IN_CHUNK_SIZE) {
+            let placeholders = sql_placeholders(chunk.len());
+            let sql = q::select_content_refs_by_refs(&placeholders);
+            let mut stmt = self.conn.prepare(&sql)?;
+            let mut rows = stmt.query(params_from_iter(chunk.iter()))?;
+            while let Some(row) = rows.next()? {
+                found.insert(row.get(0)?);
+            }
+        }
+        Ok(found)
     }
 
     /// Loads enclosures for one entry.

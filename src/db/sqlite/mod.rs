@@ -13,7 +13,7 @@ use crate::db::sqlite::repo::{
     EntryReadRepo, EntryWriteRepo, FeedReadRepo, FeedWriteRepo, SyncReadRepo, SyncWriteRepo,
 };
 use crate::error::{AppError, error_details};
-use rusqlite::Connection;
+use rusqlite::{Connection, TransactionBehavior};
 use serde_json::Value;
 use std::fs;
 use std::path::Path;
@@ -106,6 +106,13 @@ impl SqliteStore {
     /// Begins a wrapped transaction for repository-based write operations.
     pub fn tx(&mut self) -> Result<Tx<'_>, AppError> {
         Ok(Tx::new(self.conn.transaction()?))
+    }
+
+    /// Begins an immediate transaction for recovery checks that must serialize writers.
+    pub(crate) fn immediate_tx(&mut self) -> Result<Tx<'_>, AppError> {
+        Ok(Tx::new(self.conn.transaction_with_behavior(
+            TransactionBehavior::Immediate,
+        )?))
     }
 
     /// Returns a read-only entry repository bound to the store connection.

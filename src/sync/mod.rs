@@ -15,7 +15,8 @@ use crate::error::AppError;
 use crate::feed::feed_id_from_url;
 use crate::sync::content::{remove_content_fs, write_content_fs};
 use crate::time::current_epoch;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
 use std::time::Instant;
 
 pub use model::{SyncProgressEvent, SyncStatus, SyncSummary};
@@ -94,6 +95,33 @@ fn prepare_sync_ingest(
     store.feed_read_repo().find_feed_pks_by_ids(&feed_ids)
 }
 
+fn cleanup_created_content_files(
+    data_dir: &Path,
+    references: &[String],
+    committed_refs: &HashSet<String>,
+) {
+    for reference in references {
+        if !committed_refs.contains(reference) {
+            let _ = remove_content_fs(data_dir, reference);
+        }
+    }
+}
+
+fn cleanup_created_content_files_after_rollback(
+    store: &mut SqliteStore,
+    data_dir: &Path,
+    references: &[String],
+) {
+    let Ok(tx) = store.immediate_tx() else {
+        return;
+    };
+    let Ok(committed_refs) = tx.entry_read_repo().find_content_refs(references) else {
+        return;
+    };
+    cleanup_created_content_files(data_dir, references, &committed_refs);
+    let _ = tx.commit();
+}
+
 /// Ingests one fetched feed result and returns the number of newly inserted entries.
 fn ingest_sync_result(
     store: &mut SqliteStore,
@@ -110,7 +138,8 @@ fn ingest_sync_result(
     let tx = store
         .tx()
         .map_err(|error| ingest_error(error.to_string()))?;
-    let count = (|| -> Result<usize, AppError> {
+    let mut created_content_refs = Vec::new();
+    let count = match (|| -> Result<usize, AppError> {
         let now = current_epoch();
         tx.feed_write_repo()
             .refresh_feed_metadata(feed_pk, &result.feed_metadata, now)?;
@@ -130,12 +159,10 @@ fn ingest_sync_result(
                         })?;
                         let created =
                             write_content_fs(&config.storage.data_dir, reference, payload)?;
-                        if let Err(error) = ingest.insert_entry_content(insert.entry_pk, content) {
-                            if created {
-                                let _ = remove_content_fs(&config.storage.data_dir, reference);
-                            }
-                            return Err(error);
+                        if created {
+                            created_content_refs.push(reference.to_string());
                         }
+                        ingest.insert_entry_content(insert.entry_pk, content)?;
                     } else {
                         ingest.insert_entry_content(insert.entry_pk, content)?;
                     }
@@ -145,10 +172,25 @@ fn ingest_sync_result(
             }
         }
         Ok(new_entries)
-    })()
-    .map_err(|error| ingest_error(error.to_string()))?;
-    tx.commit()
-        .map_err(|error| ingest_error(error.to_string()))?;
+    })() {
+        Ok(count) => count,
+        Err(error) => {
+            cleanup_created_content_files(
+                &config.storage.data_dir,
+                &created_content_refs,
+                &HashSet::new(),
+            );
+            return Err(ingest_error(error.to_string()));
+        }
+    };
+    if let Err(error) = tx.commit() {
+        cleanup_created_content_files_after_rollback(
+            store,
+            &config.storage.data_dir,
+            &created_content_refs,
+        );
+        return Err(ingest_error(error.to_string()));
+    }
     Ok(count)
 }
 
@@ -185,11 +227,15 @@ fn build_sync_targets(feeds_config: &FeedsConfig) -> Result<Vec<SyncTarget>, App
 mod tests {
     use super::model::{FeedContext, FeedMetadata, PendingEntry, SyncEntry, SyncResult};
     use super::{
-        build_sync_targets, derive_sync_status, ingest_sync_result, prepare_sync_ingest, run_sync,
+        build_sync_targets, cleanup_created_content_files_after_rollback, derive_sync_status,
+        ingest_sync_result, prepare_sync_ingest, run_sync,
     };
     use crate::config::AppConfig;
     use crate::config::feeds::FeedsConfig;
+    use crate::content_ref::sha256_path;
     use crate::db::sqlite::SqliteStore;
+    use crate::db::{EntryContentInput, EntryContentStorage};
+    use rusqlite::Connection;
     use std::fs;
     use tempfile::TempDir;
 
@@ -324,6 +370,67 @@ retry_delay = 0
         }
     }
 
+    fn make_fs_result(feed_id: &str, entry_id: &str, reference: &str, payload: &str) -> SyncResult {
+        let mut result = make_result(feed_id, entry_id);
+        let entry = result.entries.first_mut().expect("result entry");
+        entry.content = Some(EntryContentInput {
+            storage: EntryContentStorage::Fs,
+            reference: Some(reference.to_string()),
+            content_type: Some("text/plain".to_string()),
+            content: None,
+        });
+        entry.content_payload = Some(payload.to_string());
+        result
+    }
+
+    #[test]
+    fn cleanup_after_auto_rollback_preserves_committed_and_removes_unused_refs() {
+        let temp = TempDir::new().expect("temp dir");
+        let (config_path, feeds_path) = write_config_files(&temp);
+        let config = AppConfig::load(Some(config_path)).expect("load config");
+        let feeds_config = FeedsConfig::load(&feeds_path).expect("load feeds");
+        let targets = build_sync_targets(&feeds_config).expect("build targets");
+        let committed_reference = "a".repeat(64);
+        let unused_reference = "b".repeat(64);
+        let committed_path =
+            sha256_path(&config.storage.data_dir, &committed_reference).expect("content path");
+        let unused_path =
+            sha256_path(&config.storage.data_dir, &unused_reference).expect("content path");
+
+        let mut store = SqliteStore::open(&config.database.path).expect("open store");
+        store.migrate().expect("migrate");
+        let feed_pks_by_feed_id =
+            prepare_sync_ingest(&mut store, &feeds_config, &targets).expect("prepare");
+        ingest_sync_result(
+            &mut store,
+            &config,
+            &feed_pks_by_feed_id,
+            make_fs_result(
+                &targets[0].ctx.feed_id,
+                "entry-committed-content",
+                &committed_reference,
+                "committed content",
+            ),
+        )
+        .expect("commit content ingest");
+
+        fs::create_dir_all(unused_path.parent().expect("content parent")).expect("content dir");
+        fs::write(&unused_path, "unused content").expect("unused content file");
+        let references = vec![committed_reference, unused_reference];
+
+        cleanup_created_content_files_after_rollback(
+            &mut store,
+            &config.storage.data_dir,
+            &references,
+        );
+
+        assert!(committed_path.exists());
+        assert!(!unused_path.exists());
+        store
+            .bump_revision(2)
+            .expect("subsequent write transaction after recovery");
+    }
+
     #[test]
     fn derive_sync_status_maps_failed_count() {
         assert_eq!(derive_sync_status(2, 0), super::SyncStatus::Completed);
@@ -364,6 +471,203 @@ retry_delay = 0
             .find_entry_pks_by_ids(&ids)
             .expect("find ids");
         assert_eq!(found.len(), 2);
+    }
+
+    #[test]
+    fn ingest_tag_failure_preserves_preexisting_content_file() {
+        let temp = TempDir::new().expect("temp dir");
+        let (config_path, feeds_path) = write_config_files(&temp);
+        let config = AppConfig::load(Some(config_path)).expect("load config");
+        let feeds_config = FeedsConfig::load(&feeds_path).expect("load feeds");
+        let targets = build_sync_targets(&feeds_config).expect("build targets");
+        let reference = "a".repeat(64);
+        let content_path = sha256_path(&config.storage.data_dir, &reference).expect("content path");
+        fs::create_dir_all(content_path.parent().expect("content parent")).expect("content dir");
+        fs::write(&content_path, "existing").expect("existing content");
+
+        let mut store = SqliteStore::open(&config.database.path).expect("open store");
+        store.migrate().expect("migrate");
+        let feed_pks_by_feed_id =
+            prepare_sync_ingest(&mut store, &feeds_config, &targets).expect("prepare");
+        let fail_conn = Connection::open(&config.database.path).expect("open trigger connection");
+        fail_conn
+            .execute_batch(
+                "CREATE TRIGGER fail_tag_insert BEFORE INSERT ON tags
+                 BEGIN SELECT RAISE(ABORT, 'forced tag failure'); END;",
+            )
+            .expect("install tag failure trigger");
+
+        let error = ingest_sync_result(
+            &mut store,
+            &config,
+            &feed_pks_by_feed_id,
+            make_fs_result(&targets[0].ctx.feed_id, "entry-existing", &reference, "new"),
+        )
+        .expect_err("tag failure");
+        drop(fail_conn);
+
+        assert_eq!(error.code.as_str(), "INGEST_FAILED");
+        assert!(error.message.contains("forced tag failure"));
+        assert_eq!(
+            fs::read_to_string(&content_path).expect("read content"),
+            "existing"
+        );
+        assert!(
+            store
+                .entry_read_repo()
+                .find_entry_pks_by_ids(&["entry-existing".to_string()])
+                .expect("find rolled back entry")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn ingest_commit_failure_removes_new_content_file() {
+        let temp = TempDir::new().expect("temp dir");
+        let (config_path, feeds_path) = write_config_files(&temp);
+        let config = AppConfig::load(Some(config_path)).expect("load config");
+        let feeds_config = FeedsConfig::load(&feeds_path).expect("load feeds");
+        let targets = build_sync_targets(&feeds_config).expect("build targets");
+        let first_reference = "b".repeat(64);
+        let second_reference = "c".repeat(64);
+        let first_content_path =
+            sha256_path(&config.storage.data_dir, &first_reference).expect("content path");
+        let second_content_path =
+            sha256_path(&config.storage.data_dir, &second_reference).expect("content path");
+
+        let mut store = SqliteStore::open(&config.database.path).expect("open store");
+        store.migrate().expect("migrate");
+        let feed_pks_by_feed_id =
+            prepare_sync_ingest(&mut store, &feeds_config, &targets).expect("prepare");
+        let fail_conn = Connection::open(&config.database.path).expect("open trigger connection");
+        fail_conn
+            .execute_batch(
+                "CREATE TABLE commit_parent (id INTEGER PRIMARY KEY);
+                 CREATE TABLE commit_child (
+                     parent_id INTEGER NOT NULL,
+                     FOREIGN KEY(parent_id) REFERENCES commit_parent(id)
+                         DEFERRABLE INITIALLY DEFERRED
+                 );
+                 CREATE TRIGGER fail_commit AFTER INSERT ON entries
+                 BEGIN
+                     INSERT INTO commit_child(parent_id) VALUES (-1);
+                 END;",
+            )
+            .expect("install commit failure trigger");
+
+        let error = ingest_sync_result(&mut store, &config, &feed_pks_by_feed_id, {
+            let mut result = make_fs_result(
+                &targets[0].ctx.feed_id,
+                "entry-commit-failure",
+                &first_reference,
+                "first content",
+            );
+            result.entries.extend(
+                make_fs_result(
+                    &targets[0].ctx.feed_id,
+                    "entry-commit-failure-2",
+                    &second_reference,
+                    "second content",
+                )
+                .entries,
+            );
+            result
+        })
+        .expect_err("commit failure");
+        drop(fail_conn);
+
+        assert_eq!(error.code.as_str(), "INGEST_FAILED");
+        assert!(error.message.contains("FOREIGN KEY constraint failed"));
+        assert!(!first_content_path.exists());
+        assert!(!second_content_path.exists());
+        assert!(
+            store
+                .entry_read_repo()
+                .find_entry_pks_by_ids(&[
+                    "entry-commit-failure".to_string(),
+                    "entry-commit-failure-2".to_string(),
+                ])
+                .expect("find rolled back entry")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn ingest_success_keeps_new_content_file() {
+        let temp = TempDir::new().expect("temp dir");
+        let (config_path, feeds_path) = write_config_files(&temp);
+        let config = AppConfig::load(Some(config_path)).expect("load config");
+        let feeds_config = FeedsConfig::load(&feeds_path).expect("load feeds");
+        let targets = build_sync_targets(&feeds_config).expect("build targets");
+        let reference = "d".repeat(64);
+        let content_path = sha256_path(&config.storage.data_dir, &reference).expect("content path");
+
+        let mut store = SqliteStore::open(&config.database.path).expect("open store");
+        store.migrate().expect("migrate");
+        let feed_pks_by_feed_id =
+            prepare_sync_ingest(&mut store, &feeds_config, &targets).expect("prepare");
+
+        let count = ingest_sync_result(
+            &mut store,
+            &config,
+            &feed_pks_by_feed_id,
+            make_fs_result(&targets[0].ctx.feed_id, "entry-success", &reference, "new"),
+        )
+        .expect("successful ingest");
+
+        assert_eq!(count, 1);
+        assert_eq!(
+            fs::read_to_string(&content_path).expect("read content"),
+            "new"
+        );
+    }
+
+    #[test]
+    fn ingest_tag_failure_removes_new_content_file() {
+        let temp = TempDir::new().expect("temp dir");
+        let (config_path, feeds_path) = write_config_files(&temp);
+        let config = AppConfig::load(Some(config_path)).expect("load config");
+        let feeds_config = FeedsConfig::load(&feeds_path).expect("load feeds");
+        let targets = build_sync_targets(&feeds_config).expect("build targets");
+        let reference = "c".repeat(64);
+        let content_path = sha256_path(&config.storage.data_dir, &reference).expect("content path");
+
+        let mut store = SqliteStore::open(&config.database.path).expect("open store");
+        store.migrate().expect("migrate");
+        let feed_pks_by_feed_id =
+            prepare_sync_ingest(&mut store, &feeds_config, &targets).expect("prepare");
+        let fail_conn = Connection::open(&config.database.path).expect("open trigger connection");
+        fail_conn
+            .execute_batch(
+                "CREATE TRIGGER fail_tag_insert BEFORE INSERT ON tags
+                 BEGIN SELECT RAISE(ABORT, 'forced tag failure'); END;",
+            )
+            .expect("install tag failure trigger");
+
+        let error = ingest_sync_result(
+            &mut store,
+            &config,
+            &feed_pks_by_feed_id,
+            make_fs_result(
+                &targets[0].ctx.feed_id,
+                "entry-tag-failure",
+                &reference,
+                "new",
+            ),
+        )
+        .expect_err("tag failure");
+        drop(fail_conn);
+
+        assert_eq!(error.code.as_str(), "INGEST_FAILED");
+        assert!(error.message.contains("forced tag failure"));
+        assert!(!content_path.exists());
+        assert!(
+            store
+                .entry_read_repo()
+                .find_entry_pks_by_ids(&["entry-tag-failure".to_string()])
+                .expect("find rolled back entry")
+                .is_empty()
+        );
     }
 
     #[test]

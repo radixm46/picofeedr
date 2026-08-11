@@ -106,6 +106,11 @@ WHERE e.entry_id = ?1
 pub(crate) const SELECT_ENTRY_CONTENT_BY_ENTRY_ID: &str =
     "SELECT storage, ref, content_type, content FROM entry_contents WHERE entry_pk = ?1";
 
+/// Builds a query for content references currently used by persisted entries.
+pub(crate) fn select_content_refs_by_refs(placeholders: &str) -> String {
+    format!("SELECT ref FROM entry_contents WHERE ref IS NOT NULL AND ref IN ({placeholders})")
+}
+
 /// Selects enclosures for one entry.
 pub(crate) const SELECT_ENTRY_ENCLOSURES_BY_ENTRY_ID: &str =
     "SELECT url, mime_type, length FROM entry_enclosures WHERE entry_pk = ?1 ORDER BY id";
