@@ -49,6 +49,30 @@ pub(crate) struct EntryListRow {
     pub first_seen_at: i64,
 }
 
+/// SQL-free filter input for entry list queries.
+#[derive(Debug, Clone)]
+pub(crate) enum EntryListFilter {
+    FeedPk(i64),
+    FeedTitle(String),
+    TitleContains(String),
+    TagIds(Vec<i64>),
+    Not(Box<Self>),
+    And(Vec<Self>),
+    Or(Vec<Self>),
+    EffectiveDateAtLeast(i64),
+    EffectiveDateBefore(i64),
+    Cursor { key: i64, entry_pk: i64 },
+}
+
+/// SQL-free sort input for entry list queries.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum EntryListSort {
+    DateDesc,
+    DateAsc,
+    FirstSeenDesc,
+    FirstSeenAsc,
+}
+
 fn entry_list_row_from_row(row: &Row<'_>) -> Result<EntryListRow, rusqlite::Error> {
     let entry_pk: i64 = row.get(0)?;
     let entry_id: String = row.get(1)?;
@@ -68,6 +92,119 @@ fn entry_list_row_from_row(row: &Row<'_>) -> Result<EntryListRow, rusqlite::Erro
         published_at,
         first_seen_at,
     })
+}
+
+const TITLE_CONTAINS_CLAUSE: &str = r#"(e.title IS NOT NULL AND e.title LIKE ? ESCAPE '\')"#;
+
+fn list_sort_key_expr(sort: EntryListSort) -> &'static str {
+    match sort {
+        EntryListSort::DateDesc | EntryListSort::DateAsc => q::EFFECTIVE_DATE_EXPR,
+        EntryListSort::FirstSeenDesc | EntryListSort::FirstSeenAsc => "e.first_seen_at",
+    }
+}
+
+fn list_order_clause(sort: EntryListSort) -> &'static str {
+    match sort {
+        EntryListSort::DateDesc => q::ORDER_BY_DATE_DESC,
+        EntryListSort::DateAsc => q::ORDER_BY_DATE_ASC,
+        EntryListSort::FirstSeenDesc => q::ORDER_BY_FIRST_SEEN_DESC,
+        EntryListSort::FirstSeenAsc => q::ORDER_BY_FIRST_SEEN_ASC,
+    }
+}
+
+fn list_where_clause(filters: &[EntryListFilter], sort: EntryListSort) -> (String, Vec<Value>) {
+    let mut params = Vec::new();
+    let clauses = filters
+        .iter()
+        .map(|filter| format!("({})", list_filter_clause(filter, sort, &mut params)))
+        .collect::<Vec<_>>();
+    let where_sql = if clauses.is_empty() {
+        String::new()
+    } else {
+        format!("{}{}", q::WHERE_PREFIX, clauses.join(" AND "))
+    };
+    (where_sql, params)
+}
+
+fn list_filter_clause(
+    filter: &EntryListFilter,
+    sort: EntryListSort,
+    params: &mut Vec<Value>,
+) -> String {
+    match filter {
+        EntryListFilter::FeedPk(feed_pk) => {
+            params.push(Value::from(*feed_pk));
+            q::ENTRY_FEED_PK_EQ.to_string()
+        }
+        EntryListFilter::FeedTitle(title) => {
+            params.push(Value::from(title.clone()));
+            q::EXISTS_FEED_TITLE_FOR_ENTRY.to_string()
+        }
+        EntryListFilter::TitleContains(title) => {
+            params.push(Value::from(like_contains_pattern(title)));
+            TITLE_CONTAINS_CLAUSE.to_string()
+        }
+        EntryListFilter::TagIds(tag_ids) => match tag_ids.as_slice() {
+            [] => "0=1".to_string(),
+            [tag_id] => {
+                params.push(Value::from(*tag_id));
+                q::EXISTS_TAG_ID_FOR_ENTRY.to_string()
+            }
+            _ => {
+                for tag_id in tag_ids {
+                    params.push(Value::from(*tag_id));
+                }
+                let placeholders = sql_placeholders(tag_ids.len());
+                q::exists_tag_ids_for_entry(&placeholders)
+            }
+        },
+        EntryListFilter::Not(inner) => {
+            format!("NOT ({})", list_filter_clause(inner, sort, params))
+        }
+        EntryListFilter::And(items) => join_list_filter_clauses(items, " AND ", sort, params),
+        EntryListFilter::Or(items) => join_list_filter_clauses(items, " OR ", sort, params),
+        EntryListFilter::EffectiveDateAtLeast(value) => {
+            params.push(Value::from(*value));
+            format!("({}) >= ?", q::EFFECTIVE_DATE_EXPR)
+        }
+        EntryListFilter::EffectiveDateBefore(value) => {
+            params.push(Value::from(*value));
+            format!("({}) < ?", q::EFFECTIVE_DATE_EXPR)
+        }
+        EntryListFilter::Cursor { key, entry_pk } => {
+            params.push(Value::from(*key));
+            params.push(Value::from(*entry_pk));
+            let operator = match sort {
+                EntryListSort::DateDesc | EntryListSort::FirstSeenDesc => "<",
+                EntryListSort::DateAsc | EntryListSort::FirstSeenAsc => ">",
+            };
+            format!("({}, e.id) {operator} (?, ?)", list_sort_key_expr(sort))
+        }
+    }
+}
+
+fn join_list_filter_clauses(
+    items: &[EntryListFilter],
+    separator: &str,
+    sort: EntryListSort,
+    params: &mut Vec<Value>,
+) -> String {
+    items
+        .iter()
+        .map(|item| format!("({})", list_filter_clause(item, sort, params)))
+        .collect::<Vec<_>>()
+        .join(separator)
+}
+
+fn like_contains_pattern(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for ch in value.chars() {
+        if matches!(ch, '\\' | '%' | '_') {
+            escaped.push('\\');
+        }
+        escaped.push(ch);
+    }
+    format!("%{escaped}%")
 }
 
 /// Read-only repository for entry query operations.
@@ -103,14 +240,14 @@ impl<'a> EntryReadRepo<'a> {
         Ok(ids)
     }
 
-    /// Lists `(entry_pk, sort_key)` tuples using non-tag where filters.
-    pub fn list_filtered_entry_sort_keys(
+    /// Lists `(entry_pk, sort_key)` tuples using the provided filters.
+    pub(crate) fn list_filtered_entry_sort_keys(
         &self,
-        where_sql: &str,
-        params: &[Value],
-        key_expr: &str,
+        filters: &[EntryListFilter],
+        sort: EntryListSort,
     ) -> Result<Vec<(i64, i64)>, AppError> {
-        let sql = q::select_filtered_entry_sort_keys(where_sql, key_expr);
+        let (where_sql, params) = list_where_clause(filters, sort);
+        let sql = q::select_filtered_entry_sort_keys(&where_sql, list_sort_key_expr(sort));
         let mut stmt = self.conn.prepare(&sql)?;
         let mut rows = stmt.query(params_from_iter(params.iter()))?;
         let mut out = Vec::new();
@@ -177,27 +314,34 @@ impl<'a> EntryReadRepo<'a> {
         Ok(())
     }
 
-    /// Counts entries with an optional where clause.
-    pub fn count_entries(&self, where_sql: &str, params: &[Value]) -> Result<i64, AppError> {
-        let sql = q::count_entries(where_sql);
+    /// Counts entries matching the provided filters.
+    pub(crate) fn count_entries(
+        &self,
+        filters: &[EntryListFilter],
+        sort: EntryListSort,
+    ) -> Result<i64, AppError> {
+        let (where_sql, params) = list_where_clause(filters, sort);
+        let sql = q::count_entries(&where_sql);
         let total: i64 = self
             .conn
             .query_row(&sql, params_from_iter(params.iter()), |row| row.get(0))?;
         Ok(total)
     }
 
-    /// Fetches one list page with an already-built where/order contract.
+    /// Fetches one list page with the provided filters and sort.
     pub(crate) fn fetch_entries(
         &self,
-        where_sql: &str,
-        params: &[Value],
-        key_expr: &str,
-        order_clause: &str,
+        filters: &[EntryListFilter],
+        sort: EntryListSort,
         limit: usize,
     ) -> Result<(Vec<EntryListRow>, Vec<i64>), AppError> {
         let fetch_limit = limit.saturating_add(1);
-        let sql = q::fetch_entries(where_sql, key_expr, order_clause);
-        let mut list_params = params.to_vec();
+        let (where_sql, mut list_params) = list_where_clause(filters, sort);
+        let sql = q::fetch_entries(
+            &where_sql,
+            list_sort_key_expr(sort),
+            list_order_clause(sort),
+        );
         list_params.push(Value::from(fetch_limit as i64));
         let mut stmt = self.conn.prepare(&sql)?;
         let mut rows = stmt.query(params_from_iter(list_params.iter()))?;

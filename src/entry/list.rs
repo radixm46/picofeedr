@@ -4,19 +4,15 @@ mod setops;
 
 use crate::cli::SortOrder;
 use crate::db::sqlite::SqliteStore;
-use crate::db::sqlite::query::{entries as q, sql_placeholders};
-use crate::db::sqlite::repo::{EntryListRow, EntryReadRepo};
+use crate::db::sqlite::repo::{EntryListFilter, EntryListRow, EntryListSort, EntryReadRepo};
 use crate::error::{AppError, error_details};
 use crate::query::{EntryQuery, FeedFilter, TagExpr, TermExpr};
-use cursor::{compute_query_hash, decode_cursor, encode_cursor_with_query};
-use rusqlite::types::Value;
+use cursor::{Cursor, compute_query_hash, decode_cursor, encode_cursor_with_query};
 use serde_json::Value as JsonValue;
 use setops::{UniverseView, intersect_sorted_into, merge_union_sorted_into};
-use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 type EntryListPage = (Vec<EntrySummary>, Vec<FeedSummary>, Option<String>);
-type SqlClause = Cow<'static, str>;
 
 enum FeedIdPredicate {
     NotRequested,
@@ -32,7 +28,6 @@ enum TagEvalPath {
 const SIMPLE_PATH_MAX_NODE_COUNT: usize = 12;
 const SIMPLE_PATH_MAX_DEPTH: usize = 4;
 const SIMPLE_PATH_MAX_OR_FANOUT: usize = 6;
-const TERM_LITERAL_CLAUSE: &str = r#"(e.title IS NOT NULL AND e.title LIKE ? ESCAPE '\')"#;
 
 /// Lists entries using tag filters and cursor pagination.
 pub fn list_entries(
@@ -47,23 +42,13 @@ pub fn list_entries(
     let query_hash = compute_query_hash(query);
     let feed_id_predicate = resolve_feed_id_predicate(store, query)?;
     let resolved_tag_ids = resolve_tag_id_map(store, query)?;
+    let repo_sort = entry_list_sort(sort);
     if let Some(tag_expr) = &query.tag_expr
         && matches!(route_tag_eval_path(tag_expr), TagEvalPath::Complex)
     {
-        let (universe_where_sql, universe_params) = build_where_clause(
-            query,
-            sort,
-            None,
-            &query_hash,
-            &feed_id_predicate,
-            None,
-            &[],
-        )?;
-        let mut universe_sort_pairs = entry_repo.list_filtered_entry_sort_keys(
-            &universe_where_sql,
-            &universe_params,
-            sort_key_expr(sort),
-        )?;
+        let universe_filters = build_list_filters(query, &feed_id_predicate, None, None)?;
+        let mut universe_sort_pairs =
+            entry_repo.list_filtered_entry_sort_keys(&universe_filters, repo_sort)?;
         universe_sort_pairs.sort_unstable_by_key(|(entry_pk, _)| *entry_pk);
         universe_sort_pairs.dedup_by_key(|(entry_pk, _)| *entry_pk);
         let matched_entry_pks = resolve_complex_tag_entry_pks(
@@ -73,13 +58,16 @@ pub fn list_entries(
             tag_expr,
         )?;
         let total_count = matched_entry_pks.len() as i64;
+        let decoded_cursor = cursor
+            .map(|raw| decode_cursor(raw, sort, &query_hash))
+            .transpose()?;
         let (items, feeds, next_page_token) = fetch_entries_complex(
             &entry_repo,
             &universe_sort_pairs,
             &matched_entry_pks,
             sort,
             limit,
-            cursor,
+            decoded_cursor.as_ref(),
             &query_hash,
         )?;
         return Ok(EntryListResponse {
@@ -93,41 +81,23 @@ pub fn list_entries(
         });
     }
 
-    let (tag_clause, tag_params) = match &query.tag_expr {
-        Some(tag_expr) => {
-            let mut params = Vec::new();
-            let clause = build_tag_expr_clause(tag_expr, &mut params, &resolved_tag_ids);
-            (Some(clause), params)
-        }
-        None => (None, Vec::new()),
-    };
-    let (count_where_sql, count_params) = build_where_clause(
+    let tag_filter = query
+        .tag_expr
+        .as_ref()
+        .map(|expr| build_tag_filter(expr, &resolved_tag_ids));
+    let count_filters = build_list_filters(query, &feed_id_predicate, tag_filter.as_ref(), None)?;
+    let total_count = entry_repo.count_entries(&count_filters, repo_sort)?;
+    let decoded_cursor = cursor
+        .map(|raw| decode_cursor(raw, sort, &query_hash))
+        .transpose()?;
+    let page_filters = build_list_filters(
         query,
-        sort,
-        None,
-        &query_hash,
         &feed_id_predicate,
-        tag_clause.as_deref(),
-        &tag_params,
+        tag_filter.as_ref(),
+        decoded_cursor.as_ref(),
     )?;
-    let total_count = entry_repo.count_entries(&count_where_sql, &count_params)?;
-    let (page_where_sql, page_params) = build_where_clause(
-        query,
-        sort,
-        cursor,
-        &query_hash,
-        &feed_id_predicate,
-        tag_clause.as_deref(),
-        &tag_params,
-    )?;
-    let (items, feeds, next_page_token) = fetch_entries(
-        &entry_repo,
-        &page_where_sql,
-        &page_params,
-        sort,
-        limit,
-        &query_hash,
-    )?;
+    let (items, feeds, next_page_token) =
+        fetch_entries(&entry_repo, &page_filters, sort, limit, &query_hash)?;
     Ok(EntryListResponse {
         total_count,
         items,
@@ -290,161 +260,119 @@ fn resolve_tag_id_map(
     store.entry_read_repo().find_tag_ids_by_names(&names_vec)
 }
 
-fn build_where_clause(
+fn build_list_filters(
     query: &EntryQuery,
-    sort: SortOrder,
-    cursor: Option<&str>,
-    query_hash: &str,
     feed_id_predicate: &FeedIdPredicate,
-    extra_clause: Option<&str>,
-    extra_params: &[Value],
-) -> Result<(String, Vec<Value>), AppError> {
-    let (mut clauses, mut params) =
-        build_non_tag_predicates(query, sort, cursor, query_hash, feed_id_predicate)?;
-    if let Some(extra_clause) = extra_clause {
-        clauses.insert(0, Cow::Owned(format!("({extra_clause})")));
-        let mut merged = extra_params.to_vec();
-        merged.extend(params);
-        params = merged;
-    }
-    let where_sql = if clauses.is_empty() {
-        String::new()
-    } else {
-        format!("{}{}", q::WHERE_PREFIX, clauses.join(" AND "))
-    };
-    Ok((where_sql, params))
-}
-
-fn build_non_tag_predicates(
-    query: &EntryQuery,
-    sort: SortOrder,
-    cursor: Option<&str>,
-    query_hash: &str,
-    feed_id_predicate: &FeedIdPredicate,
-) -> Result<(Vec<SqlClause>, Vec<Value>), AppError> {
-    let mut clauses = Vec::new();
-    let mut params = Vec::new();
+    tag_filter: Option<&EntryListFilter>,
+    cursor: Option<&Cursor>,
+) -> Result<Vec<EntryListFilter>, AppError> {
+    let mut filters = Vec::new();
     if let Some(feed) = &query.feed {
         match feed {
             FeedFilter::Id(_) => match feed_id_predicate {
                 FeedIdPredicate::Resolved(feed_pk) => {
-                    clauses.push(Cow::Borrowed(q::ENTRY_FEED_PK_EQ));
-                    params.push(Value::from(*feed_pk));
+                    filters.push(EntryListFilter::FeedPk(*feed_pk));
                 }
                 FeedIdPredicate::NotRequested => {
                     return Err(AppError::internal("feed id filter state is not resolved"));
                 }
             },
             FeedFilter::Title(title) => {
-                clauses.push(Cow::Borrowed(q::EXISTS_FEED_TITLE_FOR_ENTRY));
-                params.push(Value::from(title.clone()));
+                filters.push(EntryListFilter::FeedTitle(title.clone()));
             }
         }
     }
     for title in &query.title_terms {
-        clauses.push(Cow::Borrowed(TERM_LITERAL_CLAUSE));
-        params.push(Value::from(like_contains_pattern(title)));
+        filters.push(EntryListFilter::TitleContains(title.clone()));
     }
     for title in &query.negated_title_terms {
-        clauses.push(Cow::Owned(negate_clause(TERM_LITERAL_CLAUSE)));
-        params.push(Value::from(like_contains_pattern(title)));
+        filters.push(EntryListFilter::Not(Box::new(
+            EntryListFilter::TitleContains(title.clone()),
+        )));
     }
     for expr in &query.term_groups {
-        clauses.push(Cow::Owned(format!(
-            "({})",
-            build_term_expr_clause(expr, &mut params)
-        )));
+        filters.push(build_term_filter(expr));
     }
     for expr in &query.negated_term_groups {
-        clauses.push(Cow::Owned(format!(
-            "NOT ({})",
-            build_term_expr_clause(expr, &mut params)
-        )));
+        filters.push(EntryListFilter::Not(Box::new(build_term_filter(expr))));
     }
     if let Some(after) = query.after {
-        clauses.push(Cow::Owned(format!("({}) >= ?", effective_date_expr())));
-        params.push(Value::from(after));
+        filters.push(EntryListFilter::EffectiveDateAtLeast(after));
     }
     if let Some(before) = query.before {
-        clauses.push(Cow::Owned(format!("({}) < ?", effective_date_expr())));
-        params.push(Value::from(before));
+        filters.push(EntryListFilter::EffectiveDateBefore(before));
     }
     if let Some(cursor) = cursor {
-        let cursor = decode_cursor(cursor, sort, query_hash)?;
-        let key_expr = sort_key_expr(sort);
-        let predicate = match sort {
-            SortOrder::DateDesc | SortOrder::FirstSeenDesc => {
-                format!("({key_expr}, e.id) < (? , ?)")
-            }
-            SortOrder::DateAsc | SortOrder::FirstSeenAsc => {
-                format!("({key_expr}, e.id) > (? , ?)")
-            }
-        };
-        clauses.push(Cow::Owned(predicate));
-        params.push(Value::from(cursor.k));
-        params.push(Value::from(cursor.id));
+        filters.push(EntryListFilter::Cursor {
+            key: cursor.k,
+            entry_pk: cursor.id,
+        });
     }
-    Ok((clauses, params))
+    if let Some(tag_filter) = tag_filter {
+        filters.push(tag_filter.clone());
+    }
+    Ok(filters)
 }
 
-fn build_term_expr_clause(expr: &TermExpr, params: &mut Vec<Value>) -> String {
+fn build_term_filter(expr: &TermExpr) -> EntryListFilter {
     match expr {
-        TermExpr::Term(term) => {
-            params.push(Value::from(like_contains_pattern(term)));
-            TERM_LITERAL_CLAUSE.to_string()
-        }
-        TermExpr::Not(inner) => negate_clause(&build_term_expr_clause(inner, params)),
-        TermExpr::And(items) => {
-            join_boolean_clauses(items, " AND ", params, build_term_expr_clause)
-        }
-        TermExpr::Or(items) => join_boolean_clauses(items, " OR ", params, build_term_expr_clause),
+        TermExpr::Term(term) => EntryListFilter::TitleContains(term.clone()),
+        TermExpr::Not(inner) => EntryListFilter::Not(Box::new(build_term_filter(inner))),
+        TermExpr::And(items) => EntryListFilter::And(items.iter().map(build_term_filter).collect()),
+        TermExpr::Or(items) => EntryListFilter::Or(items.iter().map(build_term_filter).collect()),
     }
 }
 
-fn negate_clause(clause: &str) -> String {
-    format!("NOT ({clause})")
-}
-
-fn join_boolean_clauses<T>(
-    items: &[T],
-    separator: &str,
-    params: &mut Vec<Value>,
-    mut build_clause: impl FnMut(&T, &mut Vec<Value>) -> String,
-) -> String {
-    items
-        .iter()
-        .map(|item| format!("({})", build_clause(item, params)))
-        .collect::<Vec<_>>()
-        .join(separator)
-}
-
-fn like_contains_pattern(value: &str) -> String {
-    format!("%{}%", escape_like_value(value))
-}
-
-fn escape_like_value(value: &str) -> String {
-    let mut escaped = String::with_capacity(value.len());
-    for ch in value.chars() {
-        if matches!(ch, '\\' | '%' | '_') {
-            escaped.push('\\');
+fn build_tag_filter(expr: &TagExpr, resolved_tag_ids: &HashMap<String, i64>) -> EntryListFilter {
+    match expr {
+        TagExpr::Tag(tag) => resolved_tag_ids
+            .get(tag)
+            .copied()
+            .map(|tag_id| EntryListFilter::TagIds(vec![tag_id]))
+            .unwrap_or_else(|| EntryListFilter::TagIds(Vec::new())),
+        TagExpr::Not(inner) => {
+            EntryListFilter::Not(Box::new(build_tag_filter(inner, resolved_tag_ids)))
         }
-        escaped.push(ch);
+        TagExpr::And(items) => EntryListFilter::And(
+            items
+                .iter()
+                .map(|item| build_tag_filter(item, resolved_tag_ids))
+                .collect(),
+        ),
+        TagExpr::Or(items) => {
+            if items.iter().all(|item| matches!(item, TagExpr::Tag(_))) {
+                let ids = items
+                    .iter()
+                    .filter_map(|item| {
+                        if let TagExpr::Tag(name) = item {
+                            resolved_tag_ids.get(name).copied()
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                EntryListFilter::TagIds(ids)
+            } else {
+                EntryListFilter::Or(
+                    items
+                        .iter()
+                        .map(|item| build_tag_filter(item, resolved_tag_ids))
+                        .collect(),
+                )
+            }
+        }
     }
-    escaped
 }
 
 fn fetch_entries(
     entry_repo: &EntryReadRepo<'_>,
-    where_sql: &str,
-    params: &[Value],
+    filters: &[EntryListFilter],
     sort: SortOrder,
     limit: usize,
     query_hash: &str,
 ) -> Result<EntryListPage, AppError> {
-    let key_expr = sort_key_expr(sort);
-    let order_clause = sort_order_clause(sort);
     let (mut rows, mut sort_keys) =
-        entry_repo.fetch_entries(where_sql, params, key_expr, order_clause, limit)?;
+        entry_repo.fetch_entries(filters, entry_list_sort(sort), limit)?;
     let has_next = rows.len() > limit;
     if has_next {
         rows.truncate(limit);
@@ -469,7 +397,7 @@ fn fetch_entries_complex(
     matched_pks: &[i64],
     sort: SortOrder,
     limit: usize,
-    cursor: Option<&str>,
+    cursor: Option<&Cursor>,
     query_hash: &str,
 ) -> Result<EntryListPage, AppError> {
     let mut sort_pairs = universe_sort_pairs
@@ -486,8 +414,7 @@ fn fetch_entries_complex(
         }
     });
 
-    if let Some(raw_cursor) = cursor {
-        let decoded = decode_cursor(raw_cursor, sort, query_hash)?;
+    if let Some(decoded) = cursor {
         sort_pairs.retain(|(entry_id, sort_key)| match sort {
             SortOrder::DateDesc | SortOrder::FirstSeenDesc => {
                 (*sort_key, *entry_id) < (decoded.k, decoded.id)
@@ -563,73 +490,12 @@ fn finalize_rows(
     Ok((items, feeds))
 }
 
-fn sort_key_expr(sort: SortOrder) -> &'static str {
+fn entry_list_sort(sort: SortOrder) -> EntryListSort {
     match sort {
-        SortOrder::DateDesc | SortOrder::DateAsc => effective_date_expr(),
-        SortOrder::FirstSeenDesc | SortOrder::FirstSeenAsc => "e.first_seen_at",
-    }
-}
-
-/// Returns the SQL expression for effective date filtering.
-fn effective_date_expr() -> &'static str {
-    q::EFFECTIVE_DATE_EXPR
-}
-
-fn sort_order_clause(sort: SortOrder) -> &'static str {
-    match sort {
-        SortOrder::DateDesc => q::ORDER_BY_DATE_DESC,
-        SortOrder::DateAsc => q::ORDER_BY_DATE_ASC,
-        SortOrder::FirstSeenDesc => q::ORDER_BY_FIRST_SEEN_DESC,
-        SortOrder::FirstSeenAsc => q::ORDER_BY_FIRST_SEEN_ASC,
-    }
-}
-
-/// Builds SQL for a tag expression and appends bind params.
-fn build_tag_expr_clause(
-    expr: &TagExpr,
-    params: &mut Vec<Value>,
-    resolved_tag_ids: &HashMap<String, i64>,
-) -> String {
-    match expr {
-        TagExpr::Tag(tag) => match resolved_tag_ids.get(tag) {
-            Some(id) => {
-                params.push(Value::from(*id));
-                q::EXISTS_TAG_ID_FOR_ENTRY.to_string()
-            }
-            None => "0=1".to_string(),
-        },
-        TagExpr::Not(inner) => {
-            negate_clause(&build_tag_expr_clause(inner, params, resolved_tag_ids))
-        }
-        TagExpr::And(items) => join_boolean_clauses(items, " AND ", params, |item, params| {
-            build_tag_expr_clause(item, params, resolved_tag_ids)
-        }),
-        TagExpr::Or(items) => {
-            // When every child is a plain Tag, collapse into a single IN clause.
-            if items.iter().all(|item| matches!(item, TagExpr::Tag(_))) {
-                let ids: Vec<i64> = items
-                    .iter()
-                    .filter_map(|item| {
-                        if let TagExpr::Tag(name) = item {
-                            resolved_tag_ids.get(name).copied()
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-                if ids.is_empty() {
-                    return "0=1".to_string();
-                }
-                let placeholders = sql_placeholders(ids.len());
-                for id in ids {
-                    params.push(Value::from(id));
-                }
-                return q::exists_tag_ids_for_entry(&placeholders);
-            }
-            join_boolean_clauses(items, " OR ", params, |item, params| {
-                build_tag_expr_clause(item, params, resolved_tag_ids)
-            })
-        }
+        SortOrder::DateDesc => EntryListSort::DateDesc,
+        SortOrder::DateAsc => EntryListSort::DateAsc,
+        SortOrder::FirstSeenDesc => EntryListSort::FirstSeenDesc,
+        SortOrder::FirstSeenAsc => EntryListSort::FirstSeenAsc,
     }
 }
 

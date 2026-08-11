@@ -171,6 +171,127 @@ fn list_returns_paginated_results() {
 }
 
 #[test]
+fn list_pagination_preserves_sort_order_for_simple_and_complex_paths() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let conn = Connection::open(&paths.db_path).expect("open database");
+    let feed_pk: i64 = conn
+        .query_row("SELECT id FROM feeds LIMIT 1", [], |row| row.get(0))
+        .expect("find feed primary key");
+    conn.execute(
+        "UPDATE entries
+         SET published_at = ?1, updated_at = ?2, first_seen_at = ?3
+         WHERE title = ?4",
+        rusqlite::params![200, 150, 300, "First Entry"],
+    )
+    .expect("update first entry timestamps");
+    conn.execute(
+        "UPDATE entries
+         SET published_at = ?1, updated_at = ?2, first_seen_at = ?3
+         WHERE title = ?4",
+        rusqlite::params![Option::<i64>::None, 100, 100, "Second Entry"],
+    )
+    .expect("update second entry timestamps");
+    conn.execute(
+        "INSERT INTO entries
+         (entry_id, feed_pk, title, link, published_at, updated_at, first_seen_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        rusqlite::params![
+            "entry-3",
+            feed_pk,
+            "Third Entry",
+            "https://example.com/3",
+            200,
+            50,
+            100
+        ],
+    )
+    .expect("insert third entry");
+
+    let titles = ["First Entry", "Second Entry", "Third Entry"];
+    let mut entry_ids = Vec::with_capacity(titles.len());
+    for title in titles {
+        entry_ids.push(
+            conn.query_row(
+                "SELECT entry_id FROM entries WHERE title = ?1",
+                [title],
+                |row| row.get::<_, String>(0),
+            )
+            .expect("find entry id"),
+        );
+    }
+    drop(conn);
+
+    let list_page = |sort: &str, query: Option<&str>, cursor: Option<&str>| {
+        let mut command = picofeedr_cmd_json();
+        command
+            .arg("--config")
+            .arg(&paths.config_path)
+            .arg("--storage-root")
+            .arg(db_root(&paths.db_path))
+            .arg("list")
+            .arg("--sort")
+            .arg(sort)
+            .arg("--limit")
+            .arg("1");
+        if let Some(query) = query {
+            command.arg("--query").arg(query);
+        }
+        if let Some(cursor) = cursor {
+            command.arg("--cursor").arg(cursor);
+        }
+        let output = command.assert().success().get_output().stdout.clone();
+        extract_ok_data(&output)
+    };
+
+    let sort_cases = [
+        ("date_desc", [2, 0, 1]),
+        ("date_asc", [1, 0, 2]),
+        ("first_seen_desc", [0, 2, 1]),
+        ("first_seen_asc", [1, 2, 0]),
+    ];
+    for query in [None, Some("-tag:missing-pagination-tag")] {
+        for (sort, expected_order) in sort_cases {
+            let expected_ids = expected_order
+                .into_iter()
+                .map(|index| entry_ids[index].clone())
+                .collect::<Vec<_>>();
+            let mut actual_ids = Vec::new();
+            let mut cursor = None;
+            for page in 0..expected_ids.len() {
+                let data = list_page(sort, query, cursor.as_deref());
+                assert_eq!(data["total_count"], 3);
+                assert_eq!(data["items"].as_array().expect("items array").len(), 1);
+                actual_ids.extend(collect_item_ids(&data));
+                cursor = data["next_page_token"].as_str().map(str::to_owned);
+                if cursor.is_none() {
+                    assert_eq!(page, expected_ids.len() - 1);
+                    break;
+                }
+            }
+            assert!(cursor.is_none(), "pagination should terminate");
+            assert_eq!(actual_ids, expected_ids);
+            assert_eq!(
+                actual_ids
+                    .iter()
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .len(),
+                expected_ids.len()
+            );
+        }
+    }
+}
+
+#[test]
 fn list_snapshot_matches_status_metadata() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
