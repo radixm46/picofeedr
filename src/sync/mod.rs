@@ -9,9 +9,12 @@ mod normalize;
 
 use crate::config::AppConfig;
 use crate::config::feeds::FeedsConfig;
+use crate::db::EntryContentStorage;
 use crate::db::sqlite::SqliteStore;
 use crate::error::AppError;
 use crate::feed::feed_id_from_url;
+use crate::sync::content::{remove_content_fs, write_content_fs};
+use crate::time::current_epoch;
 use std::collections::HashMap;
 use std::time::Instant;
 
@@ -107,10 +110,43 @@ fn ingest_sync_result(
     let tx = store
         .tx()
         .map_err(|error| ingest_error(error.to_string()))?;
-    let count = tx
-        .sync_write_repo()
-        .ingest_feed_result(config, feed_pk, result)
-        .map_err(|error| ingest_error(error.to_string()))?;
+    let count = (|| -> Result<usize, AppError> {
+        let now = current_epoch();
+        tx.feed_write_repo()
+            .refresh_feed_metadata(feed_pk, &result.feed_metadata, now)?;
+        let mut ingest = tx.ingest_context()?;
+        let mut new_entries = 0;
+        for entry in result.entries {
+            let input = entry.entry.with_feed_pk(feed_pk);
+            let insert = ingest.insert_entry(&input)?;
+            if insert.inserted {
+                if let Some(content) = entry.content.as_ref() {
+                    if content.storage == EntryContentStorage::Fs {
+                        let payload = entry.content_payload.as_deref().ok_or_else(|| {
+                            AppError::internal("Missing content payload for fs storage")
+                        })?;
+                        let reference = content.reference.as_deref().ok_or_else(|| {
+                            AppError::internal("Missing content reference for fs storage")
+                        })?;
+                        let created =
+                            write_content_fs(&config.storage.data_dir, reference, payload)?;
+                        if let Err(error) = ingest.insert_entry_content(insert.entry_pk, content) {
+                            if created {
+                                let _ = remove_content_fs(&config.storage.data_dir, reference);
+                            }
+                            return Err(error);
+                        }
+                    } else {
+                        ingest.insert_entry_content(insert.entry_pk, content)?;
+                    }
+                }
+                ingest.insert_entry_tags(insert.entry_pk, &entry.tags)?;
+                new_entries += 1;
+            }
+        }
+        Ok(new_entries)
+    })()
+    .map_err(|error| ingest_error(error.to_string()))?;
     tx.commit()
         .map_err(|error| ingest_error(error.to_string()))?;
     Ok(count)

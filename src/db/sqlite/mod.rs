@@ -62,6 +62,11 @@ impl<'conn> Tx<'conn> {
         SyncWriteRepo::new(&self.tx)
     }
 
+    /// Creates a prepared entry-ingest context scoped to this transaction.
+    pub(crate) fn ingest_context(&self) -> Result<entries::IngestContext<'_>, AppError> {
+        entries::IngestContext::new(&self.tx)
+    }
+
     /// Commits the transaction.
     pub fn commit(self) -> Result<(), AppError> {
         Ok(self.tx.commit()?)

@@ -1,7 +1,7 @@
 //! Entry DAO for SQLite store.
 //!
-//! This module intentionally stays at single-statement query execution level.
-//! Multi-step workflows must live in repository modules.
+//! This module owns single-statement and prepared-statement DB operations.
+//! Multi-step orchestration belongs to application/use-case callers.
 
 use crate::db::sqlite::query::{entries as q, sql_placeholders};
 use crate::db::{EntryContentInput, EntryInput, EntryInsertResult};
