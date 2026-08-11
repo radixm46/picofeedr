@@ -3,7 +3,6 @@
 use crate::db::EntryContentStorage as Storage;
 use crate::db::sqlite::query::{entries as q, sql_placeholders};
 use crate::db::sqlite::tags;
-use crate::entry::{EntryEnclosure, EntrySummary};
 use crate::error::{AppError, error_details};
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, Row, params, params_from_iter};
@@ -26,14 +25,24 @@ pub(crate) struct EntryDetailRow {
     pub first_seen_at: i64,
 }
 
+/// Enclosure row selected from SQLite.
+pub(crate) struct EntryEnclosureRow {
+    pub url: String,
+    pub mime_type: Option<String>,
+    pub length: Option<i64>,
+}
+
 /// One list row with metadata required to finalize response payloads.
 pub(crate) struct EntryListRow {
     /// Internal entry id used for joins and tag loading.
     pub entry_pk: i64,
-    /// Public summary payload for JSON/plain rendering.
-    pub summary: EntrySummary,
-    /// Feed title resolved from feeds table.
+    pub entry_id: String,
+    pub feed_id: String,
     pub feed_title: Option<String>,
+    pub title: Option<String>,
+    pub link: Option<String>,
+    pub published_at: Option<i64>,
+    pub first_seen_at: i64,
 }
 
 fn entry_list_row_from_row(row: &Row<'_>) -> Result<EntryListRow, rusqlite::Error> {
@@ -47,16 +56,13 @@ fn entry_list_row_from_row(row: &Row<'_>) -> Result<EntryListRow, rusqlite::Erro
     let first_seen_at: i64 = row.get(7)?;
     Ok(EntryListRow {
         entry_pk,
-        summary: EntrySummary {
-            entry_id,
-            feed_id,
-            title,
-            link,
-            published_at,
-            first_seen_at,
-            tags: Vec::new(),
-        },
+        entry_id,
+        feed_id,
         feed_title,
+        title,
+        link,
+        published_at,
+        first_seen_at,
     })
 }
 
@@ -341,13 +347,16 @@ impl<'a> EntryReadRepo<'a> {
         Ok(found)
     }
 
-    /// Loads enclosures for one entry.
-    pub fn load_enclosures(&self, entry_pk: i64) -> Result<Vec<EntryEnclosure>, AppError> {
+    /// Loads enclosure rows for one entry.
+    pub(crate) fn load_enclosure_rows(
+        &self,
+        entry_pk: i64,
+    ) -> Result<Vec<EntryEnclosureRow>, AppError> {
         let mut stmt = self.conn.prepare(q::SELECT_ENTRY_ENCLOSURES_BY_ENTRY_ID)?;
         let mut rows = stmt.query(params![entry_pk])?;
         let mut enclosures = Vec::new();
         while let Some(row) = rows.next()? {
-            enclosures.push(EntryEnclosure {
+            enclosures.push(EntryEnclosureRow {
                 url: row.get(0)?,
                 mime_type: row.get(1)?,
                 length: row.get(2)?,

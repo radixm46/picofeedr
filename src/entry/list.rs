@@ -534,24 +534,32 @@ fn fetch_entries_complex(
 
 fn finalize_rows(
     entry_repo: &EntryReadRepo<'_>,
-    mut rows: Vec<EntryListRow>,
+    rows: Vec<EntryListRow>,
 ) -> Result<(Vec<EntrySummary>, Vec<FeedSummary>), AppError> {
     let ids: Vec<i64> = rows.iter().map(|row| row.entry_pk).collect();
     let tags = entry_repo.load_tags(&ids)?;
-    for row in &mut rows {
-        row.summary.tags = tags.get(&row.entry_pk).cloned().unwrap_or_default();
-    }
     let feeds = rows
         .iter()
         .fold(BTreeMap::<String, Option<String>>::new(), |mut map, row| {
-            map.entry(row.summary.feed_id.clone())
+            map.entry(row.feed_id.clone())
                 .or_insert_with(|| row.feed_title.clone());
             map
         })
         .into_iter()
         .map(|(feed_id, title)| FeedSummary { feed_id, title })
         .collect::<Vec<_>>();
-    let items = rows.into_iter().map(|row| row.summary).collect::<Vec<_>>();
+    let items = rows
+        .into_iter()
+        .map(|row| EntrySummary {
+            entry_id: row.entry_id,
+            feed_id: row.feed_id,
+            title: row.title,
+            link: row.link,
+            published_at: row.published_at,
+            first_seen_at: row.first_seen_at,
+            tags: tags.get(&row.entry_pk).cloned().unwrap_or_default(),
+        })
+        .collect::<Vec<_>>();
     Ok((items, feeds))
 }
 

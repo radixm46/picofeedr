@@ -1,6 +1,7 @@
 use super::EntryDetail;
 use crate::config::AppConfig;
 use crate::db::sqlite::SqliteStore;
+use crate::entry::EntryEnclosure;
 use crate::error::{AppError, error_details};
 use serde_json::Value as JsonValue;
 
@@ -26,7 +27,15 @@ pub fn view_entry(
         .unwrap_or_default();
     let (content, content_type) =
         entry_repo.load_content(&config.storage.data_dir, row.entry_pk)?;
-    let enclosures = entry_repo.load_enclosures(row.entry_pk)?;
+    let enclosures = entry_repo
+        .load_enclosure_rows(row.entry_pk)?
+        .into_iter()
+        .map(|row| EntryEnclosure {
+            url: row.url,
+            mime_type: row.mime_type,
+            length: row.length,
+        })
+        .collect();
 
     Ok(EntryDetail {
         entry_id: row.entry_id,

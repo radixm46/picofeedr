@@ -1,4 +1,5 @@
 use super::*;
+use rusqlite::{Connection, params};
 
 #[test]
 fn view_plain_is_human_readable() {
@@ -89,6 +90,38 @@ fn view_returns_entry_detail() {
 
     let entry_id = entry_id_by_title(&paths.config_path, &paths.db_path, "First");
 
+    let conn = Connection::open(&paths.db_path).expect("open database");
+    let entry_pk: i64 = conn
+        .query_row(
+            "SELECT id FROM entries WHERE entry_id = ?1",
+            [&entry_id],
+            |row| row.get(0),
+        )
+        .expect("find entry primary key");
+    conn.execute(
+        "INSERT INTO entry_enclosures (entry_pk, url, mime_type, length)
+         VALUES (?1, ?2, ?3, ?4)",
+        params![
+            entry_pk,
+            "https://example.com/first.bin",
+            "application/octet-stream",
+            42
+        ],
+    )
+    .expect("insert first enclosure");
+    conn.execute(
+        "INSERT INTO entry_enclosures (entry_pk, url, mime_type, length)
+         VALUES (?1, ?2, ?3, ?4)",
+        params![
+            entry_pk,
+            "https://example.com/second.bin",
+            Option::<String>::None,
+            Option::<i64>::None
+        ],
+    )
+    .expect("insert second enclosure");
+    drop(conn);
+
     let output = picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
@@ -107,6 +140,14 @@ fn view_returns_entry_detail() {
     assert_eq!(data["feed_title"], "Example Feed");
     assert_eq!(data["title"], "First Entry");
     assert_eq!(data["link"], "https://example.com/1");
+    let enclosures = data["enclosures"].as_array().expect("enclosures array");
+    assert_eq!(enclosures.len(), 2);
+    assert_eq!(enclosures[0]["url"], "https://example.com/first.bin");
+    assert_eq!(enclosures[0]["mime_type"], "application/octet-stream");
+    assert_eq!(enclosures[0]["length"], 42);
+    assert_eq!(enclosures[1]["url"], "https://example.com/second.bin");
+    assert!(enclosures[1]["mime_type"].is_null());
+    assert!(enclosures[1]["length"].is_null());
 }
 
 #[test]
