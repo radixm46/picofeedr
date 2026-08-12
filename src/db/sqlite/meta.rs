@@ -1,7 +1,7 @@
 //! Metadata DAO helpers backed by `es_meta.meta_json`.
 //!
 //! This module intentionally stays at single-statement query execution level.
-//! Multi-step workflows must live in repository modules.
+//! Multi-step workflows live in the store and transaction wrappers.
 
 use crate::db::sqlite::query::sync;
 use crate::error::AppError;

@@ -89,15 +89,14 @@ fn prepare_sync_ingest(
         .map(feed_input)
         .collect::<Vec<_>>();
     let tx = store.tx()?;
-    tx.feed_write_repo()
-        .ensure_feeds(&feed_inputs, current_epoch())?;
+    tx.ensure_feeds(&feed_inputs, current_epoch())?;
     tx.commit()?;
 
     let feed_ids = targets
         .iter()
         .map(|target| target.ctx.feed_id.clone())
         .collect::<Vec<_>>();
-    store.feed_read_repo().find_feed_pks_by_ids(&feed_ids)
+    store.find_feed_pks_by_ids(&feed_ids)
 }
 
 /// Builds database input for a configured active feed.
@@ -159,7 +158,7 @@ fn ingest_sync_result(
     let count = match (|| -> Result<usize, AppError> {
         let now = current_epoch();
         if result.feed_metadata.has_values() {
-            tx.feed_write_repo().refresh_feed_metadata(
+            tx.refresh_feed_metadata(
                 feed_pk,
                 &FeedMetadataInput {
                     title: result.feed_metadata.title.clone(),

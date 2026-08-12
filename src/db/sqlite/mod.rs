@@ -8,20 +8,19 @@ pub mod repo;
 pub(crate) mod schema;
 mod tags;
 
-use crate::db::FeedRow;
-use crate::db::sqlite::repo::{
-    EntryReadRepo, EntryWriteRepo, FeedReadRepo, FeedWriteRepo, SyncReadRepo, SyncWriteRepo,
-};
+use crate::db::sqlite::repo::{EntryReadRepo, EntryWriteRepo};
+use crate::db::{FeedInput, FeedMetadataInput, FeedRow};
 use crate::error::{AppError, error_details};
 use rusqlite::{Connection, TransactionBehavior};
 use serde_json::Value;
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::time::Duration;
 
 pub(crate) use meta::{SystemMeta, initialize_meta_with_conn};
 
-/// Transaction wrapper exposing repository APIs.
+/// SQLite transaction wrapper.
 pub struct Tx<'conn> {
     tx: rusqlite::Transaction<'conn>,
 }
@@ -42,24 +41,29 @@ impl<'conn> Tx<'conn> {
         EntryWriteRepo::new(&self.tx)
     }
 
-    /// Returns a read-only feed repository scoped to this transaction.
-    pub fn feed_read_repo(&self) -> FeedReadRepo<'_> {
-        FeedReadRepo::new(&self.tx)
+    /// Ensures configured feeds exist in SQLite.
+    pub(crate) fn ensure_feeds(&self, feed_inputs: &[FeedInput], now: i64) -> Result<(), AppError> {
+        for feed in feed_inputs {
+            feeds::upsert_feed_from_config_with_conn(&self.tx, feed, now)?;
+        }
+        Ok(())
     }
 
-    /// Returns a write feed repository scoped to this transaction.
-    pub fn feed_write_repo(&self) -> FeedWriteRepo<'_> {
-        FeedWriteRepo::new(&self.tx)
-    }
-
-    /// Returns a read-only sync repository scoped to this transaction.
-    pub fn sync_read_repo(&self) -> SyncReadRepo<'_> {
-        SyncReadRepo::new(&self.tx)
-    }
-
-    /// Returns a write sync repository scoped to this transaction.
-    pub fn sync_write_repo(&self) -> SyncWriteRepo<'_> {
-        SyncWriteRepo::new(&self.tx)
+    /// Refreshes observed feed metadata on an existing feed row.
+    pub(crate) fn refresh_feed_metadata(
+        &self,
+        feed_pk: i64,
+        metadata: &FeedMetadataInput,
+        now: i64,
+    ) -> Result<(), AppError> {
+        feeds::refresh_feed_metadata_with_conn(
+            &self.tx,
+            feed_pk,
+            metadata.title.as_deref(),
+            metadata.author.as_deref(),
+            metadata.site_url.as_deref(),
+            now,
+        )
     }
 
     /// Creates a prepared entry-ingest context scoped to this transaction.
@@ -103,7 +107,7 @@ impl SqliteStore {
         Ok(Self { conn })
     }
 
-    /// Begins a wrapped transaction for repository-based write operations.
+    /// Begins a wrapped transaction for write operations.
     pub fn tx(&mut self) -> Result<Tx<'_>, AppError> {
         Ok(Tx::new(self.conn.transaction()?))
     }
@@ -120,16 +124,6 @@ impl SqliteStore {
         EntryReadRepo::new(&self.conn)
     }
 
-    /// Returns a read-only feed repository bound to the store connection.
-    pub fn feed_read_repo(&self) -> FeedReadRepo<'_> {
-        FeedReadRepo::new(&self.conn)
-    }
-
-    /// Returns a read-only sync repository bound to the store connection.
-    pub fn sync_read_repo(&self) -> SyncReadRepo<'_> {
-        SyncReadRepo::new(&self.conn)
-    }
-
     /// Applies schema migrations.
     pub fn migrate(&self) -> Result<(), AppError> {
         crate::db::migrate::migrate(&self.conn)
@@ -142,7 +136,15 @@ impl SqliteStore {
 
     /// Returns all feeds stored in the database.
     pub fn list_feeds(&self) -> Result<Vec<FeedRow>, AppError> {
-        self.feed_read_repo().list_feeds()
+        feeds::list_feeds_with_conn(&self.conn)
+    }
+
+    /// Resolves feed primary keys by feed ids.
+    pub(crate) fn find_feed_pks_by_ids(
+        &self,
+        feed_ids: &[String],
+    ) -> Result<HashMap<String, i64>, AppError> {
+        feeds::find_feed_pks_by_ids_with_conn(&self.conn, feed_ids)
     }
 
     /// Lists all tags ordered by name.
@@ -152,13 +154,13 @@ impl SqliteStore {
 
     /// Returns database status metadata stored in `es_meta`.
     pub fn read_system_meta(&self) -> Result<SystemMeta, AppError> {
-        self.sync_read_repo().read_system_meta()
+        meta::read_meta_with_conn(&self.conn)
     }
 
     /// Increments database revision and updates write timestamp.
     pub fn bump_revision(&mut self, now: i64) -> Result<SystemMeta, AppError> {
         let tx = self.tx()?;
-        let meta = tx.sync_write_repo().bump_revision(now)?;
+        let meta = meta::bump_revision_with_conn(&tx.tx, now)?;
         tx.commit()?;
         Ok(meta)
     }
@@ -166,7 +168,7 @@ impl SqliteStore {
     /// Updates the latest sync timestamp and status metadata.
     pub fn update_sync(&mut self, now: i64, status: &str) -> Result<SystemMeta, AppError> {
         let tx = self.tx()?;
-        let meta = tx.sync_write_repo().update_sync(now, status)?;
+        let meta = meta::update_sync_with_conn(&tx.tx, now, status)?;
         tx.commit()?;
         Ok(meta)
     }

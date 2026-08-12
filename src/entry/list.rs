@@ -38,7 +38,7 @@ pub fn list_entries(
     cursor: Option<&str>,
 ) -> Result<EntryListResponse, AppError> {
     let entry_repo = store.entry_read_repo();
-    let system_meta = store.sync_read_repo().read_system_meta()?;
+    let system_meta = store.read_system_meta()?;
     let query_hash = compute_query_hash(query);
     let feed_id_predicate = resolve_feed_id_predicate(store, query)?;
     let resolved_tag_ids = resolve_tag_id_map(store, query)?;
@@ -216,9 +216,7 @@ fn resolve_feed_id_predicate(
     let Some(FeedFilter::Id(feed_id)) = &query.feed else {
         return Ok(FeedIdPredicate::NotRequested);
     };
-    let resolved = store
-        .feed_read_repo()
-        .find_feed_pks_by_ids(std::slice::from_ref(feed_id))?;
+    let resolved = store.find_feed_pks_by_ids(std::slice::from_ref(feed_id))?;
     match resolved.get(feed_id) {
         Some(feed_pk) => Ok(FeedIdPredicate::Resolved(*feed_pk)),
         None => Err(AppError::entry_not_found_with_details(

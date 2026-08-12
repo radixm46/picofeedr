@@ -1,7 +1,7 @@
 //! Feed DAO for SQLite store.
 //!
 //! This module intentionally stays at single-statement query execution level.
-//! Multi-step workflows must live in repository modules.
+//! Multi-step workflows live in the store and transaction wrappers.
 
 use crate::db::sqlite::query::{feeds as q, sql_placeholders};
 use crate::db::{FeedInput, FeedRow};
@@ -115,9 +115,47 @@ pub(crate) fn find_feed_pks_by_ids_with_conn(
 
 #[cfg(test)]
 mod tests {
-    use super::{find_feed_pks_by_ids_with_conn, upsert_feed_with_conn};
+    use super::{
+        find_feed_pks_by_ids_with_conn, list_feeds_with_conn, upsert_feed_from_config_with_conn,
+        upsert_feed_with_conn,
+    };
     use crate::db::FeedInput;
     use rusqlite::Connection;
+
+    #[test]
+    fn upsert_feed_from_config_preserves_existing_metadata_fields() {
+        let conn = Connection::open_in_memory().expect("in-memory sqlite");
+        crate::db::migrate::migrate(&conn).expect("migrate");
+        let feed_url = "https://example.com/feed.xml";
+        let existing = FeedInput {
+            feed_id: "feed-id".to_string(),
+            url: feed_url.to_string(),
+            title: Some("Configured Title".to_string()),
+            author: Some("Stored Author".to_string()),
+            site_url: Some("https://example.com/site".to_string()),
+            meta_json: None,
+        };
+        let configured = FeedInput {
+            feed_id: existing.feed_id.clone(),
+            url: existing.url.clone(),
+            title: existing.title.clone(),
+            author: None,
+            site_url: None,
+            meta_json: None,
+        };
+
+        upsert_feed_with_conn(&conn, &existing, 1).expect("seed feed");
+        upsert_feed_from_config_with_conn(&conn, &configured, 2).expect("ensure feed");
+
+        let feeds = list_feeds_with_conn(&conn).expect("list feeds");
+        assert_eq!(feeds.len(), 1);
+        assert_eq!(feeds[0].title.as_deref(), Some("Configured Title"));
+        assert_eq!(feeds[0].author.as_deref(), Some("Stored Author"));
+        assert_eq!(
+            feeds[0].site_url.as_deref(),
+            Some("https://example.com/site")
+        );
+    }
 
     /// Resolves feed primary keys for existing feed ids and skips missing ids.
     #[test]
