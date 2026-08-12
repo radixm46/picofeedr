@@ -2,7 +2,7 @@
 
 use crate::config::{AppConfig, SyncConfig};
 use crate::error::AppError;
-use crossbeam_channel::{Receiver, Sender, bounded, select, unbounded};
+use crossbeam_channel::{Receiver, Sender, bounded, unbounded};
 use std::fs;
 use std::io::{Cursor, Read};
 use std::path::PathBuf;
@@ -43,15 +43,13 @@ where
     let workers = config.sync.parallel.max(1);
     let (job_tx, job_rx) = unbounded::<SyncTarget>();
     let (result_tx, result_rx) = bounded::<WorkerResult>(workers * 2);
-    let (cancel_tx, cancel_rx) = unbounded::<()>();
 
     let mut handles = Vec::new();
     for _ in 0..workers {
         let job_rx = job_rx.clone();
-        let cancel_rx = cancel_rx.clone();
         let tx = result_tx.clone();
         let config = config.clone();
-        let handle = thread::spawn(move || worker_loop(job_rx, cancel_rx, tx, &config));
+        let handle = thread::spawn(move || worker_loop(job_rx, tx, &config));
         handles.push(handle);
     }
 
@@ -66,11 +64,7 @@ where
     let mut errors = Vec::new();
     let mut fatal: Option<AppError> = None;
     let mut completed_feeds = 0usize;
-    loop {
-        let result = match result_rx.recv() {
-            Ok(result) => result,
-            Err(_) => break,
-        };
+    while let Ok(result) = result_rx.recv() {
         match result {
             WorkerResult::Started { ctx } => {
                 if let Some(progress) = on_progress.as_mut() {
@@ -102,11 +96,6 @@ where
                 }
                 errors.push(error);
             }
-            WorkerResult::Fatal(error) => {
-                fatal = Some(error);
-                drop(cancel_tx);
-                break;
-            }
         }
     }
 
@@ -124,30 +113,20 @@ where
 }
 
 /// Worker loop that consumes sync targets and reports results.
-fn worker_loop(
-    job_rx: Receiver<SyncTarget>,
-    cancel_rx: Receiver<()>,
-    result_tx: Sender<WorkerResult>,
-    config: &AppConfig,
-) {
+fn worker_loop(job_rx: Receiver<SyncTarget>, result_tx: Sender<WorkerResult>, config: &AppConfig) {
     let agent = build_agent(&config.sync);
-    loop {
-        select! {
-            recv(cancel_rx) -> _ => break,
-            recv(job_rx) -> job => match job {
-                Ok(target) => {
-                    if result_tx.send(WorkerResult::Started {
-                        ctx: target.ctx.clone(),
-                    }).is_err() {
-                        break;
-                    }
-                    let result = fetch_and_parse(&target, config, &agent);
-                    if result_tx.send(result).is_err() {
-                        break;
-                    }
-                }
-                Err(_) => break,
-            }
+    while let Ok(target) = job_rx.recv() {
+        if result_tx
+            .send(WorkerResult::Started {
+                ctx: target.ctx.clone(),
+            })
+            .is_err()
+        {
+            break;
+        }
+        let result = fetch_and_parse(&target, config, &agent);
+        if result_tx.send(result).is_err() {
+            break;
         }
     }
 }
@@ -173,15 +152,11 @@ fn fetch_and_parse(target: &SyncTarget, config: &AppConfig, agent: &ureq::Agent)
         }
     };
     let feed_metadata = extract_feed_metadata(&feed);
-    let entries = match feed
+    let entries = feed
         .entries
         .iter()
         .map(|entry| normalize_entry(entry, target, config))
-        .collect::<Result<Vec<_>, _>>()
-    {
-        Ok(entries) => entries,
-        Err(error) => return WorkerResult::Fatal(error),
-    };
+        .collect();
     let ctx = target.ctx.clone();
     WorkerResult::Ok {
         ctx: ctx.clone(),
@@ -445,13 +420,12 @@ mod tests {
     #[test]
     fn worker_stops_when_result_receiver_is_dropped() {
         let (job_tx, job_rx) = unbounded();
-        let (cancel_tx, cancel_rx) = unbounded();
         let (result_tx, result_rx) = bounded(0);
         let (done_tx, done_rx) = bounded(1);
         let config = test_app_config();
 
         let handle = thread::spawn(move || {
-            worker_loop(job_rx, cancel_rx, result_tx, &config);
+            worker_loop(job_rx, result_tx, &config);
             done_tx.send(()).expect("worker completion");
         });
         job_tx.send(test_sync_target()).expect("send job");
@@ -463,7 +437,6 @@ mod tests {
         drop(result_rx);
 
         let stopped = done_rx.recv_timeout(Duration::from_secs(1)).is_ok();
-        drop(cancel_tx);
         handle.join().expect("worker join");
         assert!(
             stopped,

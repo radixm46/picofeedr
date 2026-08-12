@@ -175,24 +175,20 @@ fn ingest_sync_result(
             let input = entry.entry.with_feed_pk(feed_pk);
             let insert = ingest.insert_entry(&input)?;
             if insert.inserted {
-                if let Some(content) = entry.content.as_ref() {
-                    if content.storage == EntryContentStorage::Fs {
-                        let payload = entry.content_payload.as_deref().ok_or_else(|| {
-                            AppError::internal("Missing content payload for fs storage")
-                        })?;
-                        let reference = content.reference.as_deref().ok_or_else(|| {
-                            AppError::internal("Missing content reference for fs storage")
-                        })?;
-                        let created =
-                            write_content_fs(&config.storage.data_dir, reference, payload)?;
-                        if created {
-                            created_content_refs.push(reference.to_string());
-                        }
-                        ingest.insert_entry_content(insert.entry_pk, content)?;
-                    } else {
-                        ingest.insert_entry_content(insert.entry_pk, content)?;
+                let content = &entry.content;
+                if content.storage == EntryContentStorage::Fs {
+                    let payload = entry.content_payload.as_deref().ok_or_else(|| {
+                        AppError::internal("Missing content payload for fs storage")
+                    })?;
+                    let reference = content.reference.as_deref().ok_or_else(|| {
+                        AppError::internal("Missing content reference for fs storage")
+                    })?;
+                    let created = write_content_fs(&config.storage.data_dir, reference, payload)?;
+                    if created {
+                        created_content_refs.push(reference.to_string());
                     }
                 }
+                ingest.insert_entry_content(insert.entry_pk, content)?;
                 ingest.insert_entry_tags(insert.entry_pk, &entry.tags)?;
                 new_entries += 1;
             }
@@ -389,7 +385,12 @@ retry_delay = 0
                     first_seen_at: 1,
                     meta_json: None,
                 },
-                content: None,
+                content: EntryContentInput {
+                    storage: EntryContentStorage::None,
+                    reference: None,
+                    content_type: None,
+                    content: None,
+                },
                 content_payload: None,
                 tags: vec!["tech".to_string()],
             }],
@@ -399,12 +400,12 @@ retry_delay = 0
     fn make_fs_result(feed_id: &str, entry_id: &str, reference: &str, payload: &str) -> SyncResult {
         let mut result = make_result(feed_id, entry_id);
         let entry = result.entries.first_mut().expect("result entry");
-        entry.content = Some(EntryContentInput {
+        entry.content = EntryContentInput {
             storage: EntryContentStorage::Fs,
             reference: Some(reference.to_string()),
             content_type: Some("text/plain".to_string()),
             content: None,
-        });
+        };
         entry.content_payload = Some(payload.to_string());
         result
     }

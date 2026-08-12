@@ -1,7 +1,6 @@
 //! Entry normalization pipeline.
 
 use crate::config::AppConfig;
-use crate::error::AppError;
 use crate::identity::EntryIdentity;
 use crate::string_set::dedupe_strings_preserve_order;
 use crate::time::current_epoch;
@@ -15,7 +14,7 @@ pub(crate) fn normalize_entry(
     entry: &feed_rs::model::Entry,
     target: &SyncTarget,
     config: &AppConfig,
-) -> Result<SyncEntry, AppError> {
+) -> SyncEntry {
     let link = entry.links.first().map(|link| link.href.clone());
     let title = entry.title.as_ref().map(|title| title.content.clone());
     let author = entry.authors.first().map(|author| author.name.clone());
@@ -26,7 +25,7 @@ pub(crate) fn normalize_entry(
     let (content, content_type) = select_content(entry);
     let entry_id =
         EntryIdentity::from_entry(&target.ctx.feed_id, entry, content.as_deref()).entry_id;
-    let content_plan = build_entry_content(config, content, content_type)?;
+    let content_plan = build_entry_content(config, content, content_type);
 
     let mut tags = Vec::new();
     tags.extend(target.tags.iter().cloned());
@@ -39,7 +38,7 @@ pub(crate) fn normalize_entry(
     }
     let tags = dedupe_strings_preserve_order(tags);
 
-    Ok(SyncEntry {
+    SyncEntry {
         entry: PendingEntry {
             entry_id,
             link,
@@ -53,5 +52,5 @@ pub(crate) fn normalize_entry(
         content: content_plan.content,
         content_payload: content_plan.payload,
         tags,
-    })
+    }
 }

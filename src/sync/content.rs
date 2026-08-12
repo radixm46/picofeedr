@@ -32,49 +32,49 @@ pub(crate) fn build_entry_content(
     config: &AppConfig,
     content: Option<String>,
     content_type: Option<String>,
-) -> Result<EntryContentPlan, AppError> {
+) -> EntryContentPlan {
     let Some(content) = content else {
-        return Ok(EntryContentPlan {
-            content: Some(EntryContentInput {
+        return EntryContentPlan {
+            content: EntryContentInput {
                 storage: EntryContentStorage::None,
                 reference: None,
                 content_type,
                 content: None,
-            }),
+            },
             payload: None,
-        });
+        };
     };
     match config.storage.content_store {
-        ContentStore::Db => Ok(EntryContentPlan {
-            content: Some(EntryContentInput {
+        ContentStore::Db => EntryContentPlan {
+            content: EntryContentInput {
                 storage: EntryContentStorage::Db,
                 reference: None,
                 content_type,
                 content: Some(content),
-            }),
+            },
             payload: None,
-        }),
+        },
         ContentStore::Fs => {
             let reference = content_hash(&content);
-            Ok(EntryContentPlan {
-                content: Some(EntryContentInput {
+            EntryContentPlan {
+                content: EntryContentInput {
                     storage: EntryContentStorage::Fs,
                     reference: Some(reference),
                     content_type,
                     content: None,
-                }),
+                },
                 payload: Some(content),
-            })
+            }
         }
-        ContentStore::None => Ok(EntryContentPlan {
-            content: Some(EntryContentInput {
+        ContentStore::None => EntryContentPlan {
+            content: EntryContentInput {
                 storage: EntryContentStorage::None,
                 reference: None,
                 content_type,
                 content: None,
-            }),
+            },
             payload: None,
-        }),
+        },
     }
 }
 
