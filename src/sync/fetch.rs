@@ -110,6 +110,7 @@ where
         }
     }
 
+    drop(result_rx);
     for handle in handles {
         if handle.join().is_err() {
             fatal = Some(AppError::io("Worker panicked"));
@@ -135,11 +136,15 @@ fn worker_loop(
             recv(cancel_rx) -> _ => break,
             recv(job_rx) -> job => match job {
                 Ok(target) => {
-                    let _ = result_tx.send(WorkerResult::Started {
+                    if result_tx.send(WorkerResult::Started {
                         ctx: target.ctx.clone(),
-                    });
+                    }).is_err() {
+                        break;
+                    }
                     let result = fetch_and_parse(&target, config, &agent);
-                    let _ = result_tx.send(result);
+                    if result_tx.send(result).is_err() {
+                        break;
+                    }
                 }
                 Err(_) => break,
             }
@@ -367,13 +372,21 @@ fn trim_url_prefix(url: &str, message: String) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{FeedSource, build_agent, fetch_feed_bytes, parse_feed_source};
-    use crate::config::SyncConfig;
+    use super::{
+        FeedSource, WorkerResult, build_agent, fetch_feed_bytes, parse_feed_source, worker_loop,
+    };
+    use crate::config::{
+        AppConfig, CliConfig, ContentStore, DatabaseConfig, FeedsSourceConfig, LogConfig, LogLevel,
+        QueryConfig, StorageConfig, SyncConfig,
+    };
+    use crate::sync::model::{FeedContext, SyncTarget};
+    use crossbeam_channel::{bounded, unbounded};
     use std::fs;
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::path::PathBuf;
     use std::thread;
+    use std::time::Duration;
     use tempfile::TempDir;
     use url::Url;
 
@@ -386,6 +399,76 @@ mod tests {
             retry_delay_secs: 0,
             max_feed_bytes: 2 * 1024 * 1024,
         }
+    }
+
+    fn test_app_config() -> AppConfig {
+        AppConfig {
+            manage_unread: false,
+            unread_tag: "unread".to_string(),
+            database: DatabaseConfig {
+                path: PathBuf::from("/tmp/db.sqlite"),
+            },
+            feeds: FeedsSourceConfig {
+                source: PathBuf::from("/tmp/feeds.yaml"),
+            },
+            sync: test_sync_config(),
+            storage: StorageConfig {
+                root_dir: PathBuf::from("/tmp/root"),
+                content_store: ContentStore::None,
+                data_dir: PathBuf::from("/tmp/root/data"),
+            },
+            query: QueryConfig {
+                default_limit: 100,
+                max_limit: 1000,
+            },
+            cli: CliConfig {
+                output: crate::cli::OutputFormat::Plain,
+            },
+            log: LogConfig {
+                level: LogLevel::Info,
+            },
+        }
+    }
+
+    fn test_sync_target() -> SyncTarget {
+        SyncTarget {
+            ctx: FeedContext {
+                feed_id: "test-feed".to_string(),
+                feed_name: None,
+                url: "file:///definitely/missing/feed.xml".to_string(),
+            },
+            tags: Vec::new(),
+            auto_tag_rules: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn worker_stops_when_result_receiver_is_dropped() {
+        let (job_tx, job_rx) = unbounded();
+        let (cancel_tx, cancel_rx) = unbounded();
+        let (result_tx, result_rx) = bounded(0);
+        let (done_tx, done_rx) = bounded(1);
+        let config = test_app_config();
+
+        let handle = thread::spawn(move || {
+            worker_loop(job_rx, cancel_rx, result_tx, &config);
+            done_tx.send(()).expect("worker completion");
+        });
+        job_tx.send(test_sync_target()).expect("send job");
+
+        assert!(matches!(
+            result_rx.recv().expect("started result"),
+            WorkerResult::Started { .. }
+        ));
+        drop(result_rx);
+
+        let stopped = done_rx.recv_timeout(Duration::from_secs(1)).is_ok();
+        drop(cancel_tx);
+        handle.join().expect("worker join");
+        assert!(
+            stopped,
+            "worker remained blocked after result receiver closed"
+        );
     }
 
     fn spawn_http_body_server(body: &'static [u8]) -> (String, thread::JoinHandle<()>) {
