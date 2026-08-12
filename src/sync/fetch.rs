@@ -73,16 +73,28 @@ where
             }
             WorkerResult::Ok { ctx, result } => {
                 completed_feeds += 1;
-                if let Some(progress) = on_progress.as_mut() {
-                    progress(SyncProgressEvent::FeedOk {
-                        index: completed_feeds,
-                        total_feeds: targets.len(),
-                        url: ctx.url,
-                        entries: result.entries.len(),
-                    });
-                }
-                if let Err(error) = on_result(result) {
-                    errors.push(error);
+                let entries = result.entries.len();
+                match on_result(result) {
+                    Ok(()) => {
+                        if let Some(progress) = on_progress.as_mut() {
+                            progress(SyncProgressEvent::FeedOk {
+                                index: completed_feeds,
+                                total_feeds: targets.len(),
+                                url: ctx.url,
+                                entries,
+                            });
+                        }
+                    }
+                    Err(error) => {
+                        if let Some(progress) = on_progress.as_mut() {
+                            progress(SyncProgressEvent::FeedError {
+                                url: ctx.url,
+                                code: error.code,
+                                retryable: error.retryable,
+                            });
+                        }
+                        errors.push(error);
+                    }
                 }
             }
             WorkerResult::Error { ctx, error } => {
@@ -348,13 +360,16 @@ fn trim_url_prefix(url: &str, message: String) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        FeedSource, WorkerResult, build_agent, fetch_feed_bytes, parse_feed_source, worker_loop,
+        FeedSource, WorkerResult, build_agent, fetch_feed_bytes, fetch_parallel, parse_feed_source,
+        worker_loop,
     };
     use crate::config::{
         AppConfig, CliConfig, ContentStore, DatabaseConfig, FeedsSourceConfig, LogConfig, LogLevel,
         QueryConfig, StorageConfig, SyncConfig,
     };
-    use crate::sync::model::{FeedContext, SyncTarget};
+    use crate::sync::model::{
+        FeedContext, SyncError, SyncErrorCode, SyncProgressEvent, SyncTarget,
+    };
     use crossbeam_channel::{bounded, unbounded};
     use std::fs;
     use std::io::{Read, Write};
@@ -415,6 +430,88 @@ mod tests {
             tags: Vec::new(),
             auto_tag_rules: Vec::new(),
         }
+    }
+
+    #[test]
+    fn fetch_success_with_ingest_failure_reports_feed_error_without_feed_ok() {
+        let temp = TempDir::new().expect("temp dir");
+        let write_feed = |path: &std::path::Path, entry_id: &str| {
+            fs::write(
+                path,
+                format!(
+                    r#"<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0"><channel><title>Test</title><link>https://example.com</link><description>Test</description>
+<item><guid>{entry_id}</guid><title>Entry</title><link>https://example.com/{entry_id}</link><description>Body</description></item>
+</channel></rss>"#
+                ),
+            )
+            .expect("write feed");
+        };
+        let first_feed_path = temp.path().join("first-feed.xml");
+        let second_feed_path = temp.path().join("second-feed.xml");
+        write_feed(&first_feed_path, "entry-1");
+        write_feed(&second_feed_path, "entry-2");
+        let target_for = |feed_id: &str, path: &std::path::Path| SyncTarget {
+            ctx: FeedContext {
+                feed_id: feed_id.to_string(),
+                feed_name: None,
+                url: Url::from_file_path(path).expect("file url").to_string(),
+            },
+            tags: Vec::new(),
+            auto_tag_rules: Vec::new(),
+        };
+        let targets = vec![
+            target_for("test-feed-1", &first_feed_path),
+            target_for("test-feed-2", &second_feed_path),
+        ];
+        let mut config = test_app_config();
+        config.sync.parallel = 1;
+        let mut events = Vec::new();
+        let mut on_progress = |event| events.push(event);
+        let mut result_count = 0;
+
+        let errors = fetch_parallel(&targets, &config, Some(&mut on_progress), |result| {
+            result_count += 1;
+            if result_count == 1 {
+                Err(SyncError::ingest(
+                    &result.ctx,
+                    "forced ingest failure".to_string(),
+                ))
+            } else {
+                Ok(())
+            }
+        })
+        .expect("fetch completes");
+
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, SyncErrorCode::IngestFailed);
+        assert_eq!(errors[0].feed_id, "test-feed-1");
+        assert_eq!(events.len(), 4);
+        assert!(matches!(
+            &events[0],
+            SyncProgressEvent::FeedStart { url } if url == &targets[0].ctx.url
+        ));
+        assert!(matches!(
+            &events[1],
+            SyncProgressEvent::FeedError {
+                url,
+                code: SyncErrorCode::IngestFailed,
+                retryable: false,
+            } if url == &targets[0].ctx.url
+        ));
+        assert!(matches!(
+            &events[2],
+            SyncProgressEvent::FeedStart { url } if url == &targets[1].ctx.url
+        ));
+        assert!(matches!(
+            &events[3],
+            SyncProgressEvent::FeedOk {
+                index: 2,
+                total_feeds: 2,
+                url,
+                entries: 1,
+            } if url == &targets[1].ctx.url
+        ));
     }
 
     #[test]
