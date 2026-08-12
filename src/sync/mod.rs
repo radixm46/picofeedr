@@ -18,6 +18,7 @@ use crate::time::current_epoch;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::Instant;
+use tracing::warn;
 
 pub use model::{SyncProgressEvent, SyncStatus, SyncSummary};
 
@@ -117,8 +118,15 @@ fn cleanup_created_content_files(
     committed_refs: &HashSet<String>,
 ) {
     for reference in references {
-        if !committed_refs.contains(reference) {
-            let _ = remove_content_fs(data_dir, reference);
+        if !committed_refs.contains(reference)
+            && let Err(error) = remove_content_fs(data_dir, reference)
+        {
+            warn!(
+                data_dir = %data_dir.display(),
+                reference = %reference,
+                error = %error,
+                "Failed to remove created content file during sync cleanup"
+            );
         }
     }
 }
@@ -128,14 +136,39 @@ fn cleanup_created_content_files_after_rollback(
     data_dir: &Path,
     references: &[String],
 ) {
-    let Ok(tx) = store.immediate_tx() else {
-        return;
+    let tx = match store.immediate_tx() {
+        Ok(tx) => tx,
+        Err(error) => {
+            warn!(
+                data_dir = %data_dir.display(),
+                error = %error,
+                reference_count = references.len(),
+                "Failed to begin created content cleanup transaction"
+            );
+            return;
+        }
     };
-    let Ok(committed_refs) = tx.entry_read_repo().find_content_refs(references) else {
-        return;
+    let committed_refs = match tx.entry_read_repo().find_content_refs(references) {
+        Ok(committed_refs) => committed_refs,
+        Err(error) => {
+            warn!(
+                data_dir = %data_dir.display(),
+                error = %error,
+                reference_count = references.len(),
+                "Failed to find committed content references during sync cleanup"
+            );
+            return;
+        }
     };
     cleanup_created_content_files(data_dir, references, &committed_refs);
-    let _ = tx.commit();
+    if let Err(error) = tx.commit() {
+        warn!(
+            data_dir = %data_dir.display(),
+            error = %error,
+            reference_count = references.len(),
+            "Failed to commit created content cleanup transaction"
+        );
+    }
 }
 
 /// Ingests one fetched feed result and returns the number of newly inserted entries.
@@ -248,8 +281,9 @@ fn build_sync_targets(feeds_config: &FeedsConfig) -> Result<Vec<SyncTarget>, App
 mod tests {
     use super::model::{FeedContext, FeedMetadata, PendingEntry, SyncEntry, SyncResult};
     use super::{
-        build_sync_targets, cleanup_created_content_files_after_rollback, derive_sync_status,
-        ingest_sync_result, prepare_sync_ingest, run_sync,
+        build_sync_targets, cleanup_created_content_files,
+        cleanup_created_content_files_after_rollback, derive_sync_status, ingest_sync_result,
+        prepare_sync_ingest, run_sync,
     };
     use crate::config::AppConfig;
     use crate::config::feeds::FeedsConfig;
@@ -257,8 +291,27 @@ mod tests {
     use crate::db::sqlite::SqliteStore;
     use crate::db::{EntryContentInput, EntryContentStorage};
     use rusqlite::Connection;
+    use std::collections::HashSet;
     use std::fs;
+    use std::sync::{Arc, Mutex};
     use tempfile::TempDir;
+
+    #[derive(Clone)]
+    struct LogWriter(Arc<Mutex<Vec<u8>>>);
+
+    impl std::io::Write for LogWriter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0
+                .lock()
+                .expect("log buffer lock")
+                .extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
 
     fn escape_path(path: &std::path::Path) -> String {
         path.to_string_lossy()
@@ -407,6 +460,36 @@ retry_delay = 0
         };
         entry.content_payload = Some(payload.to_string());
         result
+    }
+
+    #[test]
+    fn cleanup_failure_emits_warning_with_reference_and_error() {
+        let temp = TempDir::new().expect("temp dir");
+        let data_dir = temp.path().join("data");
+        fs::create_dir_all(&data_dir).expect("data dir");
+        let reference = "a".repeat(64);
+        fs::write(data_dir.join("aa"), "blocked prefix").expect("blocked prefix");
+        let output = Arc::new(Mutex::new(Vec::new()));
+        let writer_output = Arc::clone(&output);
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .with_writer(move || LogWriter(Arc::clone(&writer_output)))
+            .finish();
+
+        tracing::subscriber::with_default(subscriber, || {
+            cleanup_created_content_files(
+                &data_dir,
+                std::slice::from_ref(&reference),
+                &HashSet::new(),
+            );
+        });
+
+        let output = String::from_utf8(output.lock().expect("log buffer lock").clone())
+            .expect("utf8 log output");
+        assert!(output.contains("Failed to remove created content file"));
+        assert!(output.contains(&reference));
+        assert!(output.contains("error=Failed to remove content:"));
     }
 
     #[test]
