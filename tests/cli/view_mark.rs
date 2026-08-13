@@ -69,8 +69,8 @@ fn view_plain_renders_kv_metadata_and_human_timestamps() {
     assert!(output.contains("feed_id: "));
     let published_at = status_plain_field(&output, "published_at");
     let first_seen_at = status_plain_field(&output, "first_seen_at");
-    assert!(looks_like_human_datetime(published_at));
-    assert!(looks_like_human_datetime(first_seen_at));
+    assert_valid_rfc3339(published_at);
+    assert_valid_rfc3339(first_seen_at);
     assert!(output.contains("\n\nHello world\n"));
 }
 

@@ -137,27 +137,10 @@ fn status_plain_field<'a>(output: &'a str, key: &str) -> &'a str {
         .expect("status plain field")
 }
 
-/// Returns true when a string looks like `YYYY-MM-DDTHH:MM:SS+09:00`.
-fn looks_like_human_datetime(value: &str) -> bool {
-    let bytes = value.as_bytes();
-    if bytes.len() < 25 {
-        return false;
-    }
-    bytes[0..4].iter().all(u8::is_ascii_digit)
-        && bytes[4] == b'-'
-        && bytes[5..7].iter().all(u8::is_ascii_digit)
-        && bytes[7] == b'-'
-        && bytes[8..10].iter().all(u8::is_ascii_digit)
-        && bytes[10] == b'T'
-        && bytes[11..13].iter().all(u8::is_ascii_digit)
-        && bytes[13] == b':'
-        && bytes[14..16].iter().all(u8::is_ascii_digit)
-        && bytes[16] == b':'
-        && bytes[17..19].iter().all(u8::is_ascii_digit)
-        && (bytes[19] == b'+' || bytes[19] == b'-')
-        && bytes[20..22].iter().all(u8::is_ascii_digit)
-        && bytes[22] == b':'
-        && bytes[23..25].iter().all(u8::is_ascii_digit)
+/// Asserts that a human-readable timestamp is valid RFC3339.
+fn assert_valid_rfc3339(value: &str) {
+    time::OffsetDateTime::parse(value, &time::format_description::well_known::Rfc3339)
+        .expect("valid RFC3339 timestamp");
 }
 
 /// Resolves an entry id from the SQLite fixture.

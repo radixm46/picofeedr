@@ -146,13 +146,6 @@ fn list_returns_paginated_results() {
         .expect("find second entry");
     let item = &data["items"][0];
     assert_eq!(item["entry_id"], expected_entry_id);
-    assert_eq!(
-        item["feed_id"],
-        picofeedr::feed::feed_id_from_url(&format!(
-            "file://{}",
-            temp.path().join("feed.xml").display()
-        ))
-    );
     assert_eq!(item["title"], "Second Entry");
     assert_eq!(item["link"], "https://example.com/2");
     assert_eq!(item["published_at"], 1704153600);

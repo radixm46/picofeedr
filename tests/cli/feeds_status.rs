@@ -241,6 +241,6 @@ fn status_plain_renders_human_readable_local_timestamps() {
     let last_write_at = status_plain_field(&output_str, "last_write_at");
     let last_sync_at = status_plain_field(&output_str, "last_sync_at");
 
-    assert!(looks_like_human_datetime(last_write_at));
-    assert!(looks_like_human_datetime(last_sync_at));
+    assert_valid_rfc3339(last_write_at);
+    assert_valid_rfc3339(last_sync_at);
 }
