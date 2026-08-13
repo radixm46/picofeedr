@@ -3,7 +3,7 @@
 use serde_json::Value;
 
 /// Parses a JSON envelope from command output.
-pub fn parse_envelope(output: &[u8]) -> Value {
+fn parse_envelope(output: &[u8]) -> Value {
     serde_json::from_slice(output).expect("json")
 }
 

@@ -210,19 +210,11 @@ fn list_pagination_preserves_sort_order_for_simple_and_complex_paths() {
     )
     .expect("insert third entry");
 
-    let titles = ["First Entry", "Second Entry", "Third Entry"];
-    let mut entry_ids = Vec::with_capacity(titles.len());
-    for title in titles {
-        entry_ids.push(
-            conn.query_row(
-                "SELECT entry_id FROM entries WHERE title = ?1",
-                [title],
-                |row| row.get::<_, String>(0),
-            )
-            .expect("find entry id"),
-        );
-    }
     drop(conn);
+    let entry_ids = entry_ids_by_title(
+        &paths.db_path,
+        &["First Entry", "Second Entry", "Third Entry"],
+    );
 
     let list_page = |sort: &str, query: Option<&str>, cursor: Option<&str>| {
         let mut command = picofeedr_cmd_json();
