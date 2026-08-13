@@ -250,7 +250,7 @@ fn list_pagination_preserves_sort_order_for_simple_and_complex_paths() {
             command.arg("--cursor").arg(cursor);
         }
         let output = command.assert().success().get_output().stdout.clone();
-        extract_ok_data(&output)
+        extract_result(&output, "ok")
     };
 
     let sort_cases = [
@@ -331,7 +331,7 @@ fn list_json_uses_unread_tag_alias_when_management_is_disabled() {
 
     let stderr = String::from_utf8(output.stderr).expect("stderr utf8");
     assert!(!stderr.contains("warning: unread query ignored"));
-    let data = extract_ok_data(&output.stdout);
+    let data = extract_result(&output.stdout, "ok");
     assert_eq!(data["total_count"], 0);
 }
 
@@ -573,7 +573,7 @@ fn list_accepts_hyphen_started_query_value_after_query_flag() {
         .stdout
         .clone();
 
-    assert_single_title(extract_ok_data(&output), "First Entry");
+    assert_single_title(extract_result(&output, "ok"), "First Entry");
 }
 
 #[test]
@@ -798,7 +798,7 @@ fn list_rejects_mismatched_cursor_without_echoing_raw_in_json_error() {
         .get_output()
         .stdout
         .clone();
-    let cursor = extract_ok_data(&output)["next_page_token"]
+    let cursor = extract_result(&output, "ok")["next_page_token"]
         .as_str()
         .expect("cursor")
         .to_string();
@@ -834,7 +834,7 @@ fn list_rejects_cursor_when_title_terms_change() {
         .get_output()
         .stdout
         .clone();
-    let cursor = extract_ok_data(&output)["next_page_token"]
+    let cursor = extract_result(&output, "ok")["next_page_token"]
         .as_str()
         .expect("cursor")
         .to_string();
@@ -885,7 +885,7 @@ fn list_rejects_cursor_when_title_term_group_changes() {
         .get_output()
         .stdout
         .clone();
-    let cursor = extract_ok_data(&output)["next_page_token"]
+    let cursor = extract_result(&output, "ok")["next_page_token"]
         .as_str()
         .expect("cursor")
         .to_string();
@@ -975,7 +975,7 @@ fn list_uses_config_default_limit_when_limit_omitted() {
         .stdout
         .clone();
     assert_eq!(
-        extract_ok_data(&output)["items"]
+        extract_result(&output, "ok")["items"]
             .as_array()
             .expect("items")
             .len(),

@@ -135,7 +135,7 @@ fn view_returns_entry_detail() {
         .stdout
         .clone();
 
-    let data = extract_ok_data(&output);
+    let data = extract_result(&output, "ok");
     assert_eq!(data["entry_id"], entry_id);
     assert_eq!(data["feed_title"], "Example Feed");
     assert_eq!(data["title"], "First Entry");
@@ -548,7 +548,7 @@ fn mark_read_uses_unread_tag_alias_when_unread_management_is_disabled() {
         .stdout
         .clone();
 
-    let data = extract_ok_data(&output);
+    let data = extract_result(&output, "ok");
     assert_eq!(data["updated_entry_count"], 0);
 }
 
@@ -575,7 +575,7 @@ fn mark_unread_uses_unread_tag_alias_when_unread_management_is_disabled() {
         .stdout
         .clone();
 
-    let data = extract_ok_data(&output);
+    let data = extract_result(&output, "ok");
     assert_eq!(data["updated_entry_count"], 1);
 
     let unread = list_query_json(&paths.config_path, &paths.db_path, "unread");

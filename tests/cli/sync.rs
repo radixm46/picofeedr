@@ -126,7 +126,7 @@ fn sync_ingests_entries_and_tags() {
         .stdout
         .clone();
 
-    let data = extract_ok_data(&output);
+    let data = extract_result(&output, "ok");
     assert_eq!(data["status"], "completed");
     assert_eq!(data["fetched_feed_count"], 1);
     assert_eq!(data["failed_feed_count"], 0);
@@ -261,7 +261,7 @@ fn sync_json_reports_skipped_feeds_without_fetching_or_reconciling_them() {
         .stdout
         .clone();
 
-    let data = extract_ok_data(&output);
+    let data = extract_result(&output, "ok");
     assert_eq!(data["status"], "completed");
     assert_eq!(data["fetched_feed_count"], 1);
     assert_eq!(data["skipped_feed_count"], 1);
@@ -347,7 +347,7 @@ fn sync_ingests_entries_from_gopher_feed() {
         .clone();
 
     server_thread.join().expect("join gopher server thread");
-    let data = extract_ok_data(&output);
+    let data = extract_result(&output, "ok");
     assert_eq!(data["status"], "completed");
     assert_eq!(data["failed_feed_count"], 0);
     assert_eq!(data["new_entry_count"], 1);
@@ -386,7 +386,7 @@ fn sync_reports_parse_error_for_gopher_directory_listing() {
         .clone();
 
     server_thread.join().expect("join gopher server thread");
-    let data = extract_ok_data(&output);
+    let data = extract_result(&output, "warning");
     let errors = data["errors"].as_array().expect("errors");
     assert_eq!(errors[0]["code"], "PARSE_FAILED");
     assert_eq!(errors[0]["retryable"], false);
@@ -641,7 +641,7 @@ fn sync_check_reports_invalid_nested_auto_tag_rule_path() {
         .stdout
         .clone();
 
-    let data = extract_ok_data(&output);
+    let data = extract_result(&output, "warning");
     let errors = data["errors"].as_array().expect("errors");
     assert!(
         errors
@@ -749,8 +749,7 @@ fn sync_reports_partial_failed() {
         .get_output()
         .stdout
         .clone();
-    let data = extract_ok_data(&output);
-    assert_envelope_status(&output, "warning");
+    let data = extract_result(&output, "warning");
     assert_eq!(data["status"], "partial_failed");
 }
 
@@ -817,8 +816,7 @@ fn sync_reports_failed_when_all_feeds_fail() {
         .get_output()
         .stdout
         .clone();
-    let data = extract_ok_data(&output);
-    assert_envelope_status(&output, "warning");
+    let data = extract_result(&output, "warning");
     assert_eq!(data["status"], "failed");
 }
 
@@ -875,7 +873,7 @@ fn sync_http_404_fetch_failed_is_not_retryable() {
         .clone();
 
     server_thread.join().expect("join 404 server thread");
-    let data = extract_ok_data(&output);
+    let data = extract_result(&output, "warning");
     let errors = data["errors"].as_array().expect("errors");
     assert_eq!(errors[0]["retryable"], false);
 }
@@ -950,7 +948,7 @@ fn sync_rejects_oversized_feed_body() {
         .get_output()
         .stdout
         .clone();
-    let data = extract_ok_data(&output);
+    let data = extract_result(&output, "warning");
     let errors = data["errors"].as_array().expect("errors");
     assert_eq!(errors[0]["code"], "FETCH_FAILED");
 }

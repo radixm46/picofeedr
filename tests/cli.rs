@@ -24,8 +24,8 @@ use std::path::Path;
 use std::process::{Command as ProcessCommand, Output, Stdio};
 use std::thread;
 use support::assertions::{
-    assert_envelope_status, assert_error_envelope, assert_plain_contract, extract_error_code,
-    extract_error_details, extract_error_payload, extract_ok_data,
+    assert_error_envelope, assert_plain_contract, extract_error_code, extract_error_details,
+    extract_error_payload, extract_result,
 };
 use support::fixtures::{
     FixturePaths, SyncFixtureBuilder, SyncFixturePaths, acquire_exclusive_db_lock,
@@ -107,7 +107,7 @@ fn list_query_json(config_path: &str, db_path: &str, query: &str) -> serde_json:
         .get_output()
         .stdout
         .clone();
-    extract_ok_data(&output)
+    extract_result(&output, "ok")
 }
 
 /// Runs `status` in JSON mode and returns its `data` object.
@@ -123,7 +123,7 @@ fn status_json(config_path: &str, db_path: &str) -> serde_json::Value {
         .get_output()
         .stdout
         .clone();
-    extract_ok_data(&output)
+    extract_result(&output, "ok")
 }
 
 /// Extracts field value from plain status output.

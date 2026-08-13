@@ -19,7 +19,7 @@ fn feeds_reads_db_rows_without_validating_feeds_yaml() {
         .stdout
         .clone();
 
-    let data = extract_ok_data(&output);
+    let data = extract_result(&output, "ok");
     let feeds = data
         .get("feeds")
         .and_then(|value| value.as_array())
@@ -53,7 +53,7 @@ fn tags_command_returns_tag_dictionary() {
         .stdout
         .clone();
 
-    let data = extract_ok_data(&output);
+    let data = extract_result(&output, "ok");
     let tags = data
         .get("tags")
         .and_then(|value| value.as_array())
@@ -191,7 +191,7 @@ fn status_tracks_revision_and_sync_metadata() {
         .get_output()
         .stdout
         .clone();
-    let _ = extract_ok_data(&output);
+    let _ = extract_result(&output, "ok");
 
     let after_reads = status_json(&paths.config_path, &paths.db_path);
     assert_eq!(after_reads["revision"], after_sync["revision"]);

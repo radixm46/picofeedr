@@ -75,8 +75,7 @@ fn sync_check_errors(config_path: &str, db_path: &str) -> Vec<serde_json::Value>
         .stdout
         .clone();
 
-    let data = extract_ok_data(&output);
-    assert_envelope_status(&output, "warning");
+    let data = extract_result(&output, "warning");
     assert_eq!(data["valid"], false);
     data["errors"].as_array().expect("errors array").clone()
 }
@@ -157,7 +156,7 @@ fn config_check_returns_validation_report() {
         .stdout
         .clone();
 
-    let data = extract_ok_data(&output);
+    let data = extract_result(&output, "ok");
     assert_eq!(data["valid"], true);
     assert!(data["errors"].as_array().expect("errors").is_empty());
     assert!(data["warnings"].as_array().expect("warnings").is_empty());
@@ -186,7 +185,7 @@ fn config_check_reports_skipped_feeds() {
         .stdout
         .clone();
 
-    let data = extract_ok_data(&output);
+    let data = extract_result(&output, "ok");
     assert_eq!(data["valid"], true);
     assert_eq!(data["checked_feeds"], 2);
     assert_eq!(data["skipped_feeds"], 1);
@@ -216,7 +215,7 @@ fn config_check_uses_default_paths_without_config_file() {
         .stdout
         .clone();
 
-    let data = extract_ok_data(&output);
+    let data = extract_result(&output, "ok");
     assert_eq!(data["valid"], true);
     assert_eq!(data["checked_feeds"], 1);
     assert!(!storage_root.exists());
@@ -244,7 +243,7 @@ fn sync_uses_default_paths_without_config_file() {
         .stdout
         .clone();
 
-    let data = extract_ok_data(&output);
+    let data = extract_result(&output, "ok");
     assert_eq!(data["status"], "completed");
     assert_eq!(data["fetched_feed_count"], 1);
     assert_eq!(data["failed_feed_count"], 0);
@@ -293,8 +292,7 @@ fn config_check_fails_on_duplicate_url() {
         .stdout
         .clone();
 
-    let data = extract_ok_data(&output);
-    assert_envelope_status(&output, "warning");
+    let data = extract_result(&output, "warning");
     assert_eq!(data["valid"], false);
     let errors = data["errors"].as_array().expect("errors array");
     assert!(
@@ -324,8 +322,7 @@ fn config_check_fails_on_empty_url() {
         .stdout
         .clone();
 
-    let data = extract_ok_data(&output);
-    assert_envelope_status(&output, "warning");
+    let data = extract_result(&output, "warning");
     assert_eq!(data["valid"], false);
     let errors = data["errors"].as_array().expect("errors array");
     assert!(
@@ -497,8 +494,7 @@ fn config_check_fails_on_invalid_title_regex() {
         .stdout
         .clone();
 
-    let data = extract_ok_data(&output);
-    assert_envelope_status(&output, "warning");
+    let data = extract_result(&output, "warning");
     assert_eq!(data["valid"], false);
     let errors = data["errors"].as_array().expect("errors array");
     assert!(
@@ -528,7 +524,7 @@ fn config_check_does_not_require_db() {
     .stdout
     .clone();
 
-    let data = extract_ok_data(&output);
+    let data = extract_result(&output, "ok");
     assert_eq!(data["valid"], true);
     assert_eq!(data["checked_feeds"], 1);
 }
@@ -554,7 +550,7 @@ ended:
         .stdout
         .clone();
 
-    let data = extract_ok_data(&output);
+    let data = extract_result(&output, "ok");
     assert_eq!(data["valid"], true);
     assert!(data["errors"].as_array().expect("errors").is_empty());
     assert!(data["warnings"].as_array().expect("warnings").is_empty());
@@ -630,7 +626,7 @@ fn feeds_ignores_blocking_feeds_yaml_validation() {
         .stdout
         .clone();
 
-    let data = extract_ok_data(&output);
+    let data = extract_result(&output, "ok");
     assert!(data["feeds"].as_array().expect("feeds array").is_empty());
 }
 
@@ -990,7 +986,7 @@ fn unread_token_respects_config_unread_tag() {
         .stdout
         .clone();
 
-    let data = extract_ok_data(&output);
+    let data = extract_result(&output, "ok");
     let items = data["items"].as_array().expect("items array");
     assert_eq!(items.len(), 2);
     for item in items {
@@ -1036,7 +1032,7 @@ fn unread_tag_is_trimmed_before_use() {
         .stdout
         .clone();
 
-    let data = extract_ok_data(&output);
+    let data = extract_result(&output, "ok");
     let items = data["items"].as_array().expect("items array");
     assert_eq!(items.len(), 2);
     for item in items {
@@ -1079,7 +1075,7 @@ fn tags_command_does_not_create_empty_tag_when_unread_management_is_disabled() {
         .stdout
         .clone();
 
-    let data = extract_ok_data(&output);
+    let data = extract_result(&output, "ok");
     let tags = data["tags"].as_array().expect("tags array");
     assert!(
         !tags

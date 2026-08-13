@@ -7,21 +7,14 @@ pub fn parse_envelope(output: &[u8]) -> Value {
     serde_json::from_slice(output).expect("json")
 }
 
-/// Extracts the `result` object from a successful JSON envelope.
-pub fn extract_ok_data(output: &[u8]) -> Value {
+/// Extracts the `result` object from a JSON success envelope.
+pub fn extract_result(output: &[u8], expected_status: &str) -> Value {
     let value = parse_envelope(output);
-    let status = value["status"].as_str().expect("expected status field");
-    assert!(
-        matches!(status, "ok" | "warning"),
-        "expected ok/warning status envelope, got {status}"
-    );
+    assert_eq!(value["status"], expected_status);
     assert!(value.get("meta").is_some(), "expected meta field");
     assert!(value.get("result").is_some(), "expected result field");
     assert!(value.get("error").is_some(), "expected error field");
-    assert!(
-        value["error"].is_null(),
-        "expected error=null for ok/warning"
-    );
+    assert!(value["error"].is_null(), "expected error=null for success");
     value.get("result").cloned().expect("result")
 }
 
@@ -59,12 +52,6 @@ pub fn extract_error_details(output: &[u8]) -> Value {
         "expected error.details to be an object, got {details}"
     );
     details
-}
-
-/// Asserts the envelope status value.
-pub fn assert_envelope_status(output: &[u8], status: &str) {
-    let value = parse_envelope(output);
-    assert_eq!(value["status"], status);
 }
 
 /// Asserts a failed JSON envelope with expected error metadata.
