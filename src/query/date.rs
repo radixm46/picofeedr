@@ -53,7 +53,7 @@ fn parse_relative_date_to_epoch(
 
 /// Parses `N[d|w|m|y]` into (amount, unit).
 fn parse_relative_duration(value: &str) -> Result<(u32, char), AppError> {
-    if value.len() < 2 {
+    if value.len() < 2 || !value.is_ascii() {
         return Err(AppError::invalid_query("Invalid relative date"));
     }
     let (number, unit) = value.split_at(value.len() - 1);
@@ -153,5 +153,14 @@ mod tests {
             parse_date_or_relative_to_epoch("1y", leap_day_now, fixed_jst()).expect("epoch"),
             local_midnight_epoch(2023, Month::February, 28, fixed_jst())
         );
+    }
+
+    #[test]
+    fn rejects_non_ascii_relative_date_suffixes() {
+        for value in ["1好", "好", "1🍣"] {
+            let error =
+                parse_date_or_relative_to_epoch(value, fixed_now_utc(), fixed_jst()).unwrap_err();
+            assert_eq!(error.code().as_str(), "INVALID_QUERY", "value: {value}");
+        }
     }
 }

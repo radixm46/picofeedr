@@ -715,7 +715,7 @@ fn list_rejects_invalid_relative_date_filter() {
         .arg(db_root(&paths.db_path))
         .arg("list")
         .arg("--query")
-        .arg("after:3x")
+        .arg("after:1好")
         .assert()
         .failure()
         .get_output()
