@@ -42,9 +42,6 @@ source = "~/.config/picofeedr/feeds.yaml"
 
 [cli]
 output = "plain"
-
-[log]
-level = "info"
 ```
 
 ### Top-Level Keys
@@ -68,7 +65,6 @@ level = "info"
 - `query.default_limit = 100`
 - `query.max_limit = 1000`
 - `cli.output = "plain"`
-- `log.level = "info"`
 
 `manage_unread = false` のときは unread タグの自動付与を無効化する。  
 `unread_tag` は前後の空白を除去してから、`manage_unread` の値に関わらず
@@ -118,12 +114,6 @@ DBパスは `storage.root_dir/db.sqlite`、ファイル保存先は `storage.roo
 
 `cli.output` は既定出力形式。  
 詳細な出力契約は `doc/spec/cli.md` を正本とする。
-
-### `[log]`
-
-- `level: "error" | "warn" | "info" | "debug" | "trace"`
-
-ログや診断出力は原則 stderr に寄せる。
 
 ## `feeds.yaml` Contract Boundary
 

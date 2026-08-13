@@ -364,8 +364,8 @@ mod tests {
         worker_loop,
     };
     use crate::config::{
-        AppConfig, CliConfig, ContentStore, DatabaseConfig, FeedsSourceConfig, LogConfig, LogLevel,
-        QueryConfig, StorageConfig, SyncConfig,
+        AppConfig, CliConfig, ContentStore, DatabaseConfig, FeedsSourceConfig, QueryConfig,
+        StorageConfig, SyncConfig,
     };
     use crate::sync::model::{
         FeedContext, SyncError, SyncErrorCode, SyncProgressEvent, SyncTarget,
@@ -413,9 +413,6 @@ mod tests {
             },
             cli: CliConfig {
                 output: crate::cli::OutputFormat::Plain,
-            },
-            log: LogConfig {
-                level: LogLevel::Info,
             },
         }
     }

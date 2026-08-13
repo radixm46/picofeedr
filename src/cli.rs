@@ -83,10 +83,6 @@ pub struct Cli {
     #[arg(long, action = clap::ArgAction::SetTrue)]
     pub debug: bool,
 
-    /// Enable verbose trace diagnostics on stderr.
-    #[arg(long, action = clap::ArgAction::SetTrue)]
-    pub trace: bool,
-
     /// CLI command to execute.
     #[command(subcommand)]
     pub command: Command,

@@ -115,7 +115,6 @@ Supported terms:
 --storage-root <path> Override storage root directory
 --output <json|plain> Output format (default: plain)
 --debug               Enable debug output on stderr
---trace               Enable verbose trace on stderr
 ```
 
 ## Configuration
@@ -158,10 +157,6 @@ See `doc/spec/config.md` and `doc/spec/feeds.md` for details.
 # Output format (default: "plain")
 # [cli]
 # output = "plain"  # "plain" | "json"
-
-# Log level (default: "info")
-# [log]
-# level = "info"  # "error" | "warn" | "info" | "debug" | "trace"
 ```
 
 ### feeds.yaml

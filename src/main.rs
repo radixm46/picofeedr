@@ -107,25 +107,28 @@ fn main() -> ExitCode {
     };
 
     if matches!(cli.command, Command::Version) {
-        let (output, log_level) = resolve_runtime_settings(&cli, None);
-        init_logging(log_level);
+        let output = resolve_output_format(&cli, None);
+        let debug = cli.debug;
+        init_logging(debug);
         debug!(?output, ?cli.command, "resolved CLI output and command");
-        return handle_run_result(log_level, output, run_version(output));
+        return handle_run_result(debug, output, run_version(output));
     }
 
     let config = match load_runtime_config(&cli) {
         Ok(config) => config,
         Err(error) => {
-            let (output, log_level) = resolve_runtime_settings(&cli, None);
-            init_logging(log_level);
+            let output = resolve_output_format(&cli, None);
+            let debug = cli.debug;
+            init_logging(debug);
             debug!(?output, ?cli.command, "resolved CLI output and command");
-            return handle_app_failure(log_level, output, error);
+            return handle_app_failure(debug, output, error);
         }
     };
-    let (output, log_level) = resolve_runtime_settings(&cli, Some(&config));
-    init_logging(log_level);
+    let output = resolve_output_format(&cli, Some(&config));
+    let debug = cli.debug;
+    init_logging(debug);
     debug!(?output, ?cli.command, "resolved CLI output and command");
-    handle_run_result(log_level, output, run(&cli, output, &config))
+    handle_run_result(debug, output, run(&cli, output, &config))
 }
 
 /// Executes the CLI command and renders the outcome in the selected format.
@@ -158,14 +161,14 @@ fn finish_command_run(
 
 /// Maps a run result to the process exit code, rendering failures.
 fn handle_run_result(
-    log_level: config::LogLevel,
+    debug: bool,
     output: OutputFormat,
     result: Result<ExitCode, RunFailure>,
 ) -> ExitCode {
     match result {
         Ok(exit_code) => exit_code,
-        Err(RunFailure::Io(error)) => handle_output_error(log_level, error),
-        Err(RunFailure::App(error)) => handle_app_failure(log_level, output, error),
+        Err(RunFailure::Io(error)) => handle_output_error(debug, error),
+        Err(RunFailure::App(error)) => handle_app_failure(debug, output, error),
     }
 }
 
@@ -198,17 +201,6 @@ fn resolve_output_format(cli: &Cli, config: Option<&config::AppConfig>) -> Outpu
             .map(|config| config.cli.output)
             .unwrap_or(OutputFormat::Plain),
     }
-}
-
-/// Resolves output format and log level for the current CLI invocation.
-fn resolve_runtime_settings(
-    cli: &Cli,
-    config: Option<&config::AppConfig>,
-) -> (OutputFormat, config::LogLevel) {
-    (
-        resolve_output_format(cli, config),
-        resolve_effective_log_level(cli, config),
-    )
 }
 
 /// Handles CLI parse errors and prints appropriate output.
@@ -252,28 +244,24 @@ fn write_fatal_output(output: OutputFormat, error: &AppError) -> io::Result<()> 
 }
 
 /// Handles application failures and preserves existing diagnostics and exit behavior.
-fn handle_app_failure(
-    log_level: config::LogLevel,
-    output: OutputFormat,
-    error: AppError,
-) -> ExitCode {
-    maybe_print_diagnostics(log_level, &error);
+fn handle_app_failure(debug: bool, output: OutputFormat, error: AppError) -> ExitCode {
+    maybe_print_diagnostics(debug, &error);
     match write_fatal_output(output, &error) {
         Ok(()) => ExitCode::from(1),
-        Err(write_error) => handle_output_error(log_level, write_error),
+        Err(write_error) => handle_output_error(debug, write_error),
     }
 }
 
 /// Handles stdout output errors and maps broken pipes to successful termination.
-fn handle_output_error(log_level: config::LogLevel, error: io::Error) -> ExitCode {
+fn handle_output_error(debug: bool, error: io::Error) -> ExitCode {
     if is_broken_pipe_error(&error) {
-        if should_emit_diagnostics(log_level) {
+        if debug {
             eprintln!("stdout closed by downstream consumer (broken pipe)");
         }
         return ExitCode::SUCCESS;
     }
     let app_error = AppError::io_with_source("failed to write CLI output", error);
-    maybe_print_diagnostics(log_level, &app_error);
+    maybe_print_diagnostics(debug, &app_error);
     eprintln!("{app_error}");
     ExitCode::from(1)
 }
@@ -309,9 +297,9 @@ fn detect_explicit_output_value(value: &str) -> OutputFormat {
     }
 }
 
-/// Prints error diagnostics to stderr when debug/trace is enabled.
-fn maybe_print_diagnostics(level: config::LogLevel, error: &AppError) {
-    if !should_emit_diagnostics(level) {
+/// Prints error diagnostics to stderr when debug is enabled.
+fn maybe_print_diagnostics(debug: bool, error: &AppError) {
+    if !debug {
         return;
     }
     eprintln!("error: {error}");
@@ -324,38 +312,13 @@ fn maybe_print_diagnostics(level: config::LogLevel, error: &AppError) {
     }
 }
 
-/// Resolves effective log level (CLI > config > default).
-fn resolve_effective_log_level(cli: &Cli, config: Option<&config::AppConfig>) -> config::LogLevel {
-    if cli.trace {
-        return config::LogLevel::Trace;
-    }
-    if cli.debug {
-        return config::LogLevel::Debug;
-    }
-    config
-        .map(|config| config.log.level)
-        .unwrap_or(config::LogLevel::Info)
-}
-
-/// Returns true if diagnostics should be emitted for the log level.
-fn should_emit_diagnostics(level: config::LogLevel) -> bool {
-    matches!(level, config::LogLevel::Debug | config::LogLevel::Trace)
-}
-
 /// Initializes stderr logging for diagnostics.
-fn init_logging(level: config::LogLevel) {
-    if !should_emit_diagnostics(level) {
+fn init_logging(debug: bool) {
+    if !debug {
         return;
     }
-    let level = match level {
-        config::LogLevel::Error => tracing::Level::ERROR,
-        config::LogLevel::Warn => tracing::Level::WARN,
-        config::LogLevel::Info => tracing::Level::INFO,
-        config::LogLevel::Debug => tracing::Level::DEBUG,
-        config::LogLevel::Trace => tracing::Level::TRACE,
-    };
     let _ = tracing_subscriber::fmt()
-        .with_max_level(level)
+        .with_max_level(tracing::Level::DEBUG)
         .with_writer(io::stderr)
         .with_ansi(false)
         .try_init();

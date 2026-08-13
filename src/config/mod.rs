@@ -30,8 +30,6 @@ pub struct AppConfig {
     pub query: QueryConfig,
     /// CLI configuration.
     pub cli: CliConfig,
-    /// Logging configuration.
-    pub log: LogConfig,
 }
 
 /// Database configuration.
@@ -92,23 +90,6 @@ pub struct CliConfig {
     pub output: crate::cli::OutputFormat,
 }
 
-/// Logging configuration.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct LogConfig {
-    /// Log level for stderr diagnostics.
-    pub level: LogLevel,
-}
-
-/// Log level definition.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LogLevel {
-    Error,
-    Warn,
-    Info,
-    Debug,
-    Trace,
-}
-
 /// Content storage mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContentStore {
@@ -130,7 +111,6 @@ struct AppConfigRaw {
     storage: Option<StorageConfigRaw>,
     query: Option<QueryConfigRaw>,
     cli: Option<CliConfigRaw>,
-    log: Option<LogConfigRaw>,
 }
 
 /// Raw feeds source config representation.
@@ -170,12 +150,6 @@ struct CliConfigRaw {
     output: Option<String>,
 }
 
-/// Raw log config representation.
-#[derive(Debug, Default, Deserialize)]
-struct LogConfigRaw {
-    level: Option<String>,
-}
-
 impl AppConfig {
     /// Loads configuration from the default path or an override path.
     pub fn load(path_override: Option<PathBuf>) -> Result<Self, AppError> {
@@ -188,7 +162,6 @@ impl AppConfig {
         let storage = StorageConfig::from_raw(raw.storage)?;
         let query = QueryConfig::from_raw(raw.query)?;
         let cli = CliConfig::from_raw(raw.cli)?;
-        let log = LogConfig::from_raw(raw.log)?;
         Ok(Self {
             manage_unread,
             unread_tag,
@@ -200,7 +173,6 @@ impl AppConfig {
             storage,
             query,
             cli,
-            log,
         })
     }
 
@@ -454,15 +426,6 @@ impl QueryConfig {
     }
 }
 
-impl LogConfig {
-    /// Builds a LogConfig from optional raw config.
-    fn from_raw(raw: Option<LogConfigRaw>) -> Result<Self, AppError> {
-        let raw = raw.unwrap_or_default();
-        let level = parse_log_level(raw.level.as_deref())?;
-        Ok(Self { level })
-    }
-}
-
 /// Parses the content_store value into ContentStore.
 fn parse_content_store(value: Option<&str>) -> Result<ContentStore, AppError> {
     match value.unwrap_or("db") {
@@ -494,32 +457,11 @@ fn parse_output_format(value: Option<&str>) -> Result<crate::cli::OutputFormat, 
     }
 }
 
-/// Parses the log level value.
-fn parse_log_level(value: Option<&str>) -> Result<LogLevel, AppError> {
-    match value.unwrap_or("info") {
-        "error" => Ok(LogLevel::Error),
-        "warn" => Ok(LogLevel::Warn),
-        "info" => Ok(LogLevel::Info),
-        "debug" => Ok(LogLevel::Debug),
-        "trace" => Ok(LogLevel::Trace),
-        other => Err(AppError::config_with_details(
-            format!("Invalid log.level value: {other}"),
-            error_details([
-                ("path", Value::Null),
-                (
-                    "hint",
-                    Value::from("allowed values: error|warn|info|debug|trace"),
-                ),
-            ]),
-        )),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
-        AppConfig, CliConfig, ContentStore, DatabaseConfig, FeedsSourceConfig, LogConfig, LogLevel,
-        QueryConfig, StorageConfig, SyncConfig, SyncConfigRaw, expand_tilde_component,
+        AppConfig, CliConfig, ContentStore, DatabaseConfig, FeedsSourceConfig, QueryConfig,
+        StorageConfig, SyncConfig, SyncConfigRaw, expand_tilde_component,
     };
     use std::path::PathBuf;
 
@@ -545,9 +487,6 @@ mod tests {
             },
             cli: CliConfig {
                 output: crate::cli::OutputFormat::Plain,
-            },
-            log: LogConfig {
-                level: LogLevel::Info,
             },
         }
     }

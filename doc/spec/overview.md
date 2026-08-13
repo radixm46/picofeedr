@@ -42,13 +42,13 @@
   - 成功：exit code 0 + JSON（共通envelope）
   - 致命：exit code != 0 + JSON（共通envelopeの `error`）
   - パイプ先が早期終了して `stdout` が `BrokenPipe` になった場合は、致命扱いにせず exit code 0 で終了する
-  - デバッグ/トレース等の詳細は **標準エラー（stderr）** に寄せる（通常は出さない）
+  - `--debug` の詳細は **標準エラー（stderr）** に寄せる（通常は出さない）
 - `--output plain`（対話向け）
   - 成功/失敗ともに、人間向け表示を stdout/stderr に出す
   - 形式は table / kv / log の3カテゴリで定義する
   - 一覧系はタブ区切り、結果系は `key: value`、`sync` は `sync:* key=value ...` の log-oriented 形式
   - `sync` は feed 単位の進捗と最終要約を stdout に逐次出力し、詳細な error line は stderr に出す
-  - `stdout` の `BrokenPipe` は非致命として扱い、通常は無出力で終了する（`--debug`/`--trace` 時のみ stderr に診断を出してよい）
+  - `stdout` の `BrokenPipe` は非致命として扱い、通常は無出力で終了する（`--debug` 時のみ stderr に診断を出してよい）
   - `--help` は plain 前提でよい（機械可読契約の対象外）
 
 **コマンド一覧：**
@@ -74,6 +74,4 @@ picofeedr sync --check              # 同期設定の静的妥当性検証（DB�
 --storage-root <path>   # ストレージルート上書き（db.sqlite と data/ を含む）
 --output <json|plain> # 出力形式（デフォルト: plain）
 --debug             # デバッグ情報をstderrに出す（json出力を壊さない）
---trace             # より詳細なトレースをstderrに出す（必要ならbacktraceも）
-
 ```
