@@ -2,21 +2,21 @@
 #[derive(Debug, Clone, Default)]
 pub struct EntryQuery {
     /// Optional tag filter expression.
-    pub tag_expr: Option<TagExpr>,
+    pub(crate) tag_expr: Option<TagExpr>,
     /// Feed filter.
-    pub feed: Option<FeedFilter>,
+    pub(crate) feed: Option<FeedFilter>,
     /// Positive title search terms.
-    pub title_terms: Vec<String>,
+    pub(crate) title_terms: Vec<String>,
     /// Negative title search terms.
-    pub negated_title_terms: Vec<String>,
+    pub(crate) negated_title_terms: Vec<String>,
     /// Positive title term boolean groups.
-    pub term_groups: Vec<TermExpr>,
+    pub(crate) term_groups: Vec<TermExpr>,
     /// Negative title term boolean groups.
-    pub negated_term_groups: Vec<TermExpr>,
+    pub(crate) negated_term_groups: Vec<TermExpr>,
     /// Lower date bound (inclusive).
-    pub after: Option<i64>,
+    pub(crate) after: Option<i64>,
     /// Upper date bound (exclusive).
-    pub before: Option<i64>,
+    pub(crate) before: Option<i64>,
 }
 
 /// Feed filter variants.

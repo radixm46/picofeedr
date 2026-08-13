@@ -118,7 +118,7 @@ fn build_run_fixture(corpus: &SyncCorpus, parallel: usize) -> SyncRunFixture {
     .expect("write config");
 
     let config = config::AppConfig::load(Some(config_path)).expect("load config");
-    let store = SqliteStore::open(&config.database.path).expect("open sqlite");
+    let store = SqliteStore::open(config.database_path()).expect("open sqlite");
     store.migrate().expect("migrate schema");
 
     SyncRunFixture {

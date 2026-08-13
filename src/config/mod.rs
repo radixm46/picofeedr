@@ -15,21 +15,21 @@ use std::path::{Component, Path, PathBuf};
 #[derive(Debug, Clone)]
 pub struct AppConfig {
     /// Whether unread management is enabled.
-    pub manage_unread: bool,
+    pub(crate) manage_unread: bool,
     /// Name of the unread tag.
-    pub unread_tag: String,
+    pub(crate) unread_tag: String,
     /// Database configuration.
-    pub database: DatabaseConfig,
+    pub(crate) database: DatabaseConfig,
     /// Feeds configuration.
-    pub feeds: FeedsSourceConfig,
+    pub(crate) feeds: FeedsSourceConfig,
     /// Sync configuration.
-    pub sync: SyncConfig,
+    pub(crate) sync: SyncConfig,
     /// Content storage configuration.
-    pub storage: StorageConfig,
+    pub(crate) storage: StorageConfig,
     /// Query behavior configuration.
-    pub query: QueryConfig,
+    pub(crate) query: QueryConfig,
     /// CLI configuration.
-    pub cli: CliConfig,
+    pub(crate) cli: CliConfig,
 }
 
 /// Database configuration.
@@ -153,7 +153,7 @@ struct CliConfigRaw {
 impl AppConfig {
     /// Loads configuration from the default path or an override path.
     pub fn load(path_override: Option<PathBuf>) -> Result<Self, AppError> {
-        let config_path = resolve_config_path(path_override.clone())?;
+        let config_path = resolve_config_path(path_override.clone());
         let raw = load_raw_config(&config_path, path_override.is_some())?;
         let manage_unread = raw.manage_unread.unwrap_or(default_manage_unread());
         let unread_tag = normalize_unread_tag(raw.unread_tag)?;
@@ -177,12 +177,11 @@ impl AppConfig {
     }
 
     /// Overrides the storage root directory from CLI arguments.
-    pub fn override_root_dir(&mut self, path: PathBuf) -> Result<(), AppError> {
+    pub fn override_root_dir(&mut self, path: PathBuf) {
         let root_dir = expand_path_buf(path);
         self.storage.root_dir = root_dir;
         self.storage.data_dir = self.storage.root_dir.join("data");
         self.database.path = self.storage.root_dir.join("db.sqlite");
-        Ok(())
     }
 
     /// Returns the configured unread tag name.
@@ -194,12 +193,32 @@ impl AppConfig {
     pub fn auto_unread_tag(&self) -> Option<&str> {
         self.manage_unread.then_some(self.unread_tag.as_str())
     }
+
+    /// Returns the configured SQLite database path.
+    pub fn database_path(&self) -> &Path {
+        self.database.path.as_path()
+    }
+
+    /// Returns the configured feeds source path.
+    pub fn feeds_source(&self) -> &Path {
+        self.feeds.source.as_path()
+    }
+
+    /// Returns the query behavior configuration.
+    pub fn query_config(&self) -> QueryConfig {
+        self.query
+    }
+
+    /// Returns the configured default output format.
+    pub fn output_format(&self) -> crate::cli::OutputFormat {
+        self.cli.output
+    }
 }
 
 /// Resolves the config.toml path with a default fallback.
-fn resolve_config_path(path_override: Option<PathBuf>) -> Result<PathBuf, AppError> {
+fn resolve_config_path(path_override: Option<PathBuf>) -> PathBuf {
     if let Some(path) = path_override {
-        return Ok(expand_path_buf(path));
+        return expand_path_buf(path);
     }
     expand_path("~/.config/picofeedr/config.toml")
 }
@@ -239,10 +258,8 @@ fn load_raw_config(config_path: &Path, explicit_path: bool) -> Result<AppConfigR
 }
 
 /// Expands ~ in paths and returns a PathBuf.
-fn expand_path(raw: &str) -> Result<PathBuf, AppError> {
-    let expanded = shellexpand::tilde(raw);
-    let path = Path::new(expanded.as_ref()).to_path_buf();
-    Ok(path)
+fn expand_path(raw: &str) -> PathBuf {
+    expand_path_buf(PathBuf::from(raw))
 }
 
 /// Expands a leading `~` component without converting the path to UTF-8.
@@ -324,7 +341,7 @@ impl FeedsSourceConfig {
     /// Builds a FeedsSourceConfig from optional raw config.
     fn from_raw(raw: Option<FeedsSourceConfigRaw>) -> Result<Self, AppError> {
         let raw = raw.unwrap_or_default();
-        let source = expand_path(raw.source.as_deref().unwrap_or(default_feeds_source()))?;
+        let source = expand_path(raw.source.as_deref().unwrap_or(default_feeds_source()));
         Ok(Self { source })
     }
 }
@@ -364,7 +381,7 @@ impl StorageConfig {
     fn from_raw(raw: Option<StorageConfigRaw>) -> Result<Self, AppError> {
         let raw = raw.unwrap_or_default();
         let store = parse_content_store(raw.content_store.as_deref())?;
-        let root_dir = expand_path(raw.root_dir.as_deref().unwrap_or(default_storage_root()))?;
+        let root_dir = expand_path(raw.root_dir.as_deref().unwrap_or(default_storage_root()));
         let data_dir = root_dir.join("data");
         Ok(Self {
             root_dir,
@@ -527,6 +544,13 @@ mod tests {
         assert_eq!(expanded, home.join("feeds"));
     }
 
+    #[test]
+    fn expand_path_buf_leaves_tilde_when_home_is_unavailable() {
+        let path = PathBuf::from("~/feeds");
+
+        assert_eq!(expand_tilde_component(&path, None), path);
+    }
+
     #[cfg(unix)]
     #[test]
     fn override_root_dir_preserves_non_utf8_paths() {
@@ -537,9 +561,7 @@ mod tests {
         let root_dir = PathBuf::from(&raw);
         let mut config = test_app_config();
 
-        config
-            .override_root_dir(root_dir.clone())
-            .expect("override root dir");
+        config.override_root_dir(root_dir.clone());
 
         assert_eq!(config.storage.root_dir, root_dir);
         assert_eq!(config.storage.data_dir, PathBuf::from(&raw).join("data"));

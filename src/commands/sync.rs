@@ -17,11 +17,11 @@ pub(crate) fn run_sync_command_plain(
     config: &config::AppConfig,
 ) -> Result<SyncSummary, RunFailure> {
     debug!(
-        db_path = ?config.database.path,
-        feeds_path = ?config.feeds.source,
+        db_path = ?config.database_path(),
+        feeds_path = ?config.feeds_source(),
         "loaded configuration"
     );
-    let mut store = db::sqlite::SqliteStore::open(&config.database.path)?;
+    let mut store = db::sqlite::SqliteStore::open(config.database_path())?;
     store.migrate()?;
     let stdout = io::stdout();
     let mut writer = io::BufWriter::new(stdout.lock());
@@ -52,7 +52,7 @@ fn run_sync_with_store(
     store: &mut db::sqlite::SqliteStore,
     on_progress: Option<&mut dyn FnMut(sync::SyncProgressEvent)>,
 ) -> Result<SyncSummary, AppError> {
-    let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
+    let feeds_config = config::feeds::FeedsConfig::load(config.feeds_source())?;
     feeds_config.ensure_valid_for_runtime()?;
     let summary = sync::run_sync_with_progress(store, config, &feeds_config, on_progress)?;
     let now = current_epoch();

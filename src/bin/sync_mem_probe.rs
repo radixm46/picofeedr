@@ -144,8 +144,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     let config = config::AppConfig::load(Some(config_path))?;
-    let feeds_config = FeedsConfig::load(&config.feeds.source)?;
-    let mut store = SqliteStore::open(&config.database.path)?;
+    let feeds_config = FeedsConfig::load(config.feeds_source())?;
+    let mut store = SqliteStore::open(config.database_path())?;
     store.migrate()?;
 
     let summary = sync::run_sync(&mut store, &config, &feeds_config)?;

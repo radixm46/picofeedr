@@ -38,7 +38,7 @@ pub(crate) fn run_command(
             include_id: *id,
         },
         Command::Sync { check: true } => {
-            let feeds_config = config::feeds::FeedsConfig::load(&config.feeds.source)?;
+            let feeds_config = config::feeds::FeedsConfig::load(config.feeds_source())?;
             let report = feeds_config.validate();
             let exit_code = if report.valid {
                 ExitCode::SUCCESS

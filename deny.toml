@@ -30,13 +30,6 @@ allow = [
     "Zlib",
 ]
 
-# Current dependency graph note:
-# shellexpand -> dirs -> dirs-sys -> option-ext pulls in MPL-2.0.
-# We keep that as a crate-scoped exception instead of globally allowing MPL.
-exceptions = [
-    { crate = "option-ext", allow = ["MPL-2.0"] },
-]
-
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"

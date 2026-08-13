@@ -185,7 +185,7 @@ pub(crate) fn version_response() -> VersionResponse {
 fn load_runtime_config(cli: &Cli) -> Result<config::AppConfig, AppError> {
     let mut config = config::AppConfig::load(cli.config.clone())?;
     if let Some(root_dir) = cli.storage_root.clone() {
-        config.override_root_dir(root_dir)?;
+        config.override_root_dir(root_dir);
     }
     Ok(config)
 }
@@ -198,7 +198,7 @@ fn resolve_output_format(cli: &Cli, config: Option<&config::AppConfig>) -> Outpu
     match cli.command {
         Command::Version => OutputFormat::Plain,
         _ => config
-            .map(|config| config.cli.output)
+            .map(config::AppConfig::output_format)
             .unwrap_or(OutputFormat::Plain),
     }
 }
