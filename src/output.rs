@@ -268,7 +268,7 @@ fn format_plain_output(result: CommandOutcome) -> PlainTextOutput {
     PlainTextOutput { stdout, stderr }
 }
 
-/// Formats epoch seconds for plain output as local datetime.
+/// Formats valid epoch seconds as local datetime, preserving invalid values.
 fn format_plain_timestamp(value: Option<i64>) -> String {
     value
         .map(format_plain_epoch)
@@ -285,7 +285,9 @@ fn format_log_value(value: &str) -> String {
 
 /// Formats one epoch timestamp using local offset (fallback: UTC).
 fn format_plain_epoch(epoch: i64) -> String {
-    let local = epoch_to_local(epoch);
+    let Some(local) = epoch_to_local(epoch) else {
+        return epoch.to_string();
+    };
     let offset = local.offset();
     let month = u8::from(local.month());
     let offset_hours = offset.whole_hours();
@@ -304,11 +306,11 @@ fn format_plain_epoch(epoch: i64) -> String {
     )
 }
 
-/// Converts epoch seconds to local datetime (fallback: UTC).
-fn epoch_to_local(epoch: i64) -> OffsetDateTime {
-    let utc = OffsetDateTime::from_unix_timestamp(epoch).unwrap_or(OffsetDateTime::UNIX_EPOCH);
+/// Converts valid epoch seconds to local datetime, using UTC if the local offset is unavailable.
+fn epoch_to_local(epoch: i64) -> Option<OffsetDateTime> {
+    let utc = OffsetDateTime::from_unix_timestamp(epoch).ok()?;
     let offset = UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC);
-    utc.to_offset(offset)
+    Some(utc.to_offset(offset))
 }
 
 /// Writes one sync progress event as a plain output line.
@@ -401,7 +403,7 @@ const FALLBACK_INTERNAL_ERROR_JSON: &str = "{\"status\":\"error\",\"result\":nul
 
 #[cfg(test)]
 mod tests {
-    use super::{format_plain_output, format_sync_progress_line, format_tags};
+    use super::{format_plain_epoch, format_plain_output, format_sync_progress_line, format_tags};
     use crate::CommandOutcome;
     use picofeedr::entry::{EntryListResponse, EntrySummary, FeedSummary};
     use picofeedr::sync::SyncProgressEvent;
@@ -413,6 +415,12 @@ mod tests {
             format_tags(&["a".to_string(), "b".to_string(), "c".to_string()]),
             "a, b, c"
         );
+    }
+
+    #[test]
+    fn format_plain_epoch_preserves_out_of_range_values() {
+        assert_eq!(format_plain_epoch(i64::MAX), i64::MAX.to_string());
+        assert_eq!(format_plain_epoch(i64::MIN), i64::MIN.to_string());
     }
 
     #[test]
