@@ -402,7 +402,10 @@ fn list_filters_by_feed() {
         .arg("sync")
         .assert()
         .success();
-    let feed_id = first_feed_id_from_list(&paths.config_path, &paths.db_path);
+    let feed_id: String = Connection::open(&paths.db_path)
+        .expect("open database")
+        .query_row("SELECT feed_id FROM feeds LIMIT 1", [], |row| row.get(0))
+        .expect("find feed id");
     let data = list_query_json(
         &paths.config_path,
         &paths.db_path,

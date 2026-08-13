@@ -158,26 +158,23 @@ fn looks_like_human_datetime(value: &str) -> bool {
         && bytes[23..25].iter().all(u8::is_ascii_digit)
 }
 
-/// Resolves an entry id from a title query.
-fn entry_id_by_title(config_path: &str, db_path: &str, title: &str) -> String {
-    let data = list_query_json(config_path, db_path, &format!("\"{title}\""));
-    let items = data["items"].as_array().expect("items array");
-    items
-        .first()
-        .and_then(|item| item["entry_id"].as_str())
-        .map(|value| value.to_string())
+/// Resolves an entry id from the SQLite fixture.
+fn entry_id_by_title(db_path: &str, title: &str) -> String {
+    Connection::open(db_path)
+        .expect("open database")
+        .query_row(
+            "SELECT entry_id FROM entries WHERE title = ?1",
+            [title],
+            |row| row.get(0),
+        )
         .expect("entry id by title")
 }
 
-/// Resolves the first feed id from list output.
-fn first_feed_id_from_list(config_path: &str, db_path: &str) -> String {
-    let data = list_query_json(config_path, db_path, "unread");
-    let items = data["items"].as_array().expect("items array");
-    items
-        .first()
-        .and_then(|item| item["feed_id"].as_str())
-        .map(|value| value.to_string())
-        .expect("feed id")
+fn entry_ids_by_title(db_path: &str, titles: &[&str]) -> Vec<String> {
+    titles
+        .iter()
+        .map(|title| entry_id_by_title(db_path, title))
+        .collect()
 }
 
 /// Resolves root_dir from a db path.

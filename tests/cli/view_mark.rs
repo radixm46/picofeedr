@@ -15,7 +15,7 @@ fn view_plain_is_human_readable() {
         .assert()
         .success();
 
-    let entry_id = entry_id_by_title(&paths.config_path, &paths.db_path, "First");
+    let entry_id = entry_id_by_title(&paths.db_path, "First Entry");
 
     let output = picofeedr_cmd_plain()
         .arg("--config")
@@ -47,7 +47,7 @@ fn view_plain_renders_kv_metadata_and_human_timestamps() {
         .assert()
         .success();
 
-    let entry_id = entry_id_by_title(&paths.config_path, &paths.db_path, "First");
+    let entry_id = entry_id_by_title(&paths.db_path, "First Entry");
 
     let output = picofeedr_cmd_plain()
         .arg("--config")
@@ -88,7 +88,7 @@ fn view_returns_entry_detail() {
         .assert()
         .success();
 
-    let entry_id = entry_id_by_title(&paths.config_path, &paths.db_path, "First");
+    let entry_id = entry_id_by_title(&paths.db_path, "First Entry");
 
     let conn = Connection::open(&paths.db_path).expect("open database");
     let entry_pk: i64 = conn
@@ -267,8 +267,7 @@ fn mark_tag_rejects_tag_over_64_unicode_characters() {
         .assert()
         .success();
 
-    let unread_data = list_query_json(&paths.config_path, &paths.db_path, "unread");
-    let entry_id = collect_item_ids(&unread_data).remove(0);
+    let entry_id = entry_id_by_title(&paths.db_path, "First Entry");
     let tag = "技".repeat(65);
     let output = picofeedr_cmd_json()
         .arg("--config")
@@ -309,8 +308,7 @@ fn mark_tag_accepts_unicode_tag_names() {
         .assert()
         .success();
 
-    let unread_data = list_query_json(&paths.config_path, &paths.db_path, "unread");
-    let entry_id = collect_item_ids(&unread_data).remove(0);
+    let entry_id = entry_id_by_title(&paths.db_path, "First Entry");
     picofeedr_cmd_json()
         .arg("--config")
         .arg(&paths.config_path)
@@ -349,7 +347,7 @@ fn mark_read_fails_when_any_entry_is_missing() {
         .success();
 
     let unread_data = list_query_json(&paths.config_path, &paths.db_path, "unread");
-    let entry_ids = collect_item_ids(&unread_data);
+    let entry_ids = entry_ids_by_title(&paths.db_path, &["First Entry", "Second Entry"]);
     assert_eq!(entry_ids.len(), 2);
     assert_eq!(unread_data["total_count"], 2);
 
@@ -391,8 +389,7 @@ fn mark_unread_fails_when_any_entry_is_missing() {
         .assert()
         .success();
 
-    let unread_data = list_query_json(&paths.config_path, &paths.db_path, "unread");
-    let entry_ids = collect_item_ids(&unread_data);
+    let entry_ids = entry_ids_by_title(&paths.db_path, &["First Entry", "Second Entry"]);
     assert_eq!(entry_ids.len(), 2);
 
     picofeedr_cmd_json()
@@ -447,8 +444,7 @@ fn mark_tag_add_fails_when_any_entry_is_missing() {
         .assert()
         .success();
 
-    let unread_data = list_query_json(&paths.config_path, &paths.db_path, "unread");
-    let entry_ids = collect_item_ids(&unread_data);
+    let entry_ids = entry_ids_by_title(&paths.db_path, &["First Entry", "Second Entry"]);
     assert_eq!(entry_ids.len(), 2);
     let foo_before = list_query_json(&paths.config_path, &paths.db_path, "tag:foo");
     assert_eq!(foo_before["total_count"], 0);
@@ -493,8 +489,7 @@ fn mark_tag_remove_fails_when_any_entry_is_missing() {
         .assert()
         .success();
 
-    let unread_data = list_query_json(&paths.config_path, &paths.db_path, "unread");
-    let entry_ids = collect_item_ids(&unread_data);
+    let entry_ids = entry_ids_by_title(&paths.db_path, &["First Entry", "Second Entry"]);
     assert_eq!(entry_ids.len(), 2);
     let tech_before = list_query_json(&paths.config_path, &paths.db_path, "tag:tech");
     assert_eq!(tech_before["total_count"], 2);
@@ -530,8 +525,7 @@ fn mark_read_uses_unread_tag_alias_when_unread_management_is_disabled() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_synced_fixture_with_unread_management_disabled(&temp);
 
-    let all_items = list_query_json(&paths.config_path, &paths.db_path, "tag:tech");
-    let entry_ids = collect_item_ids(&all_items);
+    let entry_ids = entry_ids_by_title(&paths.db_path, &["First Entry", "Second Entry"]);
     assert_eq!(entry_ids.len(), 2);
 
     let output = picofeedr_cmd_json()
@@ -557,8 +551,7 @@ fn mark_unread_uses_unread_tag_alias_when_unread_management_is_disabled() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_synced_fixture_with_unread_management_disabled(&temp);
 
-    let all_items = list_query_json(&paths.config_path, &paths.db_path, "tag:tech");
-    let entry_ids = collect_item_ids(&all_items);
+    let entry_ids = entry_ids_by_title(&paths.db_path, &["First Entry", "Second Entry"]);
     assert_eq!(entry_ids.len(), 2);
 
     let output = picofeedr_cmd_json()
