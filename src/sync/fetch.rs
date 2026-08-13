@@ -375,6 +375,7 @@ mod tests {
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::path::PathBuf;
+    use std::sync::mpsc::{self, Receiver};
     use std::thread;
     use std::time::Duration;
     use tempfile::TempDir;
@@ -538,10 +539,17 @@ mod tests {
         );
     }
 
-    fn spawn_http_body_server(body: &'static [u8]) -> (String, thread::JoinHandle<()>) {
+    fn wait_for_server(done_rx: Receiver<()>, label: &str) {
+        done_rx
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap_or_else(|error| panic!("{label} did not complete: {error:?}"));
+    }
+
+    fn spawn_http_body_server(body: &'static [u8]) -> (String, Receiver<()>) {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
         let addr = listener.local_addr().expect("local addr");
-        let server = thread::spawn(move || {
+        let (done_tx, done_rx) = mpsc::channel();
+        let _server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("accept");
             let mut buf = [0_u8; 1024];
             let _ = stream.read(&mut buf);
@@ -551,8 +559,9 @@ mod tests {
             );
             stream.write_all(headers.as_bytes()).expect("write headers");
             stream.write_all(body).expect("write body");
+            done_tx.send(()).expect("HTTP server completion");
         });
-        (format!("http://{addr}/feed.xml"), server)
+        (format!("http://{addr}/feed.xml"), done_rx)
     }
 
     #[test]
@@ -602,7 +611,7 @@ mod tests {
         let agent = build_agent(&sync);
 
         let bytes = fetch_feed_bytes(&url, &sync, &agent).expect("fetch http");
-        server.join().expect("server join");
+        wait_for_server(server, "HTTP server");
 
         assert_eq!(bytes, body);
     }
@@ -616,7 +625,7 @@ mod tests {
         let agent = build_agent(&sync);
 
         let error = fetch_feed_bytes(&url, &sync, &agent).expect_err("expect oversize error");
-        server.join().expect("server join");
+        wait_for_server(server, "HTTP server");
 
         assert!(!error.retryable);
         assert_eq!(error.message, "Feed body exceeds max_feed_bytes");
@@ -668,7 +677,8 @@ mod tests {
     fn fetch_feed_bytes_404_is_not_retryable() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
         let addr = listener.local_addr().expect("local addr");
-        let server = thread::spawn(move || {
+        let (done_tx, done_rx) = mpsc::channel();
+        let _server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("accept");
             let mut buf = [0_u8; 1024];
             let _ = stream.read(&mut buf);
@@ -677,6 +687,7 @@ mod tests {
                     b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
                 )
                 .expect("write response");
+            done_tx.send(()).expect("HTTP 404 server completion");
         });
 
         let url = format!("http://{addr}/missing");
@@ -684,7 +695,7 @@ mod tests {
         let agent = build_agent(&sync);
 
         let error = fetch_feed_bytes(&url, &sync, &agent).expect_err("expect 404 error");
-        server.join().expect("server join");
+        wait_for_server(done_rx, "HTTP 404 server");
 
         assert!(!error.retryable);
     }

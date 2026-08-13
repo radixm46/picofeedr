@@ -247,7 +247,9 @@ mod tests {
     use crate::config::SyncConfig;
     use std::io::{Read, Write};
     use std::net::TcpListener;
+    use std::sync::mpsc::{self, Receiver};
     use std::thread;
+    use std::time::Duration;
 
     fn test_sync_config() -> SyncConfig {
         SyncConfig {
@@ -312,17 +314,25 @@ mod tests {
         assert_eq!(error.message, "Unsupported Gopher item type");
     }
 
-    fn spawn_gopher_server<F>(handler: F) -> (String, thread::JoinHandle<()>)
+    fn wait_for_server(done_rx: Receiver<()>, label: &str) {
+        done_rx
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap_or_else(|error| panic!("{label} did not complete: {error:?}"));
+    }
+
+    fn spawn_gopher_server<F>(handler: F) -> (String, Receiver<()>)
     where
         F: FnOnce(std::net::TcpStream) + Send + 'static,
     {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
         let addr = listener.local_addr().expect("local addr");
-        let server = thread::spawn(move || {
+        let (done_tx, done_rx) = mpsc::channel();
+        let _server = thread::spawn(move || {
             let (stream, _) = listener.accept().expect("accept");
             handler(stream);
+            done_tx.send(()).expect("Gopher server completion");
         });
-        (format!("gopher://{addr}/0feed.xml"), server)
+        (format!("gopher://{addr}/0feed.xml"), done_rx)
     }
 
     fn read_request_line(stream: &mut std::net::TcpStream) -> Vec<u8> {
@@ -352,7 +362,7 @@ mod tests {
         });
 
         let bytes = fetch_gopher_bytes(&url, &test_sync_config()).expect("fetch");
-        server.join().expect("join");
+        wait_for_server(server, "Gopher server");
 
         assert_eq!(bytes, b"<rss>\r\n.dot\r\n</rss>\r\n");
     }
@@ -361,16 +371,18 @@ mod tests {
     fn fetch_gopher_bytes_reads_binary_response_until_eof() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
         let addr = listener.local_addr().expect("local addr");
-        let server = thread::spawn(move || {
+        let (done_tx, done_rx) = mpsc::channel();
+        let _server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("accept");
             let request = read_request_line(&mut stream);
             assert_eq!(request, b"blob.bin\r\n");
             stream.write_all(b"\x00\x01.\r\n\xff").expect("write body");
+            done_tx.send(()).expect("Gopher binary server completion");
         });
 
         let url = format!("gopher://{addr}/9blob.bin");
         let bytes = fetch_gopher_bytes(&url, &test_sync_config()).expect("fetch");
-        server.join().expect("join");
+        wait_for_server(done_rx, "Gopher binary server");
 
         assert_eq!(bytes, b"\x00\x01.\r\n\xff");
     }
@@ -387,7 +399,7 @@ mod tests {
         sync.max_feed_bytes = 8;
 
         let error = fetch_gopher_bytes(&url, &sync).expect_err("error");
-        server.join().expect("join");
+        wait_for_server(server, "Gopher server");
 
         assert!(!error.retryable);
         assert_eq!(error.message, "Feed body exceeds max_feed_bytes");

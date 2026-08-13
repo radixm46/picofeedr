@@ -21,10 +21,11 @@ fn feed_ok_indices(output: &str) -> Vec<usize> {
         .collect()
 }
 
-fn spawn_gopher_feed_server(body: &'static [u8]) -> (String, thread::JoinHandle<()>) {
+fn spawn_gopher_feed_server(body: &'static [u8]) -> (String, Receiver<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
     let addr = listener.local_addr().expect("local addr");
-    let server = thread::spawn(move || {
+    let (done_tx, done_rx) = mpsc::channel();
+    let _server = thread::spawn(move || {
         let (mut stream, _) = listener.accept().expect("accept");
         let mut request = Vec::new();
         let mut buf = [0_u8; 64];
@@ -40,8 +41,9 @@ fn spawn_gopher_feed_server(body: &'static [u8]) -> (String, thread::JoinHandle<
         }
         assert_eq!(request, b"feed.xml\r\n");
         stream.write_all(body).expect("write response");
+        done_tx.send(()).expect("gopher server completion");
     });
-    (format!("gopher://{addr}/0feed.xml"), server)
+    (format!("gopher://{addr}/0feed.xml"), done_rx)
 }
 
 fn write_skipped_feed_sync_fixture(temp: &TempDir) -> SkippedFeedSyncFixture {
@@ -304,7 +306,7 @@ fn sync_ingests_entries_from_gopher_feed() {
     let config_path = temp.path().join("config.toml");
     let db_path = temp.path().join("db.sqlite");
 
-    let (feed_url, server_thread) = spawn_gopher_feed_server(
+    let (feed_url, server_done) = spawn_gopher_feed_server(
         br#"<?xml version="1.0"?>
 <rss version="2.0">
   <channel>
@@ -346,7 +348,7 @@ fn sync_ingests_entries_from_gopher_feed() {
         .stdout
         .clone();
 
-    server_thread.join().expect("join gopher server thread");
+    wait_for_server(server_done, "gopher server");
     let data = extract_result(&output, "ok");
     assert_eq!(data["status"], "completed");
     assert_eq!(data["failed_feed_count"], 0);
@@ -360,7 +362,7 @@ fn sync_reports_parse_error_for_gopher_directory_listing() {
     let config_path = temp.path().join("config.toml");
     let db_path = temp.path().join("db.sqlite");
 
-    let (feed_url, server_thread) =
+    let (feed_url, server_done) =
         spawn_gopher_feed_server(b"0About\tselector\texample.com\t70\r\n.\r\n");
     let feeds = format!(
         "picofeedr:\n  tech:\n    tags: [tech]\n    feeds:\n      - url: {feed_url}\n        title: Gopher Menu\n"
@@ -385,7 +387,7 @@ fn sync_reports_parse_error_for_gopher_directory_listing() {
         .stdout
         .clone();
 
-    server_thread.join().expect("join gopher server thread");
+    wait_for_server(server_done, "gopher server");
     let data = extract_result(&output, "warning");
     let errors = data["errors"].as_array().expect("errors");
     assert_eq!(errors[0]["code"], "PARSE_FAILED");
@@ -848,7 +850,7 @@ fn sync_http_404_fetch_failed_is_not_retryable() {
     let config_path = temp.path().join("config.toml");
     let db_path = temp.path().join("db.sqlite");
 
-    let (feed_url, server_thread) = spawn_http_404_feed_server();
+    let (feed_url, server_done) = spawn_http_404_feed_server();
     let feeds = format!(
         "picofeedr:\n  tech:\n    tags: [tech]\n    feeds:\n      - url: {feed_url}\n        title: Missing Feed\n"
     );
@@ -872,7 +874,7 @@ fn sync_http_404_fetch_failed_is_not_retryable() {
         .stdout
         .clone();
 
-    server_thread.join().expect("join 404 server thread");
+    wait_for_server(server_done, "HTTP 404 server");
     let data = extract_result(&output, "warning");
     let errors = data["errors"].as_array().expect("errors");
     assert_eq!(errors[0]["retryable"], false);
@@ -885,7 +887,7 @@ fn sync_plain_http_404_error_output_is_not_redundant() {
     let config_path = temp.path().join("config.toml");
     let db_path = temp.path().join("db.sqlite");
 
-    let (feed_url, server_thread) = spawn_http_404_feed_server();
+    let (feed_url, server_done) = spawn_http_404_feed_server();
     let feeds = format!(
         "picofeedr:\n  tech:\n    tags: [tech]\n    feeds:\n      - url: {feed_url}\n        title: Missing Feed\n"
     );
@@ -908,7 +910,7 @@ fn sync_plain_http_404_error_output_is_not_redundant() {
         .get_output()
         .clone();
 
-    server_thread.join().expect("join 404 server thread");
+    wait_for_server(server_done, "HTTP 404 server");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("sync:feed-error"));
     assert!(!stderr.contains("index="));

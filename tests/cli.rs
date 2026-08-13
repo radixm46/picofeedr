@@ -22,7 +22,9 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::Path;
 use std::process::{Command as ProcessCommand, Output, Stdio};
+use std::sync::mpsc::{self, Receiver};
 use std::thread;
+use std::time::Duration;
 use support::assertions::{
     assert_error_envelope, assert_plain_contract, extract_error_code, extract_error_details,
     extract_error_payload, extract_result,
@@ -186,6 +188,12 @@ fn db_root(db_path: &str) -> String {
         .to_string()
 }
 
+fn wait_for_server(done_rx: Receiver<()>, label: &str) {
+    done_rx
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap_or_else(|error| panic!("{label} did not complete: {error:?}"));
+}
+
 /// Collects entry ids from list response items.
 fn collect_item_ids(data: &serde_json::Value) -> Vec<String> {
     data["items"]
@@ -237,10 +245,11 @@ fn run_with_closed_stdout(args: Vec<String>) -> Output {
 }
 
 /// Starts a local HTTP server that returns one 404 response.
-fn spawn_http_404_feed_server() -> (String, thread::JoinHandle<()>) {
+fn spawn_http_404_feed_server() -> (String, Receiver<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind 404 server");
     let addr = listener.local_addr().expect("local addr");
-    let handle = thread::spawn(move || {
+    let (done_tx, done_rx) = mpsc::channel();
+    let _server = thread::spawn(move || {
         let (mut stream, _) = listener.accept().expect("accept 404 request");
         let mut request_buf = [0_u8; 1024];
         let _ = stream.read(&mut request_buf);
@@ -250,6 +259,7 @@ fn spawn_http_404_feed_server() -> (String, thread::JoinHandle<()>) {
             )
             .expect("write 404 response");
         stream.flush().expect("flush 404 response");
+        done_tx.send(()).expect("404 server completion");
     });
-    (format!("http://{addr}/missing.xml"), handle)
+    (format!("http://{addr}/missing.xml"), done_rx)
 }
