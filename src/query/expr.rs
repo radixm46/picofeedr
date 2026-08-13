@@ -1,4 +1,4 @@
-use super::{TagExpr, TermExpr};
+use super::ast::{TagExpr, TermExpr};
 use crate::error::{AppError, error_details};
 use crate::tag::{invalid_tag_name_error, validate_tag_name};
 use serde_json::Value as JsonValue;
@@ -50,11 +50,6 @@ fn validate_expr_depth(depth: usize, message: &'static str) -> Result<(), AppErr
         return Err(AppError::invalid_query(message));
     }
     Ok(())
-}
-
-/// Escapes a tag literal for canonical serialization.
-pub(super) fn escape_tag_literal(value: &str) -> String {
-    value.replace('\\', "\\\\").replace(':', "\\:")
 }
 
 /// Builds an AND expression from a list of terms.
@@ -360,6 +355,21 @@ fn invalid_escape_sequence_error(value: impl Into<String>) -> AppError {
     )
 }
 
+pub(super) fn unknown_filter_prefix_error(token: &str) -> AppError {
+    AppError::invalid_query_with_details(
+        format!("Unknown query filter prefix: {token}"),
+        error_details([
+            ("kind", JsonValue::from("unknown_filter_prefix")),
+            ("field", JsonValue::from("query")),
+            ("value", JsonValue::from(token.to_string())),
+            (
+                "hint",
+                JsonValue::from("quote_token_to_search_literal_text"),
+            ),
+        ]),
+    )
+}
+
 trait ExprPolicy {
     type Expr: BooleanExpr;
 
@@ -397,7 +407,7 @@ impl ExprPolicy for TermPolicy {
 
     fn leaf(value: String, quoted: bool) -> Result<Self::Expr, AppError> {
         if !quoted && value.contains(':') {
-            return Err(super::unknown_filter_prefix_error(&value));
+            return Err(unknown_filter_prefix_error(&value));
         }
         Ok(TermExpr::Term(value))
     }
