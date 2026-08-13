@@ -46,8 +46,10 @@
 ```
 
 ```json
-{ "kind": "invalid_cursor", "field": "cursor", "value": "not-a-cursor", "hint": "base64url_decode_failed" }
+{ "kind": "invalid_cursor", "field": "cursor", "value": null, "hint": "base64url_decode_failed" }
 ```
+
+`invalid_cursor` の `value` は常に `null` とし、入力された cursor の生文字列を返さない。base64url decode 失敗、JSON decode 失敗、クエリ不一致ではそれぞれ `base64url_decode_failed`、`cursor_json_decode_failed`、`cursor_mismatch` を `hint` に設定する。1024 bytes を超える cursor は decode 前に `cursor_too_long` で拒否する。
 
 ```json
 { "kind": "unknown_filter_prefix", "field": "query", "value": "foo:bar", "hint": "quote_token_to_search_literal_text" }

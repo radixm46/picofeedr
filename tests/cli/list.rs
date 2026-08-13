@@ -737,8 +737,42 @@ fn list_rejects_invalid_relative_date_filter() {
     assert_eq!(error["code"], "INVALID_QUERY");
 }
 
+fn assert_invalid_cursor(paths: &SyncFixturePaths, raw: &str, hint: &str, query: Option<&str>) {
+    sync_fixture_ok(paths);
+    let mut command = picofeedr_cmd_json();
+    command
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("list");
+    if let Some(query) = query {
+        command.arg("--query").arg(query);
+    }
+    let output = command
+        .arg("--cursor")
+        .arg(raw)
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+    let error = extract_error_payload(&output);
+    assert_eq!(error["code"], "INVALID_QUERY");
+    assert_eq!(
+        error["details"],
+        serde_json::json!({
+            "kind": "invalid_cursor",
+            "field": "cursor",
+            "value": null,
+            "hint": hint
+        })
+    );
+    assert!(!String::from_utf8_lossy(&output).contains(raw));
+}
+
 #[test]
-fn list_rejects_mismatched_cursor() {
+fn list_rejects_mismatched_cursor_without_echoing_raw_in_json_error() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
     picofeedr_cmd_json()
@@ -768,23 +802,7 @@ fn list_rejects_mismatched_cursor() {
         .as_str()
         .expect("cursor")
         .to_string();
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
-        .arg("list")
-        .arg("--query")
-        .arg("tag:tech")
-        .arg("--cursor")
-        .arg(cursor)
-        .assert()
-        .failure()
-        .get_output()
-        .stdout
-        .clone();
-    let error = extract_error_payload(&output);
-    assert_eq!(error["code"], "INVALID_QUERY");
+    assert_invalid_cursor(&paths, &cursor, "cursor_mismatch", Some("tag:tech"));
 }
 
 #[test]
@@ -890,32 +908,45 @@ fn list_rejects_cursor_when_title_term_group_changes() {
 }
 
 #[test]
-fn list_rejects_invalid_cursor_format() {
+fn list_rejects_invalid_cursor_format_without_echoing_raw_in_json_error() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
-        .arg("sync")
-        .assert()
-        .success();
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
-        .arg("list")
-        .arg("--cursor")
-        .arg("not-a-cursor")
-        .assert()
-        .failure()
-        .get_output()
-        .stdout
-        .clone();
-    let error = extract_error_payload(&output);
-    assert_eq!(error["code"], "INVALID_QUERY");
+    let raw = "not-a-cursor";
+    assert_invalid_cursor(&paths, raw, "cursor_json_decode_failed", None);
+}
+
+#[test]
+fn list_rejects_base64_invalid_cursor_without_echoing_raw_in_json_error() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+    let raw = "!";
+    assert_invalid_cursor(&paths, raw, "base64url_decode_failed", None);
+}
+
+#[test]
+fn list_rejects_oversized_cursor_without_echoing_raw_in_json_error() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+    let raw = "A".repeat(1025);
+    assert_invalid_cursor(&paths, &raw, "cursor_too_long", None);
+}
+
+#[test]
+fn list_uses_json_decode_error_at_cursor_byte_limit() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+    let raw = "A".repeat(1024);
+    assert_invalid_cursor(&paths, &raw, "cursor_json_decode_failed", None);
+}
+
+#[test]
+fn list_rejects_cursor_over_byte_limit_even_when_character_count_is_lower() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+    let raw = "あ".repeat(513);
+    assert!(raw.chars().count() <= 1024);
+    assert!(raw.len() > 1024);
+    assert_invalid_cursor(&paths, &raw, "cursor_too_long", None);
 }
 
 #[test]

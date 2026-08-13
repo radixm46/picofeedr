@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use sha1::{Digest, Sha1};
 
+const MAX_CURSOR_BYTES: usize = 1024;
+
 /// Cursor payload for pagination.
 #[derive(Debug, Serialize, Deserialize)]
 pub(super) struct Cursor {
@@ -32,43 +34,46 @@ pub(super) fn encode_cursor_with_query(
     Ok(URL_SAFE_NO_PAD.encode(bytes))
 }
 
+fn invalid_cursor_error(message: impl Into<String>, hint: &str) -> AppError {
+    AppError::invalid_query_with_details(
+        message,
+        error_details([
+            ("kind", JsonValue::from("invalid_cursor")),
+            ("field", JsonValue::from("cursor")),
+            ("value", JsonValue::Null),
+            ("hint", JsonValue::from(hint)),
+        ]),
+    )
+}
+
 /// Decodes and validates pagination cursor.
 pub(super) fn decode_cursor(
     raw: &str,
     sort: SortOrder,
     query_hash: &str,
 ) -> Result<Cursor, AppError> {
+    if raw.len() > MAX_CURSOR_BYTES {
+        return Err(invalid_cursor_error(
+            "Invalid cursor: maximum length exceeded",
+            "cursor_too_long",
+        ));
+    }
     let bytes = URL_SAFE_NO_PAD.decode(raw.as_bytes()).map_err(|error| {
-        AppError::invalid_query_with_details(
+        invalid_cursor_error(
             format!("Invalid cursor: {error}"),
-            error_details([
-                ("kind", JsonValue::from("invalid_cursor")),
-                ("field", JsonValue::from("cursor")),
-                ("value", JsonValue::from(raw.to_string())),
-                ("hint", JsonValue::from("base64url_decode_failed")),
-            ]),
+            "base64url_decode_failed",
         )
     })?;
     let cursor: Cursor = serde_json::from_slice(&bytes).map_err(|error| {
-        AppError::invalid_query_with_details(
+        invalid_cursor_error(
             format!("Invalid cursor: {error}"),
-            error_details([
-                ("kind", JsonValue::from("invalid_cursor")),
-                ("field", JsonValue::from("cursor")),
-                ("value", JsonValue::from(raw.to_string())),
-                ("hint", JsonValue::from("cursor_json_decode_failed")),
-            ]),
+            "cursor_json_decode_failed",
         )
     })?;
     if cursor.sort != sort.as_str() || cursor.query_hash != query_hash {
-        return Err(AppError::invalid_query_with_details(
+        return Err(invalid_cursor_error(
             "Cursor does not match the current query",
-            error_details([
-                ("kind", JsonValue::from("invalid_cursor")),
-                ("field", JsonValue::from("cursor")),
-                ("value", JsonValue::from(raw.to_string())),
-                ("hint", JsonValue::from("cursor_mismatch")),
-            ]),
+            "cursor_mismatch",
         ));
     }
     Ok(cursor)
