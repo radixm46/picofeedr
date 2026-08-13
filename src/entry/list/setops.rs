@@ -111,31 +111,6 @@ fn intersect_sorted(left: &[i64], right: &[i64]) -> Vec<i64> {
 }
 
 #[cfg(test)]
-fn difference_sorted(left: &[i64], right: &[i64]) -> Vec<i64> {
-    let mut result = Vec::with_capacity(left.len());
-    let mut left_index = 0usize;
-    let mut right_index = 0usize;
-    while left_index < left.len() {
-        if right_index >= right.len() {
-            result.extend_from_slice(&left[left_index..]);
-            break;
-        }
-        match left[left_index].cmp(&right[right_index]) {
-            std::cmp::Ordering::Less => {
-                result.push(left[left_index]);
-                left_index += 1;
-            }
-            std::cmp::Ordering::Greater => right_index += 1,
-            std::cmp::Ordering::Equal => {
-                left_index += 1;
-                right_index += 1;
-            }
-        }
-    }
-    result
-}
-
-#[cfg(test)]
 fn merge_union_sorted(left: &[i64], right: &[i64]) -> Vec<i64> {
     let mut result = Vec::with_capacity(left.len() + right.len());
     merge_union_sorted_into(left, right, &mut result);
@@ -144,7 +119,7 @@ fn merge_union_sorted(left: &[i64], right: &[i64]) -> Vec<i64> {
 
 #[cfg(test)]
 mod tests {
-    use super::{difference_sorted, intersect_sorted, merge_union_sorted};
+    use super::{UniverseView, intersect_sorted, merge_union_sorted};
 
     #[test]
     fn intersect_sorted_returns_common_values_in_order() {
@@ -153,7 +128,11 @@ mod tests {
 
     #[test]
     fn difference_sorted_returns_values_missing_from_right() {
-        assert_eq!(difference_sorted(&[1, 2, 3, 5], &[2, 4, 5]), vec![1, 3]);
+        let left = [(1, 0), (2, 0), (3, 0), (5, 0)];
+        assert_eq!(
+            UniverseView(&left).difference_sorted(&[2, 4, 5]),
+            vec![1, 3]
+        );
     }
 
     #[test]

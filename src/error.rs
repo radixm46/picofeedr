@@ -172,11 +172,6 @@ impl AppError {
         Self::new(ErrorCode::IoError, message)
     }
 
-    /// Creates an I/O error with details.
-    pub fn io_with_details(message: impl Into<String>, details: ErrorDetails) -> Self {
-        Self::with_details(ErrorCode::IoError, message, details)
-    }
-
     /// Creates an I/O error with source.
     pub fn io_with_source(
         message: impl Into<String>,

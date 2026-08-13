@@ -4,12 +4,6 @@ use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use sha1::Sha1;
 use sha2::{Digest, Sha256};
 
-/// Derived identifiers for a feed entry.
-pub struct EntryIdentity {
-    /// Stable entry id for database identity.
-    pub entry_id: String,
-}
-
 /// Returns a URL-safe base64-encoded SHA-256 digest without padding.
 pub fn sha256_base64url_nopad(value: &str) -> String {
     let mut hasher = Sha256::new();
@@ -37,41 +31,38 @@ struct EntryIdentityInput<'a> {
     pub author: Option<&'a str>,
 }
 
-impl EntryIdentity {
-    /// Builds entry identity from a feed entry and optional content payload.
-    pub fn from_entry(feed_id: &str, entry: &feed_rs::model::Entry, content: Option<&str>) -> Self {
-        let raw_id = if entry.id.is_empty() {
-            None
-        } else {
-            Some(entry.id.as_str())
-        };
-        let link = entry
-            .links
-            .iter()
-            .map(|link| link.href.as_str())
-            .find(|href| !href.trim().is_empty());
-        let title = entry.title.as_ref().map(|title| title.content.as_str());
-        let author = entry.authors.first().map(|author| author.name.as_str());
-        let published_at = entry.published.map(|value| value.timestamp());
-        let updated_at = entry.updated.map(|value| value.timestamp());
-        let identity = EntryIdentityInput {
-            namespace: feed_id,
-            raw_id,
-            link,
-            content,
-            title,
-            published_at,
-            updated_at,
-            author,
-        };
-        Self::from_input(&identity)
-    }
-
-    fn from_input(identity: &EntryIdentityInput<'_>) -> Self {
-        let source_id = build_entry_source_id(identity);
-        let entry_id = build_entry_id(identity.namespace, &source_id);
-        Self { entry_id }
-    }
+/// Builds an entry id from a feed entry and optional content payload.
+pub(crate) fn entry_id_from_entry(
+    feed_id: &str,
+    entry: &feed_rs::model::Entry,
+    content: Option<&str>,
+) -> String {
+    let raw_id = if entry.id.is_empty() {
+        None
+    } else {
+        Some(entry.id.as_str())
+    };
+    let link = entry
+        .links
+        .iter()
+        .map(|link| link.href.as_str())
+        .find(|href| !href.trim().is_empty());
+    let title = entry.title.as_ref().map(|title| title.content.as_str());
+    let author = entry.authors.first().map(|author| author.name.as_str());
+    let published_at = entry.published.map(|value| value.timestamp());
+    let updated_at = entry.updated.map(|value| value.timestamp());
+    let identity = EntryIdentityInput {
+        namespace: feed_id,
+        raw_id,
+        link,
+        content,
+        title,
+        published_at,
+        updated_at,
+        author,
+    };
+    let source_id = build_entry_source_id(&identity);
+    build_entry_id(identity.namespace, &source_id)
 }
 
 /// Normalizes identifiers by trimming and collapsing whitespace.
@@ -197,22 +188,5 @@ mod tests {
             sha1_hex("title:|published:0|updated:0|author:")
         );
         assert_eq!(fallback, expected);
-    }
-
-    #[test]
-    fn from_input_derives_entry_id_from_canonical_source_id() {
-        let identity = EntryIdentityInput {
-            namespace: "feed-a",
-            raw_id: Some("  id-1 "),
-            link: None,
-            content: None,
-            title: None,
-            published_at: None,
-            updated_at: None,
-            author: None,
-        };
-        let derived = EntryIdentity::from_input(&identity);
-        let expected = build_entry_id("feed-a", "feed-a|id-1");
-        assert_eq!(derived.entry_id, expected);
     }
 }

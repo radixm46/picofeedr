@@ -1,7 +1,7 @@
 //! Entry normalization pipeline.
 
 use crate::config::AppConfig;
-use crate::identity::EntryIdentity;
+use crate::identity::entry_id_from_entry;
 use crate::string_set::dedupe_strings_preserve_order;
 use crate::time::current_epoch;
 
@@ -23,8 +23,7 @@ pub(crate) fn normalize_entry(
     let first_seen_at = current_epoch();
 
     let (content, content_type) = select_content(entry);
-    let entry_id =
-        EntryIdentity::from_entry(&target.ctx.feed_id, entry, content.as_deref()).entry_id;
+    let entry_id = entry_id_from_entry(&target.ctx.feed_id, entry, content.as_deref());
     let content_plan = build_entry_content(config, content, content_type);
 
     let mut tags = Vec::new();
