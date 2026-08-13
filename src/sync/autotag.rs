@@ -60,3 +60,36 @@ pub(crate) fn match_auto_tags(title: &str, rules: &[CompiledRule]) -> Vec<String
     }
     tags
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{compile_auto_tags, match_auto_tags};
+    use crate::config::feeds::AutoTagRule;
+
+    #[test]
+    fn title_regex_matching_is_case_sensitive_by_default() {
+        let rules = compile_auto_tags(&[AutoTagRule {
+            title_regex: Some("steam".to_string()),
+            title_contains: None,
+            add_tags: vec!["regex".to_string()],
+            priority: None,
+        }])
+        .expect("compile rules");
+
+        assert_eq!(match_auto_tags("steam weekly", &rules), vec!["regex"]);
+        assert!(match_auto_tags("Steam Weekly", &rules).is_empty());
+    }
+
+    #[test]
+    fn title_contains_matching_is_case_insensitive() {
+        let rules = compile_auto_tags(&[AutoTagRule {
+            title_regex: None,
+            title_contains: Some(vec!["Steam".to_string()]),
+            add_tags: vec!["contains".to_string()],
+            priority: None,
+        }])
+        .expect("compile rules");
+
+        assert_eq!(match_auto_tags("steam weekly", &rules), vec!["contains"]);
+    }
+}
