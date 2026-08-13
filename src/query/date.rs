@@ -156,6 +156,16 @@ mod tests {
     }
 
     #[test]
+    fn parse_relative_month_from_month_end_clamps_to_feb_28() {
+        let march_31 = local_midnight_epoch(2025, Month::March, 31, fixed_jst());
+
+        assert_eq!(
+            parse_date_or_relative_to_epoch("1m", march_31, fixed_jst()).expect("epoch"),
+            local_midnight_epoch(2025, Month::February, 28, fixed_jst())
+        );
+    }
+
+    #[test]
     fn rejects_non_ascii_relative_date_suffixes() {
         for value in ["1好", "好", "1🍣"] {
             let error =
