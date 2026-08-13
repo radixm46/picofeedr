@@ -388,6 +388,35 @@ mod tests {
     }
 
     #[test]
+    fn fetch_gopher_bytes_retries_transient_read_failure_then_succeeds() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
+        let addr = listener.local_addr().expect("local addr");
+        let (done_tx, done_rx) = mpsc::channel();
+        let _server = thread::spawn(move || {
+            let (mut first, _) = listener.accept().expect("accept first connection");
+            let request = read_request_line(&mut first);
+            assert_eq!(request, b"feed.xml\r\n");
+
+            let (mut second, _) = listener.accept().expect("accept retry connection");
+            let request = read_request_line(&mut second);
+            assert_eq!(request, b"feed.xml\r\n");
+            second
+                .write_all(b"<rss></rss>\r\n.\r\n")
+                .expect("write retry response");
+            done_tx.send(()).expect("Gopher retry server completion");
+        });
+
+        let mut sync = test_sync_config();
+        sync.retry_count = 1;
+        let url = format!("gopher://{addr}/0feed.xml");
+
+        let bytes = fetch_gopher_bytes(&url, &sync).expect("fetch after retry");
+        wait_for_server(done_rx, "Gopher retry server");
+
+        assert_eq!(bytes, b"<rss></rss>\r\n");
+    }
+
+    #[test]
     fn fetch_gopher_bytes_rejects_oversized_body() {
         let (url, server) = spawn_gopher_server(|mut stream| {
             let _ = read_request_line(&mut stream);

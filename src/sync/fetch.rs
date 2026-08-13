@@ -617,6 +617,44 @@ mod tests {
     }
 
     #[test]
+    fn fetch_feed_bytes_retries_http_503_then_succeeds() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
+        let addr = listener.local_addr().expect("local addr");
+        let (done_tx, done_rx) = mpsc::channel();
+        let _server = thread::spawn(move || {
+            for attempt in 0..2 {
+                let (mut stream, _) = listener.accept().expect("accept");
+                let mut request = [0_u8; 1024];
+                let _ = stream.read(&mut request);
+                if attempt == 0 {
+                    stream
+                        .write_all(
+                            b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                        )
+                        .expect("write retry response");
+                } else {
+                    stream
+                        .write_all(
+                            b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\nConnection: close\r\n\r\n<rss></rss>",
+                        )
+                        .expect("write success response");
+                }
+            }
+            done_tx.send(()).expect("HTTP retry server completion");
+        });
+
+        let url = format!("http://{addr}/feed.xml");
+        let mut sync = test_sync_config();
+        sync.retry_count = 1;
+        let agent = build_agent(&sync);
+
+        let bytes = fetch_feed_bytes(&url, &sync, &agent).expect("fetch after retry");
+        wait_for_server(done_rx, "HTTP retry server");
+
+        assert_eq!(bytes, b"<rss></rss>");
+    }
+
+    #[test]
     fn fetch_feed_bytes_rejects_oversized_http_body() {
         let body = b"<rss>123456789</rss>";
         let (url, server) = spawn_http_body_server(body);
