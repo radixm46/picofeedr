@@ -114,7 +114,7 @@ where
     drop(result_rx);
     for handle in handles {
         if handle.join().is_err() {
-            fatal = Some(AppError::io("Worker panicked"));
+            fatal = Some(AppError::internal("Worker panicked"));
         }
     }
 
