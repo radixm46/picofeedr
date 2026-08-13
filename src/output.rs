@@ -4,7 +4,7 @@ use crate::{CommandOutcome, RunFailure};
 use picofeedr::cli::OutputFormat;
 use picofeedr::config::feeds::ConfigCheckReport;
 use picofeedr::config::feeds::ValidationIssue;
-use picofeedr::response::ResponsePayload;
+use picofeedr::response::ResponseStatus;
 use picofeedr::sync;
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -33,21 +33,40 @@ pub(crate) fn write_command_output(
 /// Writes the JSON envelope for a command outcome.
 fn write_json_output(outcome: CommandOutcome) -> Result<(), RunFailure> {
     match outcome {
-        CommandOutcome::Version(payload) => write_json_response(payload),
-        CommandOutcome::Tags(payload) => write_json_response(payload),
-        CommandOutcome::Status(payload) => write_json_response(payload),
-        CommandOutcome::Feeds { feeds, .. } => write_json_response(feeds),
-        CommandOutcome::Sync(payload) => write_json_response(payload),
-        CommandOutcome::SyncCheck(payload) => write_json_response(payload),
-        CommandOutcome::List { list, .. } => write_json_response(list),
-        CommandOutcome::View(payload) => write_json_response(payload),
-        CommandOutcome::Mark(payload) => write_json_response(payload),
+        CommandOutcome::Version(payload) => write_json_response(payload, ResponseStatus::Ok),
+        CommandOutcome::Tags(payload) => write_json_response(payload, ResponseStatus::Ok),
+        CommandOutcome::Status(payload) => write_json_response(payload, ResponseStatus::Ok),
+        CommandOutcome::Feeds { feeds, .. } => write_json_response(feeds, ResponseStatus::Ok),
+        CommandOutcome::Sync(payload) => {
+            let status = if payload.status.is_warning() {
+                ResponseStatus::Warning
+            } else {
+                ResponseStatus::Ok
+            };
+            write_json_response(payload, status)
+        }
+        CommandOutcome::SyncCheck(payload) => {
+            let status = if payload.has_errors() {
+                ResponseStatus::Warning
+            } else {
+                ResponseStatus::Ok
+            };
+            write_json_response(payload, status)
+        }
+        CommandOutcome::List { list, .. } => write_json_response(list, ResponseStatus::Ok),
+        CommandOutcome::View(payload) => write_json_response(payload, ResponseStatus::Ok),
+        CommandOutcome::Mark(payload) => write_json_response(payload, ResponseStatus::Ok),
     }
 }
 
 /// Writes a JSON response payload.
-fn write_json_response<T: ResponsePayload>(payload: T) -> Result<(), RunFailure> {
-    print_json_or_fallback(&payload.into_envelope())?;
+fn write_json_response<T: serde::Serialize>(
+    payload: T,
+    status: ResponseStatus,
+) -> Result<(), RunFailure> {
+    print_json_or_fallback(&picofeedr::response::Envelope::ok_with_status(
+        payload, status,
+    ))?;
     Ok(())
 }
 

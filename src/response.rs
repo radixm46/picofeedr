@@ -2,10 +2,6 @@
 
 use crate::error::{AppError, ErrorPayload};
 use crate::time;
-use crate::{
-    config::feeds::ConfigCheckReport, entry::EntryDetail, entry::EntryListResponse,
-    feed::FeedListResponse, status::StatusResponse, sync::SyncSummary,
-};
 use schemars::JsonSchema;
 use serde::Serialize;
 
@@ -68,54 +64,6 @@ pub struct MarkResponse {
     pub updated_entry_count: usize,
 }
 
-/// Trait for payloads that can be wrapped in the standard JSON response envelope.
-pub trait ResponsePayload: Serialize + JsonSchema + Sized {
-    /// Returns the envelope status for this payload.
-    fn response_status(&self) -> ResponseStatus {
-        ResponseStatus::Ok
-    }
-
-    /// Wraps the payload in the standard JSON response envelope.
-    fn into_envelope(self) -> Envelope<Self> {
-        let status = self.response_status();
-        Envelope::ok_with_status(self, status)
-    }
-}
-
-impl ResponsePayload for VersionResponse {}
-
-impl ResponsePayload for TagListResponse {}
-
-impl ResponsePayload for MarkResponse {}
-
-impl ResponsePayload for StatusResponse {}
-
-impl ResponsePayload for FeedListResponse {}
-
-impl ResponsePayload for EntryListResponse {}
-
-impl ResponsePayload for EntryDetail {}
-
-impl ResponsePayload for SyncSummary {
-    fn response_status(&self) -> ResponseStatus {
-        if self.status.is_warning() {
-            ResponseStatus::Warning
-        } else {
-            ResponseStatus::Ok
-        }
-    }
-}
-
-impl ResponsePayload for ConfigCheckReport {
-    fn response_status(&self) -> ResponseStatus {
-        if self.has_errors() {
-            ResponseStatus::Warning
-        } else {
-            ResponseStatus::Ok
-        }
-    }
-}
-
 /// CLI response envelope for `--output json`.
 ///
 /// This format is stable and intended for UI/automation clients.
@@ -147,16 +95,6 @@ impl<T> Envelope<T> {
         }
     }
 
-    /// Builds a success envelope with `status=ok`.
-    pub fn ok(data: T) -> Self {
-        Self::ok_with_status(data, ResponseStatus::Ok)
-    }
-
-    /// Builds a warning envelope with payload and `status=warning`.
-    pub fn warning(data: T) -> Self {
-        Self::ok_with_status(data, ResponseStatus::Warning)
-    }
-
     /// Builds a fatal error envelope from an [`AppError`].
     pub fn fatal(error: &AppError) -> Self {
         Self {
@@ -170,7 +108,7 @@ impl<T> Envelope<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::{MarkResponse, ResponsePayload, TagListResponse, VersionResponse};
+    use super::{Envelope, MarkResponse, ResponseStatus, TagListResponse, VersionResponse};
     use crate::config::feeds::ConfigCheckReport;
     use crate::sync::{SyncStatus, SyncSummary};
 
@@ -208,8 +146,8 @@ mod tests {
     }
 
     #[test]
-    fn sync_summary_into_envelope_uses_warning_for_non_completed_status() {
-        let value = serde_json::to_value(
+    fn sync_summary_envelope_uses_warning_for_non_completed_status() {
+        let value = serde_json::to_value(Envelope::ok_with_status(
             SyncSummary {
                 status: SyncStatus::PartialFailed,
                 fetched_feed_count: 2,
@@ -218,9 +156,9 @@ mod tests {
                 new_entry_count: 3,
                 duration_ms: 10,
                 errors: Vec::new(),
-            }
-            .into_envelope(),
-        )
+            },
+            ResponseStatus::Warning,
+        ))
         .expect("serialize sync envelope");
         assert_eq!(value["status"], "warning");
         assert_eq!(value["result"]["status"], "partial_failed");
@@ -228,17 +166,17 @@ mod tests {
     }
 
     #[test]
-    fn config_check_report_into_envelope_uses_warning_for_invalid_report() {
-        let value = serde_json::to_value(
+    fn config_check_report_envelope_uses_warning_for_invalid_report() {
+        let value = serde_json::to_value(Envelope::ok_with_status(
             ConfigCheckReport {
                 valid: false,
                 errors: Vec::new(),
                 warnings: Vec::new(),
                 checked_feeds: 1,
                 skipped_feeds: 0,
-            }
-            .into_envelope(),
-        )
+            },
+            ResponseStatus::Warning,
+        ))
         .expect("serialize config check envelope");
         assert_eq!(value["status"], "warning");
         assert_eq!(value["result"]["valid"], false);
