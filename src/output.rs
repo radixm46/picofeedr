@@ -402,7 +402,9 @@ mod tests {
         format_plain_epoch, format_plain_output, format_sync_progress_line, format_tags, print_json,
     };
     use crate::CommandOutcome;
+    use picofeedr::db::FeedRow;
     use picofeedr::entry::{EntryListResponse, EntrySummary, FeedSummary};
+    use picofeedr::feed::build_feed_list_response;
     use picofeedr::sync::SyncProgressEvent;
 
     struct FailingSerialize;
@@ -502,5 +504,54 @@ mod tests {
         assert!(rendered.stderr.contains("total_count: 42"));
         assert!(rendered.stderr.contains("next_page_token: cursor-1"));
         assert!(!rendered.stderr.contains("last_sync_at"));
+    }
+
+    #[test]
+    fn format_plain_output_preserves_empty_list_fields() {
+        let rendered = format_plain_output(CommandOutcome::List {
+            list: EntryListResponse {
+                total_count: 1,
+                items: vec![EntrySummary {
+                    entry_id: "entry-1".to_string(),
+                    feed_id: "feed-1".to_string(),
+                    title: None,
+                    link: None,
+                    published_at: None,
+                    first_seen_at: 0,
+                    tags: Vec::new(),
+                }],
+                feeds: vec![FeedSummary {
+                    feed_id: "feed-1".to_string(),
+                    title: None,
+                }],
+                next_page_token: None,
+                revision: 0,
+                last_write_at: None,
+                last_sync_at: None,
+            },
+            include_id: true,
+        });
+
+        assert_eq!(
+            rendered.stdout,
+            format!("{}\t\t\t\t\tentry-1\n", format_plain_epoch(0))
+        );
+    }
+
+    #[test]
+    fn format_plain_output_preserves_empty_feed_fields() {
+        let rendered = format_plain_output(CommandOutcome::Feeds {
+            feeds: build_feed_list_response(&[FeedRow {
+                feed_pk: 1,
+                feed_id: "feed-1".to_string(),
+                url: "https://example.com/feed.xml".to_string(),
+                title: None,
+                site_url: None,
+                author: None,
+            }]),
+            include_id: false,
+        });
+
+        assert_eq!(rendered.stdout, "\thttps://example.com/feed.xml\t\t\n");
     }
 }
