@@ -29,7 +29,7 @@
 - `doc/spec/pagination.md`：カーソルページング仕様
 - `doc/spec/errors.md`：エラー仕様
 - `doc/spec/workflows.md`：ユーザーワークフロー
-- `doc/spec/schema/`：`schemas` バイナリで自動生成するコマンド別JSON Schema成果物
+- `schemas/`：`schemas` バイナリで自動生成するコマンド別JSON Schema成果物
 
 ## Notes
 

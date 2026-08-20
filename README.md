@@ -184,7 +184,7 @@ picofeedr:
 
 ## JSON Schema
 
-JSON Schema for CLI output is available in `doc/spec/schema/`. To regenerate:
+JSON Schema for CLI output is available in `schemas/`. To regenerate:
 
 ```bash
 cargo run --bin schemas

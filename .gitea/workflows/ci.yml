@@ -24,7 +24,7 @@ jobs:
       - name: generate schema
         run: cargo run --bin schemas
       - name: verify schema artifacts
-        run: git diff --exit-code -- doc/spec/schema
+        run: git diff --exit-code -- schemas
       - name: test
         run: cargo test
 

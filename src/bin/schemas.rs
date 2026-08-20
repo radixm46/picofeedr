@@ -35,14 +35,14 @@ enum FatalStatus {
     Error,
 }
 
-/// Writes one JSON schema file under `doc/spec/schema`.
+/// Writes one JSON schema file under `schemas`.
 fn write_schema<T: JsonSchema>(name: &str) -> Result<(), Box<dyn std::error::Error>> {
     let generator = SchemaSettings::draft07().into_generator();
     let schema = generator.into_root_schema_for::<T>();
     let mut value = serde_json::to_value(&schema)?;
     enforce_envelope_contract(&mut value)?;
     let json = serde_json::to_string_pretty(&value)?;
-    let output = Path::new("doc/spec/schema").join(name);
+    let output = Path::new("schemas").join(name);
     fs::write(output, json)?;
     Ok(())
 }
@@ -129,7 +129,7 @@ fn enforce_envelope_contract(schema: &mut Value) -> Result<(), Box<dyn std::erro
 /// Generates all command-wise response schemas.
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = FatalStatus::Error;
-    fs::create_dir_all("doc/spec/schema")?;
+    fs::create_dir_all("schemas")?;
 
     write_schema::<Envelope<VersionResponse>>("version.response.schema.json")?;
     write_schema::<Envelope<FeedListResponse>>("feeds.response.schema.json")?;
