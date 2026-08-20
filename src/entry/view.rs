@@ -69,13 +69,10 @@ fn load_content(
     match row.storage {
         Storage::Db => Ok((row.content, row.content_type)),
         Storage::Fs => {
-            let Some(reference) = row.reference else {
-                return Ok((None, row.content_type));
-            };
-            let path = match sha256_path(data_dir, &reference) {
-                Ok(path) => path,
-                Err(_) => return Ok((None, row.content_type)),
-            };
+            let reference = row
+                .reference
+                .ok_or_else(|| AppError::internal("Missing content reference for fs storage"))?;
+            let path = sha256_path(data_dir, &reference)?;
             match fs::read_to_string(&path) {
                 Ok(content) => Ok((Some(content), row.content_type)),
                 Err(error) if error.kind() == ErrorKind::NotFound => Ok((None, row.content_type)),
@@ -194,5 +191,43 @@ mod tests {
                 .and_then(JsonValue::as_str)
                 .is_some_and(|value| !value.is_empty())
         );
+    }
+
+    #[test]
+    fn load_content_fs_missing_reference_returns_internal_error() {
+        let conn = Connection::open_in_memory().expect("open in-memory sqlite");
+        create_entry_contents_table(&conn);
+        conn.execute(
+            "INSERT INTO entry_contents (entry_pk, storage, ref, content_type, content)
+             VALUES (1, 'fs', NULL, NULL, NULL)",
+            [],
+        )
+        .expect("insert entry content");
+        let temp = TempDir::new().expect("tempdir");
+
+        let error = load_content(&EntryReadRepo::new(&conn), temp.path(), 1)
+            .expect_err("missing reference should fail");
+
+        assert_eq!(error.code().as_str(), "INTERNAL");
+        assert_eq!(error.message(), "Missing content reference for fs storage");
+    }
+
+    #[test]
+    fn load_content_fs_invalid_reference_returns_internal_error() {
+        let conn = Connection::open_in_memory().expect("open in-memory sqlite");
+        create_entry_contents_table(&conn);
+        conn.execute(
+            "INSERT INTO entry_contents (entry_pk, storage, ref, content_type, content)
+             VALUES (1, 'fs', 'not-a-sha256', NULL, NULL)",
+            [],
+        )
+        .expect("insert entry content");
+        let temp = TempDir::new().expect("tempdir");
+
+        let error = load_content(&EntryReadRepo::new(&conn), temp.path(), 1)
+            .expect_err("invalid reference should fail");
+
+        assert_eq!(error.code().as_str(), "INTERNAL");
+        assert_eq!(error.message(), "Invalid content reference length: 12");
     }
 }

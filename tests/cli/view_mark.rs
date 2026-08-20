@@ -185,6 +185,48 @@ fn view_missing_entry_returns_details() {
 }
 
 #[test]
+fn view_fs_content_invalid_reference_returns_internal_error() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files_fs(&temp);
+
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let entry_id = entry_id_by_title(&paths.db_path, "First Entry");
+    let conn = Connection::open(&paths.db_path).expect("open database");
+    conn.execute(
+        "UPDATE entry_contents
+         SET storage = 'fs', ref = 'not-a-sha256'
+         WHERE entry_pk = (SELECT id FROM entries WHERE entry_id = ?1)",
+        [&entry_id],
+    )
+    .expect("update entry content reference");
+    drop(conn);
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("view")
+        .arg(entry_id)
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    let error = extract_error_payload(&output);
+    assert_eq!(error["code"], "INTERNAL");
+}
+
+#[test]
 fn mark_updates_tags() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
