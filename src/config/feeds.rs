@@ -65,7 +65,7 @@ impl FeedsConfig {
                 ]),
             )
         })?;
-        let auto_tags = parse_auto_tags(feeds_map.get(Value::String("auto_tags".to_string())))?;
+        let auto_tags = parse_auto_tags(feeds_map.get("auto_tags"))?;
         let mut tag_lists = Vec::new();
         let mut auto_tag_rules = Vec::new();
         let mut feeds = Vec::new();
@@ -349,19 +349,27 @@ fn flatten_group(
     let map = value
         .as_mapping()
         .ok_or_else(|| AppError::config("feed group must be a mapping"))?;
-    let group_tags = map
-        .get(Value::String("tags".to_string()))
-        .and_then(|value| value.as_sequence())
-        .map(parse_tag_list)
+    let group_tags_value = map.get("tags");
+    let group_tags = group_tags_value
+        .map(|value| {
+            value
+                .as_sequence()
+                .ok_or_else(|| {
+                    AppError::config(format!(
+                        "feed group tags must be a list at {current_path}.tags"
+                    ))
+                })
+                .and_then(parse_tag_list)
+        })
         .transpose()?
         .unwrap_or_default();
-    if map.get(Value::String("tags".to_string())).is_some() {
+    if group_tags_value.is_some() {
         tag_lists.push(ScopedTagList {
             path: format!("{current_path}.tags"),
             tags: group_tags.clone(),
         });
     }
-    let group_auto_tags = parse_auto_tags(map.get(Value::String("auto_tags".to_string())))?;
+    let group_auto_tags = parse_auto_tags(map.get("auto_tags"))?;
     append_scoped_rules(
         &format!("{current_path}.auto_tags"),
         &group_auto_tags,
@@ -370,7 +378,7 @@ fn flatten_group(
     let merged_tags = merge_tags(inherited, &group_tags);
     let merged_auto_tags = merge_auto_tags(inherited_auto_tags, &group_auto_tags);
 
-    if let Some(feeds_value) = map.get(Value::String("feeds".to_string())) {
+    if let Some(feeds_value) = map.get("feeds") {
         let feeds_seq = feeds_value
             .as_sequence()
             .ok_or_else(|| AppError::config("feeds entry must be a list"))?;
@@ -379,15 +387,21 @@ fn flatten_group(
                 .as_mapping()
                 .ok_or_else(|| AppError::config("feed entry must be a mapping"))?;
             let url_value = feed_map
-                .get(Value::String("url".to_string()))
+                .get("url")
                 .and_then(|value| value.as_str())
                 .ok_or_else(|| AppError::config("feed entry missing url"))?;
             let title = feed_map
-                .get(Value::String("title".to_string()))
-                .and_then(|value| value.as_str())
-                .map(|value| value.to_string());
+                .get("title")
+                .map(|value| {
+                    value.as_str().map(str::to_owned).ok_or_else(|| {
+                        AppError::config(format!(
+                            "feed entry title must be a string at {current_path}.feeds[{index}].title"
+                        ))
+                    })
+                })
+                .transpose()?;
             let skip = feed_map
-                .get(Value::String("skip".to_string()))
+                .get("skip")
                 .map(|value| {
                     value.as_bool().ok_or_else(|| {
                         AppError::config(format!(
@@ -397,13 +411,19 @@ fn flatten_group(
                 })
                 .transpose()?
                 .unwrap_or(false);
-            let feed_tags = feed_map
-                .get(Value::String("tags".to_string()))
-                .and_then(|value| value.as_sequence())
-                .map(parse_tag_list)
+            let feed_tags_value = feed_map.get("tags");
+            let feed_tags = feed_tags_value
+                .map(|value| {
+                    value.as_sequence().ok_or_else(|| {
+                        AppError::config(format!(
+                            "feed entry tags must be a list at {current_path}.feeds[{index}].tags"
+                        ))
+                    })
+                    .and_then(parse_tag_list)
+                })
                 .transpose()?
                 .unwrap_or_default();
-            if feed_map.get(Value::String("tags".to_string())).is_some() {
+            if feed_tags_value.is_some() {
                 tag_lists.push(ScopedTagList {
                     path: format!("{current_path}.feeds[{index}].tags"),
                     tags: feed_tags.clone(),

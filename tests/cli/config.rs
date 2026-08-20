@@ -97,6 +97,26 @@ fn assert_sync_check_has_issue(
     );
 }
 
+fn assert_sync_check_type_error(feeds: &str, expected_message: &str) {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_feeds_case(&temp, feeds);
+    let output = sync_check_json_cmd(&paths.config_path, &paths.db_path)
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    let error = extract_error_payload(&output);
+    assert_eq!(error["code"], "CONFIG_ERROR");
+    assert!(
+        error["message"]
+            .as_str()
+            .expect("error message")
+            .contains(expected_message)
+    );
+}
+
 fn assert_runtime_validation_failure(
     config_path: &str,
     db_path: &str,
@@ -530,7 +550,7 @@ fn config_check_does_not_require_db() {
 }
 
 #[test]
-fn config_check_ignores_unknown_top_level_keys() {
+fn config_check_ignores_unknown_feeds_yaml_top_level_keys() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_fixture_files(&temp);
     let feeds = r#"picofeedr:
@@ -631,33 +651,81 @@ fn feeds_ignores_blocking_feeds_yaml_validation() {
 }
 
 #[test]
-fn sync_check_skip_type_error_includes_feed_path() {
-    let temp = TempDir::new().expect("tempdir");
-    let paths = write_fixture_files(&temp);
-    let feeds = r#"picofeedr:
+fn sync_check_rejects_invalid_yaml_field_types() {
+    let cases = [
+        (
+            r#"picofeedr:
+  group:
+    tags: "not-a-list"
+    feeds:
+      - url: https://example.com/feed
+        title: Example
+"#,
+            "feed group tags must be a list at picofeedr.group.tags",
+        ),
+        (
+            r#"picofeedr:
+  group:
+    tags: null
+    feeds:
+      - url: https://example.com/feed
+        title: Example
+"#,
+            "feed group tags must be a list at picofeedr.group.tags",
+        ),
+        (
+            r#"picofeedr:
+  group:
+    feeds:
+      - url: https://example.com/feed
+        title: 42
+"#,
+            "feed entry title must be a string at picofeedr.group.feeds[0].title",
+        ),
+        (
+            r#"picofeedr:
+  group:
+    feeds:
+      - url: https://example.com/feed
+        title: null
+"#,
+            "feed entry title must be a string at picofeedr.group.feeds[0].title",
+        ),
+        (
+            r#"picofeedr:
+  group:
+    feeds:
+      - url: https://example.com/feed
+        title: Example
+        tags: "not-a-list"
+"#,
+            "feed entry tags must be a list at picofeedr.group.feeds[0].tags",
+        ),
+        (
+            r#"picofeedr:
+  group:
+    feeds:
+      - url: https://example.com/feed
+        title: Example
+        tags: null
+"#,
+            "feed entry tags must be a list at picofeedr.group.feeds[0].tags",
+        ),
+        (
+            r#"picofeedr:
   group:
     feeds:
       - url: https://example.com/feed
         title: Example
         skip: "true"
-"#;
-    fs::write(&paths.feeds_path, feeds).expect("rewrite feeds");
+"#,
+            "feed entry skip must be a boolean at picofeedr.group.feeds[0].skip",
+        ),
+    ];
 
-    let output = sync_check_json_cmd(&paths.config_path, &paths.db_path)
-        .assert()
-        .failure()
-        .get_output()
-        .stdout
-        .clone();
-
-    let error = extract_error_payload(&output);
-    assert_eq!(error["code"], "CONFIG_ERROR");
-    assert!(
-        error["message"]
-            .as_str()
-            .expect("error message")
-            .contains("picofeedr.group.feeds[0].skip")
-    );
+    for (feeds, expected_message) in cases {
+        assert_sync_check_type_error(feeds, expected_message);
+    }
 }
 
 #[test]
