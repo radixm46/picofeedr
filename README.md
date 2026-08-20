@@ -15,7 +15,7 @@ It is built for people who want to keep feed data on their own machine and work 
 ## Installation
 
 ```bash
-cargo install --path .
+cargo install --git https://github.com/radixm46/picofeedr --locked
 ```
 
 Or build from source:
