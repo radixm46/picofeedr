@@ -103,6 +103,7 @@ pub enum ContentStore {
 
 /// Raw config.toml representation.
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct AppConfigRaw {
     manage_unread: Option<bool>,
     unread_tag: Option<String>,
@@ -115,12 +116,14 @@ struct AppConfigRaw {
 
 /// Raw feeds source config representation.
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct FeedsSourceConfigRaw {
     source: Option<String>,
 }
 
 /// Raw sync config representation.
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct SyncConfigRaw {
     parallel: Option<usize>,
     timeout: Option<u64>,
@@ -132,6 +135,7 @@ struct SyncConfigRaw {
 
 /// Raw storage config representation.
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct StorageConfigRaw {
     root_dir: Option<String>,
     content_store: Option<String>,
@@ -139,6 +143,7 @@ struct StorageConfigRaw {
 
 /// Raw query config representation.
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct QueryConfigRaw {
     default_limit: Option<usize>,
     max_limit: Option<usize>,
@@ -146,6 +151,7 @@ struct QueryConfigRaw {
 
 /// Raw CLI config representation.
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CliConfigRaw {
     output: Option<String>,
 }
@@ -350,6 +356,19 @@ impl SyncConfig {
     /// Builds a SyncConfig from optional raw config.
     fn from_raw(raw: Option<SyncConfigRaw>) -> Result<Self, AppError> {
         let raw = raw.unwrap_or_default();
+        let parallel = raw.parallel.unwrap_or(5);
+        if !(1..=64).contains(&parallel) {
+            return Err(AppError::config_with_details(
+                "sync.parallel must be between 1 and 64",
+                error_details([
+                    ("path", Value::from("sync.parallel")),
+                    (
+                        "hint",
+                        Value::from("set sync.parallel to an integer from 1 to 64"),
+                    ),
+                ]),
+            ));
+        }
         let max_feed_bytes = raw.max_feed_bytes.unwrap_or(2 * 1024 * 1024);
         if max_feed_bytes == 0 {
             return Err(AppError::config_with_details(
@@ -364,7 +383,7 @@ impl SyncConfig {
             ));
         }
         Ok(Self {
-            parallel: raw.parallel.unwrap_or(5).max(1),
+            parallel,
             timeout_secs: raw.timeout.unwrap_or(30),
             max_feed_bytes,
             user_agent: raw

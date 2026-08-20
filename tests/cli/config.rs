@@ -577,6 +577,76 @@ ended:
 }
 
 #[test]
+fn config_rejects_unknown_keys_at_all_levels() {
+    let cases = [
+        (None, "unknown_top_level"),
+        (Some("feeds"), "unknown_feeds"),
+        (Some("sync"), "unknown_sync"),
+        (Some("storage"), "unknown_storage"),
+        (Some("query"), "unknown_query"),
+        (Some("cli"), "unknown_cli"),
+    ];
+
+    for (section, field) in cases {
+        let temp = TempDir::new().expect("tempdir");
+        let config_path = temp.path().join("config.toml");
+        let root_dir = temp.path().display();
+        let config = match section {
+            None => format!("{field} = true\n\n[storage]\nroot_dir = \"{root_dir}\""),
+            Some("storage") => {
+                format!("[storage]\nroot_dir = \"{root_dir}\"\n{field} = true")
+            }
+            Some(section) => {
+                format!("[storage]\nroot_dir = \"{root_dir}\"\n\n[{section}]\n{field} = true")
+            }
+        };
+        fs::write(&config_path, config).expect("write config");
+
+        let output = picofeedr_cmd_json()
+            .arg("--config")
+            .arg(&config_path)
+            .arg("tags")
+            .assert()
+            .failure()
+            .get_output()
+            .stdout
+            .clone();
+
+        assert_error_envelope(&output, "CONFIG_ERROR", false);
+        assert!(
+            extract_error_payload(&output)["message"]
+                .as_str()
+                .is_some_and(|message| message.contains(field)),
+            "expected unknown field {field}"
+        );
+    }
+}
+
+#[test]
+fn config_sync_parallel_enforces_range() {
+    for (parallel, should_succeed) in [(0, false), (1, true), (64, true), (65, false)] {
+        let temp = TempDir::new().expect("tempdir");
+        let config_path = temp.path().join("config.toml");
+        let config = format!(
+            "[sync]\nparallel = {parallel}\n\n[storage]\nroot_dir = \"{}\"\n",
+            temp.path().display()
+        );
+        fs::write(&config_path, config).expect("write config");
+
+        let mut cmd = picofeedr_cmd_json();
+        cmd.arg("--config").arg(&config_path).arg("tags");
+        if should_succeed {
+            cmd.assert().success();
+        } else {
+            let output = cmd.assert().failure().get_output().stdout.clone();
+            assert_error_envelope(&output, "CONFIG_ERROR", false);
+            let details = extract_error_details(&output);
+            assert_eq!(details["path"], "sync.parallel");
+        }
+    }
+}
+
+#[test]
 fn sync_check_plain_shows_summary_and_diagnostic_lines() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_fixture_files(&temp);

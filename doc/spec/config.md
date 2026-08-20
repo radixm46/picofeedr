@@ -49,6 +49,9 @@ output = "plain"
 - `manage_unread: boolean`
 - `unread_tag: string`
 
+トップレベルと `[feeds]`、`[sync]`、`[storage]`、`[query]`、`[cli]` の各セクションでは、
+定義されていないキーを設定エラーとして拒否する。
+
 `config.toml` が存在しない場合の既定値:
 
 - `manage_unread = true`
@@ -85,12 +88,14 @@ DBパスは `storage.root_dir/db.sqlite`、ファイル保存先は `storage.roo
 
 ### `[sync]`
 
-- `parallel: integer`
+- `parallel: integer`（1 以上 64 以下）
 - `timeout: integer`
 - `max_feed_bytes: integer`（省略時は実装既定値）
 - `user_agent: string`
 - `retry_count: integer`
 - `retry_delay: integer`
+
+`sync.parallel` に 0 または 65 以上を指定した場合は設定エラーとする。
 
 ### `[query]`
 
