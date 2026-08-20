@@ -235,7 +235,7 @@ fn handle_cli_parse_error(args: &[OsString], error: clap::Error) -> ExitCode {
 /// Writes a fatal error payload for the selected output format.
 fn write_fatal_output(output: OutputFormat, error: &AppError) -> io::Result<()> {
     match output {
-        OutputFormat::Json => output::print_json_or_fallback(&Envelope::<()>::fatal(error)),
+        OutputFormat::Json => output::print_json(&Envelope::<()>::fatal(error)),
         OutputFormat::Plain => {
             eprintln!("{error}");
             Ok(())
@@ -317,9 +317,9 @@ fn init_logging(debug: bool) {
     if !debug {
         return;
     }
-    let _ = tracing_subscriber::fmt()
+    tracing_subscriber::fmt()
         .with_max_level(tracing::Level::DEBUG)
         .with_writer(io::stderr)
         .with_ansi(false)
-        .try_init();
+        .init();
 }

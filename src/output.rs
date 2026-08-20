@@ -64,7 +64,7 @@ fn write_json_response<T: serde::Serialize>(
     payload: T,
     status: ResponseStatus,
 ) -> Result<(), RunFailure> {
-    print_json_or_fallback(&picofeedr::response::Envelope::ok_with_status(
+    print_json(&picofeedr::response::Envelope::ok_with_status(
         payload, status,
     ))?;
     Ok(())
@@ -382,14 +382,12 @@ fn write_validation_issue_lines(output: &mut String, kind: &str, issues: &[Valid
     }
 }
 
-/// Prints JSON to stdout, falling back to a hard-coded INTERNAL error JSON on failure.
-pub(crate) fn print_json_or_fallback<T: serde::Serialize>(value: &T) -> io::Result<()> {
+/// Prints JSON to stdout.
+pub(crate) fn print_json<T: serde::Serialize>(value: &T) -> io::Result<()> {
+    let json = serde_json::to_string(value).expect("serialize CLI response");
     let stdout = io::stdout();
     let mut writer = io::BufWriter::new(stdout.lock());
-    match serde_json::to_string(value) {
-        Ok(json) => writeln!(writer, "{json}")?,
-        Err(_) => writeln!(writer, "{FALLBACK_INTERNAL_ERROR_JSON}")?,
-    }
+    writeln!(writer, "{json}")?;
     writer.flush()
 }
 
@@ -398,15 +396,31 @@ fn format_tags(tags: &[String]) -> String {
     tags.join(", ")
 }
 
-/// Fallback JSON printed when JSON serialization fails unexpectedly.
-const FALLBACK_INTERNAL_ERROR_JSON: &str = "{\"status\":\"error\",\"result\":null,\"error\":{\"code\":\"INTERNAL\",\"message\":\"Failed to serialize response\",\"retryable\":false,\"details\":null},\"meta\":{\"api_version\":\"unknown\",\"db_schema_version\":0,\"generated_at\":0}}";
-
 #[cfg(test)]
 mod tests {
-    use super::{format_plain_epoch, format_plain_output, format_sync_progress_line, format_tags};
+    use super::{
+        format_plain_epoch, format_plain_output, format_sync_progress_line, format_tags, print_json,
+    };
     use crate::CommandOutcome;
     use picofeedr::entry::{EntryListResponse, EntrySummary, FeedSummary};
     use picofeedr::sync::SyncProgressEvent;
+
+    struct FailingSerialize;
+
+    impl serde::Serialize for FailingSerialize {
+        fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            Err(serde::ser::Error::custom("expected serialization failure"))
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "serialize CLI response")]
+    fn serialization_failure_is_exposed_as_panic() {
+        print_json(&FailingSerialize).expect("write JSON");
+    }
 
     #[test]
     fn format_tags_joins_with_comma_and_space() {

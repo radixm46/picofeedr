@@ -40,7 +40,7 @@ pub(crate) fn fetch_parallel<F>(
 where
     F: FnMut(SyncResult) -> Result<(), SyncError>,
 {
-    let workers = config.sync.parallel.max(1);
+    let workers = config.sync.parallel;
     let (job_tx, job_rx) = unbounded::<SyncTarget>();
     let (result_tx, result_rx) = bounded::<WorkerResult>(workers * 2);
 
@@ -252,24 +252,6 @@ fn read_limited_bytes<R: Read>(
 }
 
 fn read_feed_file(path: &std::path::Path, sync: &SyncConfig) -> Result<Vec<u8>, FetchError> {
-    match fs::metadata(path) {
-        Ok(metadata) if metadata.len() > sync.max_feed_bytes as u64 => {
-            return Err(FetchError {
-                message: "Feed body exceeds max_feed_bytes".to_string(),
-                retryable: false,
-            });
-        }
-        Ok(_) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Err(FetchError {
-                message: format!("Failed to read feed file: {error}"),
-                retryable: false,
-            });
-        }
-        // Metadata size check is best-effort; let File::open surface the real read error.
-        Err(_) => {}
-    }
-
     let file = fs::File::open(path).map_err(|error| FetchError {
         message: format!("Failed to read feed file: {error}"),
         retryable: false,
