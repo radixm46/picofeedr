@@ -229,6 +229,7 @@ fn ingest_sync_result(
     })() {
         Ok(count) => count,
         Err(error) => {
+            // Cleanup is best effort so the primary ingest error remains the reported failure.
             cleanup_created_content_files(
                 &config.storage.data_dir,
                 &created_content_refs,
@@ -238,6 +239,7 @@ fn ingest_sync_result(
         }
     };
     if let Err(error) = tx.commit() {
+        // Cleanup is best effort so the primary commit error remains the reported failure.
         cleanup_created_content_files_after_rollback(
             store,
             &config.storage.data_dir,

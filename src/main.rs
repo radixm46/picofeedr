@@ -209,6 +209,7 @@ fn handle_cli_parse_error(args: &[OsString], error: clap::Error) -> ExitCode {
     let output = detect_output_from_args(args);
     match error.kind() {
         ErrorKind::DisplayHelp | ErrorKind::DisplayVersion => {
+            // Help/version output remains successful when stdout is closed by the consumer.
             let _ = error.print();
             ExitCode::SUCCESS
         }

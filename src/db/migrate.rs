@@ -100,6 +100,7 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
             Ok(())
         }
         Err(error) => {
+            // Preserve the primary migration error if rollback also fails.
             let _ = conn.execute_batch("ROLLBACK");
             Err(error)
         }

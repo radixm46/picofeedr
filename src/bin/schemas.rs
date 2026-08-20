@@ -32,6 +32,7 @@ struct FatalErrorEnvelope {
 enum FatalStatus {
     /// Fixed status string.
     #[serde(rename = "error")]
+    #[expect(dead_code, reason = "schema-only variant, never constructed")]
     Error,
 }
 
@@ -128,7 +129,6 @@ fn enforce_envelope_contract(schema: &mut Value) -> Result<(), Box<dyn std::erro
 
 /// Generates all command-wise response schemas.
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let _ = FatalStatus::Error;
     fs::create_dir_all("schemas")?;
 
     write_schema::<Envelope<VersionResponse>>("version.response.schema.json")?;
