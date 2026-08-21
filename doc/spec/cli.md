@@ -104,7 +104,7 @@ Blocking `feeds.yaml` validation errors fail the command with `status = "error"`
 `result` は `EntryDetail`。  
 最低でも `entry_id`, `feed_title`, `title`, `link` を含む。
 
-`storage=fs` の `ref` が欠落または不正な場合は `INTERNAL` エラーとし、妥当な `ref` に対応するファイルが欠落している場合は本文なしとして返す。
+`storage=db` の `content` が欠落している場合、および `storage=fs` の `ref` が欠落または不正な場合は `INTERNAL` エラーとする。妥当な `ref` に対応するファイルが欠落している場合は本文なしとして返す。
 `storage=none` の場合は本文なし (`content: null`) として返す。
 
 ### `mark`

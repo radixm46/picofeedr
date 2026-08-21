@@ -67,7 +67,12 @@ fn load_content(
         return Ok((None, None));
     };
     match row.storage {
-        Storage::Db => Ok((row.content, row.content_type)),
+        Storage::Db => {
+            let content = row
+                .content
+                .ok_or_else(|| AppError::internal("Missing content for db storage"))?;
+            Ok((Some(content), row.content_type))
+        }
         Storage::Fs => {
             let reference = row
                 .reference
@@ -229,5 +234,24 @@ mod tests {
 
         assert_eq!(error.code().as_str(), "INTERNAL");
         assert_eq!(error.message(), "Invalid content reference length: 12");
+    }
+
+    #[test]
+    fn load_content_db_missing_content_returns_internal_error() {
+        let conn = Connection::open_in_memory().expect("open in-memory sqlite");
+        create_entry_contents_table(&conn);
+        conn.execute(
+            "INSERT INTO entry_contents (entry_pk, storage, ref, content_type, content)
+             VALUES (1, 'db', NULL, NULL, NULL)",
+            [],
+        )
+        .expect("insert entry content");
+        let temp = TempDir::new().expect("tempdir");
+
+        let error = load_content(&EntryReadRepo::new(&conn), temp.path(), 1)
+            .expect_err("missing database content should fail");
+
+        assert_eq!(error.code().as_str(), "INTERNAL");
+        assert_eq!(error.message(), "Missing content for db storage");
     }
 }
