@@ -144,6 +144,122 @@ fn sync_ingests_entries_and_tags() {
 }
 
 #[test]
+fn sync_persists_entry_metadata_as_meta_json() {
+    let temp = TempDir::new().expect("tempdir");
+    let config_path = temp.path().join("config.toml");
+    let feeds_path = temp.path().join("feeds.yaml");
+    let db_path = temp.path().join("db.sqlite");
+    let feed_path = temp.path().join("feed.xml");
+    write_config_with_feeds_source(&config_path, &db_path, &feeds_path);
+
+    let feed_url = format!("file://{}", feed_path.display());
+    fs::write(
+        &feeds_path,
+        format!("picofeedr:\n  feeds:\n    - url: {feed_url}\n      title: Metadata Feed\n"),
+    )
+    .expect("write feeds");
+    fs::write(
+        &feed_path,
+        r#"<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <id>https://example.com/feed</id>
+  <title>Metadata Feed</title>
+  <updated>2024-01-01T00:00:00Z</updated>
+  <entry>
+    <id>tag:example.com,2024:full</id>
+    <title>Full Metadata</title>
+    <link href="https://example.com/full"/>
+    <updated>2024-01-01T00:00:00Z</updated>
+    <author>
+      <name>Ada Lovelace</name>
+      <uri>https://example.com/ada</uri>
+      <email>ada@example.com</email>
+    </author>
+    <author><name>Grace Hopper</name></author>
+    <category term="rust" scheme="ignored" label="Ignored"/>
+    <category term="feeds"/>
+    <content type="text" xml:base="https://example.com/full/">Full content</content>
+  </entry>
+  <entry>
+    <id>tag:example.com,2024:authors</id>
+    <title>Authors Only</title>
+    <link href="https://example.com/authors"/>
+    <updated>2024-01-01T00:00:00Z</updated>
+    <author><name>Alan Turing</name></author>
+  </entry>
+  <entry>
+    <id>tag:example.com,2024:categories</id>
+    <title>Categories Only</title>
+    <link href="https://example.com/categories"/>
+    <updated>2024-01-01T00:00:00Z</updated>
+    <category term="science"/>
+  </entry>
+  <entry>
+    <id>tag:example.com,2024:none</id>
+    <title>No Metadata</title>
+    <link href="https://example.com/none"/>
+    <updated>2024-01-01T00:00:00Z</updated>
+  </entry>
+</feed>
+"#,
+    )
+    .expect("write feed");
+
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&config_path)
+        .arg("--storage-root")
+        .arg(db_root(db_path.to_str().expect("db path")))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let conn = Connection::open(&db_path).expect("open db");
+    let metadata = |title: &str| -> Option<String> {
+        conn.query_row(
+            "SELECT meta_json FROM entries WHERE title = ?1",
+            [title],
+            |row| row.get(0),
+        )
+        .expect("entry metadata")
+    };
+
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(
+            &metadata("Full Metadata").expect("full metadata")
+        )
+        .expect("full metadata json"),
+        serde_json::json!({
+            "authors": [
+                {
+                    "name": "Ada Lovelace",
+                    "uri": "https://example.com/ada",
+                    "email": "ada@example.com"
+                },
+                {"name": "Grace Hopper"}
+            ],
+            "categories": ["rust", "feeds"],
+            "base-url": "https://example.com/full/"
+        })
+    );
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(
+            &metadata("Authors Only").expect("authors metadata")
+        )
+        .expect("authors metadata json"),
+        serde_json::json!({"authors": [{"name": "Alan Turing"}]})
+    );
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(
+            &metadata("Categories Only").expect("categories metadata")
+        )
+        .expect("categories metadata json"),
+        serde_json::json!({"categories": ["science"]})
+    );
+    assert!(metadata("No Metadata").is_none());
+}
+
+#[test]
 fn sync_plain_shows_feed_level_progress_and_final_summary() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);

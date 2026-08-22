@@ -91,7 +91,7 @@
 - `first_seen_at`：ローカルが初めて観測した時刻（NOT NULL）
 
   - ソートや新着判定の **安定基準**として使用
-- `meta_json`：カテゴリ、複数author、rawフィールド等の拡張の逃がし先
+- `meta_json`：エントリから観測した追加メタデータを JSON オブジェクトとして保持する。対象は `authors`、`categories`、`base-url` で、観測できたフィールドのみを含む
 
 ### 4.4 `entry_contents`
 

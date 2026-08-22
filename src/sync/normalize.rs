@@ -9,6 +9,53 @@ use super::autotag::match_auto_tags;
 use super::content::{build_entry_content, select_content};
 use super::model::{PendingEntry, SyncEntry, SyncTarget};
 
+fn entry_meta_json(entry: &feed_rs::model::Entry) -> Option<String> {
+    let mut metadata = serde_json::Map::new();
+    if !entry.authors.is_empty() {
+        let authors = entry
+            .authors
+            .iter()
+            .map(|author| {
+                let mut fields = serde_json::Map::new();
+                fields.insert(
+                    "name".to_string(),
+                    serde_json::Value::String(author.name.clone()),
+                );
+                if let Some(uri) = &author.uri {
+                    fields.insert("uri".to_string(), serde_json::Value::String(uri.clone()));
+                }
+                if let Some(email) = &author.email {
+                    fields.insert(
+                        "email".to_string(),
+                        serde_json::Value::String(email.clone()),
+                    );
+                }
+                serde_json::Value::Object(fields)
+            })
+            .collect();
+        metadata.insert("authors".to_string(), serde_json::Value::Array(authors));
+    }
+    if !entry.categories.is_empty() {
+        metadata.insert(
+            "categories".to_string(),
+            serde_json::Value::Array(
+                entry
+                    .categories
+                    .iter()
+                    .map(|category| serde_json::Value::String(category.term.clone()))
+                    .collect(),
+            ),
+        );
+    }
+    if let Some(base) = &entry.base {
+        metadata.insert(
+            "base-url".to_string(),
+            serde_json::Value::String(base.clone()),
+        );
+    }
+    (!metadata.is_empty()).then(|| serde_json::Value::Object(metadata).to_string())
+}
+
 /// Normalizes a feed entry into database payloads.
 pub(crate) fn normalize_entry(
     entry: &feed_rs::model::Entry,
@@ -36,6 +83,7 @@ pub(crate) fn normalize_entry(
         tags.push(unread_tag.to_string());
     }
     let tags = dedupe_strings_preserve_order(tags);
+    let meta_json = entry_meta_json(entry);
 
     SyncEntry {
         entry: PendingEntry {
@@ -46,7 +94,7 @@ pub(crate) fn normalize_entry(
             published_at,
             updated_at,
             first_seen_at,
-            meta_json: None,
+            meta_json,
         },
         content: content_plan.content,
         content_payload: content_plan.payload,
