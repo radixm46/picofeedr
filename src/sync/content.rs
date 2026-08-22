@@ -107,6 +107,41 @@ fn write_content_file<W: Write>(
     Ok(())
 }
 
+fn create_content_temp_file(
+    dir: &Path,
+    reference: &str,
+) -> Result<(std::path::PathBuf, std::fs::File), AppError> {
+    let temp_error = |path: &Path, error| {
+        AppError::io_with_details_and_source(
+            format!("Failed to create temporary content file: {error}"),
+            error_details([
+                ("path", Value::from(path.to_string_lossy().to_string())),
+                ("reference", Value::from(reference.to_string())),
+                ("hint", Value::from("failed_to_create_content_temp_file")),
+            ]),
+            error,
+        )
+    };
+    let mut attempt = 0_u64;
+    loop {
+        let suffix = if attempt == 0 {
+            String::new()
+        } else {
+            format!(".{attempt}")
+        };
+        let temp_path = dir.join(format!(".{reference}.tmp{suffix}"));
+        match OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp_path)
+        {
+            Ok(file) => return Ok((temp_path, file)),
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => attempt += 1,
+            Err(error) => return Err(temp_error(&temp_path, error)),
+        }
+    }
+}
+
 /// Stores content on filesystem if missing and returns whether it was created.
 pub(crate) fn write_content_fs(
     root: &Path,
@@ -128,22 +163,39 @@ pub(crate) fn write_content_fs(
             error,
         )
     })?;
-    let file = match OpenOptions::new().write(true).create_new(true).open(&path) {
-        Ok(file) => file,
-        Err(error) if error.kind() == ErrorKind::AlreadyExists => return Ok(false),
+    match fs::metadata(&path) {
+        Ok(_) => return Ok(false),
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
         Err(error) => {
             return Err(AppError::io_with_details_and_source(
-                format!("Failed to write content file: {error}"),
+                format!("Failed to inspect content file: {error}"),
                 error_details([
                     ("path", Value::from(path.to_string_lossy().to_string())),
                     ("reference", Value::from(reference.to_string())),
-                    ("hint", Value::from("failed_to_write_content_file")),
+                    ("hint", Value::from("failed_to_inspect_content_file")),
                 ]),
                 error,
             ));
         }
-    };
-    write_content_file(&path, reference, file, content)?;
+    }
+    let (temp_path, file) = create_content_temp_file(dir, reference)?;
+    write_content_file(&temp_path, reference, file, content)?;
+    if let Err(error) = fs::rename(&temp_path, &path) {
+        let _ = fs::remove_file(&temp_path);
+        return Err(AppError::io_with_details_and_source(
+            format!("Failed to publish content file: {error}"),
+            error_details([
+                ("path", Value::from(path.to_string_lossy().to_string())),
+                (
+                    "temp_path",
+                    Value::from(temp_path.to_string_lossy().to_string()),
+                ),
+                ("reference", Value::from(reference.to_string())),
+                ("hint", Value::from("failed_to_publish_content_file")),
+            ]),
+            error,
+        ));
+    }
     Ok(true)
 }
 
@@ -225,5 +277,34 @@ mod tests {
         assert_eq!(error.code().as_str(), "IO_ERROR");
         assert!(error.to_string().contains("forced write failure"));
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn write_content_fs_retries_stale_temp_candidate() {
+        let dir = tempdir().expect("tempdir");
+        let reference = "c".repeat(64);
+        let final_path =
+            crate::content_ref::sha256_path(dir.path(), &reference).expect("content path");
+        fs::create_dir_all(final_path.parent().expect("content parent")).expect("content dir");
+        fs::create_dir(
+            final_path
+                .parent()
+                .expect("content parent")
+                .join(format!(".{reference}.tmp")),
+        )
+        .expect("blocking temp path");
+
+        assert!(write_content_fs(dir.path(), &reference, "payload").expect("publish"));
+        assert_eq!(
+            fs::read_to_string(&final_path).expect("read published content"),
+            "payload"
+        );
+        assert!(
+            final_path
+                .parent()
+                .expect("content parent")
+                .join(format!(".{reference}.tmp"))
+                .is_dir()
+        );
     }
 }
