@@ -16,9 +16,26 @@ pub(crate) const INSERT_ENTRY: &str = "INSERT OR IGNORE INTO entries (\
 /// Selects entry id from stable entry key.
 pub(crate) const SELECT_ENTRY_PK_BY_ID: &str = "SELECT id FROM entries WHERE entry_id = ?1";
 
+/// Refreshes feed-owned fields while preserving local state.
+pub(crate) const UPDATE_ENTRY_SOURCE: &str = "UPDATE entries SET \
+        link = COALESCE(?1, link),\
+        title = COALESCE(?2, title),\
+        author = COALESCE(?3, author),\
+        published_at = ?4,\
+        updated_at = ?5,\
+        meta_json = ?6\
+    WHERE id = ?7";
+
 /// Upserts entry content.
 pub(crate) const UPSERT_ENTRY_CONTENT: &str = "INSERT OR REPLACE INTO entry_contents (entry_pk, storage, ref, content_type, content)\
      VALUES (?1, ?2, ?3, ?4, ?5)";
+
+/// Deletes all enclosures for one entry before replacement.
+pub(crate) const DELETE_ENTRY_ENCLOSURES: &str = "DELETE FROM entry_enclosures WHERE entry_pk = ?1";
+
+/// Inserts one normalized enclosure row.
+pub(crate) const INSERT_ENTRY_ENCLOSURE: &str =
+    "INSERT INTO entry_enclosures (entry_pk, url, mime_type, length) VALUES (?1, ?2, ?3, ?4)";
 
 /// Inserts a tag row if missing.
 pub(crate) const INSERT_TAG_IGNORE: &str = "INSERT OR IGNORE INTO tags (name) VALUES (?1)";

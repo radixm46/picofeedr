@@ -101,7 +101,7 @@
   - `db`：SQLite に本文を格納
   - `fs`：sha256 hex（小文字64桁）を鍵に、保存パスをアプリ側で導出して参照
     - 例：`ref=b5bb...` → `./data/b5/b5bb...`（`./data` は CLI 設定）
-  - `none`：このエントリには **本文が無い**（エントリに content/summary が無い等）
+  - `none`：`content_store=none` のとき、観測した本文は永続化しない。本文を観測していないエントリには `entry_contents` 行を作らない
 
 - カラム設計の意図（最小・明快）：
   - `ref`：`storage='fs'` のときの **鍵（=hash hex）**（※パスそのものは入れない）

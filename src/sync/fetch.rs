@@ -167,7 +167,7 @@ fn fetch_and_parse(target: &SyncTarget, config: &AppConfig, agent: &ureq::Agent)
     let entries = feed
         .entries
         .iter()
-        .map(|entry| normalize_entry(entry, target, config))
+        .map(|entry| normalize_entry(entry, target, config, &feed.feed_type))
         .collect();
     let ctx = target.ctx.clone();
     WorkerResult::Ok {

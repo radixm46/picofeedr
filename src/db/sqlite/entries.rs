@@ -4,7 +4,7 @@
 //! Multi-step orchestration belongs to application/use-case callers.
 
 use crate::db::sqlite::query::{entries as q, sql_placeholders};
-use crate::db::{EntryContentInput, EntryInput, EntryInsertResult};
+use crate::db::{EntryContentInput, EntryEnclosureInput, EntryInput, EntryInsertResult};
 use crate::error::AppError;
 use crate::string_set::dedupe_string_slice_preserve_order;
 use rusqlite::{Connection, Statement, params, params_from_iter};
@@ -17,7 +17,10 @@ pub(crate) struct IngestContext<'conn> {
     conn: &'conn Connection,
     insert_entry_stmt: Statement<'conn>,
     select_entry_pk_stmt: Statement<'conn>,
+    update_entry_stmt: Statement<'conn>,
     upsert_entry_content_stmt: Statement<'conn>,
+    delete_entry_enclosures_stmt: Statement<'conn>,
+    insert_entry_enclosure_stmt: Statement<'conn>,
     insert_tag_stmt: Statement<'conn>,
     insert_entry_tag_stmt: Statement<'conn>,
 }
@@ -29,7 +32,10 @@ impl<'conn> IngestContext<'conn> {
             conn,
             insert_entry_stmt: conn.prepare(q::INSERT_ENTRY)?,
             select_entry_pk_stmt: conn.prepare(q::SELECT_ENTRY_PK_BY_ID)?,
+            update_entry_stmt: conn.prepare(q::UPDATE_ENTRY_SOURCE)?,
             upsert_entry_content_stmt: conn.prepare(q::UPSERT_ENTRY_CONTENT)?,
+            delete_entry_enclosures_stmt: conn.prepare(q::DELETE_ENTRY_ENCLOSURES)?,
+            insert_entry_enclosure_stmt: conn.prepare(q::INSERT_ENTRY_ENCLOSURE)?,
             insert_tag_stmt: conn.prepare(q::INSERT_TAG_IGNORE)?,
             insert_entry_tag_stmt: conn.prepare(q::INSERT_ENTRY_TAG_IGNORE)?,
         })
@@ -60,6 +66,24 @@ impl<'conn> IngestContext<'conn> {
         Ok(EntryInsertResult { entry_pk, inserted })
     }
 
+    /// Refreshes feed-owned entry fields while preserving local state.
+    pub(crate) fn refresh_entry(
+        &mut self,
+        entry_pk: i64,
+        entry: &EntryInput,
+    ) -> Result<(), AppError> {
+        self.update_entry_stmt.execute(params![
+            entry.link,
+            entry.title,
+            entry.author,
+            entry.published_at,
+            entry.updated_at,
+            entry.meta_json,
+            entry_pk,
+        ])?;
+        Ok(())
+    }
+
     /// Inserts or updates entry content for an entry.
     pub(crate) fn insert_entry_content(
         &mut self,
@@ -73,6 +97,25 @@ impl<'conn> IngestContext<'conn> {
             content.content_type,
             content.content
         ])?;
+        Ok(())
+    }
+
+    /// Replaces persisted enclosures for one entry within the current transaction.
+    pub(crate) fn replace_entry_enclosures(
+        &mut self,
+        entry_pk: i64,
+        enclosures: &[EntryEnclosureInput],
+    ) -> Result<(), AppError> {
+        self.delete_entry_enclosures_stmt
+            .execute(params![entry_pk])?;
+        for enclosure in enclosures {
+            self.insert_entry_enclosure_stmt.execute(params![
+                entry_pk,
+                enclosure.url,
+                enclosure.mime_type,
+                enclosure.length,
+            ])?;
+        }
         Ok(())
     }
 

@@ -1,6 +1,6 @@
 //! Content selection and storage helpers.
 
-use crate::config::{AppConfig, ContentStore};
+use crate::config::ContentStore;
 use crate::content_ref;
 use crate::db::{EntryContentInput, EntryContentStorage};
 use crate::error::{AppError, error_details};
@@ -15,10 +15,13 @@ use std::path::Path;
 pub(crate) fn select_content(entry: &feed_rs::model::Entry) -> (Option<String>, Option<String>) {
     if let Some(content) = &entry.content
         && let Some(body) = &content.body
+        && !body.is_empty()
     {
         return (Some(body.clone()), Some(content.content_type.to_string()));
     }
-    if let Some(summary) = &entry.summary {
+    if let Some(summary) = &entry.summary
+        && !summary.content.is_empty()
+    {
         return (
             Some(summary.content.clone()),
             Some(summary.content_type.to_string()),
@@ -29,50 +32,45 @@ pub(crate) fn select_content(entry: &feed_rs::model::Entry) -> (Option<String>, 
 
 /// Builds entry content payload according to storage config.
 pub(crate) fn build_entry_content(
-    config: &AppConfig,
+    content_store: ContentStore,
     content: Option<String>,
     content_type: Option<String>,
 ) -> EntryContentPlan {
     let Some(content) = content else {
         return EntryContentPlan {
-            content: EntryContentInput {
-                storage: EntryContentStorage::None,
-                reference: None,
-                content_type,
-                content: None,
-            },
+            content: None,
             payload: None,
         };
     };
-    match config.storage.content_store {
+    match content_store {
         ContentStore::Db => EntryContentPlan {
-            content: EntryContentInput {
+            content: Some(EntryContentInput {
                 storage: EntryContentStorage::Db,
                 reference: None,
                 content_type,
                 content: Some(content),
-            },
+            }),
             payload: None,
         },
         ContentStore::Fs => {
             let reference = content_hash(&content);
             EntryContentPlan {
-                content: EntryContentInput {
+                content: Some(EntryContentInput {
                     storage: EntryContentStorage::Fs,
                     reference: Some(reference),
                     content_type,
                     content: None,
-                },
+                }),
                 payload: Some(content),
             }
         }
         ContentStore::None => EntryContentPlan {
-            content: EntryContentInput {
+            content: Some(EntryContentInput {
                 storage: EntryContentStorage::None,
                 reference: None,
                 content_type,
                 content: None,
-            },
+            }),
             payload: None,
         },
     }
@@ -211,7 +209,9 @@ pub(crate) fn remove_content_fs(root: &Path, reference: &str) -> Result<(), AppE
 
 #[cfg(test)]
 mod tests {
-    use super::{write_content_file, write_content_fs};
+    use super::{build_entry_content, select_content, write_content_file, write_content_fs};
+    use crate::config::ContentStore;
+    use feed_rs::model::{Content, Entry, Text};
     use serde_json::Value;
     use std::fs;
     use std::fs::{File, OpenOptions};
@@ -306,5 +306,49 @@ mod tests {
                 .join(format!(".{reference}.tmp"))
                 .is_dir()
         );
+    }
+
+    #[test]
+    fn select_content_falls_back_from_empty_body_to_non_empty_summary() {
+        let entry = Entry {
+            content: Some(Content {
+                body: Some(String::new()),
+                ..Content::default()
+            }),
+            summary: Some(Text {
+                content_type: Content::default().content_type,
+                src: None,
+                content: "summary".to_string(),
+            }),
+            ..Entry::default()
+        };
+
+        let selected = select_content(&entry);
+
+        assert_eq!(selected.0.as_deref(), Some("summary"));
+    }
+
+    #[test]
+    fn select_content_treats_empty_summary_as_absent() {
+        let entry = Entry {
+            summary: Some(Text {
+                content_type: Content::default().content_type,
+                src: None,
+                content: String::new(),
+            }),
+            ..Entry::default()
+        };
+
+        let selected = select_content(&entry);
+
+        assert_eq!(selected, (None, None));
+    }
+
+    #[test]
+    fn build_entry_content_represents_unobserved_content_as_absent() {
+        let plan = build_entry_content(ContentStore::None, None, None);
+
+        assert!(plan.content.is_none());
+        assert!(plan.payload.is_none());
     }
 }

@@ -1,6 +1,6 @@
 //! Sync data structures.
 
-use crate::db::EntryContentInput;
+use crate::db::{EntryContentInput, EntryEnclosureInput};
 use schemars::JsonSchema;
 use serde::Serialize;
 
@@ -201,16 +201,17 @@ impl FeedMetadata {
 #[derive(Debug)]
 pub(crate) struct SyncEntry {
     pub(crate) entry: PendingEntry,
-    pub(crate) content: EntryContentInput,
+    pub(crate) content: Option<EntryContentInput>,
     /// Content payload for filesystem storage.
     pub(crate) content_payload: Option<String>,
+    pub(crate) enclosures: Vec<EntryEnclosureInput>,
     pub(crate) tags: Vec<String>,
 }
 
 /// Planned content storage for sync entries.
 #[derive(Debug)]
 pub(crate) struct EntryContentPlan {
-    pub(crate) content: EntryContentInput,
+    pub(crate) content: Option<EntryContentInput>,
     pub(crate) payload: Option<String>,
 }
 

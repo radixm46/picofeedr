@@ -84,6 +84,17 @@ pub struct EntryContentInput {
     pub content: Option<String>,
 }
 
+/// Observed enclosure payload for sync persistence.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct EntryEnclosureInput {
+    /// Enclosure URL.
+    pub(crate) url: String,
+    /// Optional MIME type.
+    pub(crate) mime_type: Option<String>,
+    /// Optional byte length.
+    pub(crate) length: Option<i64>,
+}
+
 /// Storage mode for entry contents.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EntryContentStorage {
