@@ -471,35 +471,47 @@ fn mark_rejects_empty_or_mixed_stdin_selection_before_opening_db() {
     let storage_root = temp.path().join("storage-file");
     fs::write(&storage_root, "not a directory").expect("write storage root file");
 
-    for (args, stdin, expected_message) in [
+    for (args, stdin, expected_code, expected_exit, expected_message) in [
         (
             vec!["mark", "read", "-"],
             "",
+            "INVALID_INPUT",
+            1,
             "stdin did not contain any entry ids",
         ),
         (
             vec!["mark", "read", "-", "explicit-id"],
             "",
+            "USAGE_ERROR",
+            2,
             "mark stdin '-' cannot be combined with entry ids",
         ),
         (
             vec!["mark", "read", "-", "-"],
             "",
+            "USAGE_ERROR",
+            2,
             "mark stdin '-' cannot be repeated",
         ),
         (
             vec!["mark", "read", "-", "-", "explicit-id"],
             "",
+            "USAGE_ERROR",
+            2,
             "mark stdin '-' cannot be repeated",
         ),
         (
             vec!["mark", "read", "-"],
             "\u{feff}",
+            "INVALID_INPUT",
+            1,
             "stdin did not contain any entry ids",
         ),
         (
             vec!["mark", "read", "-"],
             "\u{000b}",
+            "INVALID_INPUT",
+            1,
             "stdin did not contain any entry ids",
         ),
     ] {
@@ -511,13 +523,13 @@ fn mark_rejects_empty_or_mixed_stdin_selection_before_opening_db() {
             .args(args)
             .write_stdin(stdin)
             .assert()
-            .failure()
+            .code(expected_exit)
             .get_output()
             .stdout
             .clone();
 
         let error = extract_error_payload(&output);
-        assert_eq!(error["code"], "CONFIG_ERROR");
+        assert_eq!(error["code"], expected_code);
         assert_eq!(error["message"], expected_message);
     }
 }
@@ -540,13 +552,13 @@ fn mark_rejects_stdin_over_16_mib_before_opening_db() {
         .arg("-")
         .write_stdin(stdin)
         .assert()
-        .failure()
+        .code(1)
         .get_output()
         .stdout
         .clone();
 
     let error = extract_error_payload(&output);
-    assert_eq!(error["code"], "CONFIG_ERROR");
+    assert_eq!(error["code"], "INVALID_INPUT");
     assert_eq!(error["message"], "stdin exceeds 16 MiB limit");
 }
 
@@ -572,7 +584,7 @@ fn mark_rejects_invalid_utf8_from_stdin() {
         .stdout
         .clone();
 
-    assert_error_envelope(&output, "IO_ERROR", false);
+    assert_error_envelope(&output, "INVALID_INPUT", false);
 }
 
 #[test]
@@ -614,14 +626,51 @@ fn mark_requires_entry_ids() {
         let output = picofeedr_cmd_json()
             .args(args)
             .assert()
-            .failure()
+            .code(2)
             .get_output()
             .stdout
             .clone();
 
         let error = extract_error_payload(&output);
-        assert_eq!(error["code"], "CONFIG_ERROR");
+        assert_eq!(error["code"], "USAGE_ERROR");
     }
+}
+
+#[test]
+fn mark_tag_requires_add_or_remove() {
+    let output = picofeedr_cmd_json()
+        .args(["mark", "tag", "entry-id"])
+        .assert()
+        .code(2)
+        .get_output()
+        .stdout
+        .clone();
+
+    assert_error_envelope(&output, "USAGE_ERROR", false);
+}
+
+#[test]
+fn mark_tag_rejects_empty_tag_csv() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+    sync_fixture_ok(&paths);
+    let entry_id = entry_id_by_title(&paths.db_path, "First Entry");
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .args(["mark", "tag"])
+        .arg(entry_id)
+        .args(["--add", ","])
+        .assert()
+        .code(1)
+        .get_output()
+        .stdout
+        .clone();
+
+    assert_error_envelope(&output, "INVALID_INPUT", false);
 }
 
 #[test]
@@ -657,7 +706,7 @@ fn mark_tag_rejects_tag_over_64_unicode_characters() {
         .clone();
 
     let error = extract_error_payload(&output);
-    assert_eq!(error["code"], "INVALID_QUERY");
+    assert_eq!(error["code"], "INVALID_INPUT");
     let details = extract_error_details(&output);
     assert_eq!(details["kind"], "invalid_tag_name");
     assert_eq!(details["field"], "tag");

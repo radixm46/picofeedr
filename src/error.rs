@@ -24,8 +24,12 @@ where
 /// Error codes exposed by the CLI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorCode {
+    /// Command-line usage error.
+    UsageError,
     /// Configuration error.
     ConfigError,
+    /// Invalid non-query input.
+    InvalidInput,
     /// Invalid query syntax.
     InvalidQuery,
     /// Entry not found.
@@ -46,7 +50,9 @@ impl ErrorCode {
     /// Returns the string representation used in JSON output.
     pub fn as_str(&self) -> &'static str {
         match self {
+            ErrorCode::UsageError => "USAGE_ERROR",
             ErrorCode::ConfigError => "CONFIG_ERROR",
+            ErrorCode::InvalidInput => "INVALID_INPUT",
             ErrorCode::InvalidQuery => "INVALID_QUERY",
             ErrorCode::EntryNotFound => "ENTRY_NOT_FOUND",
             ErrorCode::DbLocked => "DB_LOCKED",
@@ -145,6 +151,29 @@ impl AppError {
         source: impl StdError + Send + Sync + 'static,
     ) -> Self {
         Self::with_source(ErrorCode::ConfigError, message, source)
+    }
+
+    /// Creates a command-line usage error.
+    pub fn usage(message: impl Into<String>) -> Self {
+        Self::new(ErrorCode::UsageError, message)
+    }
+
+    /// Creates an invalid input error.
+    pub fn invalid_input(message: impl Into<String>) -> Self {
+        Self::new(ErrorCode::InvalidInput, message)
+    }
+
+    /// Creates an invalid input error with details.
+    pub fn invalid_input_with_details(message: impl Into<String>, details: ErrorDetails) -> Self {
+        Self::with_details(ErrorCode::InvalidInput, message, details)
+    }
+
+    /// Creates an invalid input error with source.
+    pub fn invalid_input_with_source(
+        message: impl Into<String>,
+        source: impl StdError + Send + Sync + 'static,
+    ) -> Self {
+        Self::with_source(ErrorCode::InvalidInput, message, source)
     }
 
     /// Creates an invalid query error.

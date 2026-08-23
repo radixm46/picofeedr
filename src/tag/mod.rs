@@ -48,7 +48,7 @@ impl TagNameViolation {
     }
 }
 
-/// Validates a canonical tag name shared by configuration and query inputs.
+/// Validates a canonical tag name shared by configuration, query, and mark inputs.
 pub(crate) fn validate_tag_name(tag: &str) -> Result<(), TagNameViolation> {
     if tag.is_empty() {
         return Err(TagNameViolation::Empty);
@@ -68,17 +68,32 @@ pub(crate) fn validate_tag_name(tag: &str) -> Result<(), TagNameViolation> {
     Ok(())
 }
 
-/// Builds the structured user-input error for an invalid tag name.
+/// Builds the structured query error for an invalid tag name.
 pub(crate) fn invalid_tag_name_error(
     value: impl Into<String>,
-    field: &'static str,
     violation: TagNameViolation,
 ) -> AppError {
     AppError::invalid_query_with_details(
         violation.message(),
         error_details([
             ("kind", JsonValue::from("invalid_tag_name")),
-            ("field", JsonValue::from(field)),
+            ("field", JsonValue::from("query")),
+            ("value", JsonValue::from(value.into())),
+            ("hint", JsonValue::from(violation.hint())),
+        ]),
+    )
+}
+
+/// Builds the structured invalid-input error for a mark tag name.
+pub(crate) fn invalid_mark_tag_name_error(
+    value: impl Into<String>,
+    violation: TagNameViolation,
+) -> AppError {
+    AppError::invalid_input_with_details(
+        violation.message(),
+        error_details([
+            ("kind", JsonValue::from("invalid_tag_name")),
+            ("field", JsonValue::from("tag")),
             ("value", JsonValue::from(value.into())),
             ("hint", JsonValue::from(violation.hint())),
         ]),

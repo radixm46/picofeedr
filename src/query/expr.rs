@@ -391,7 +391,7 @@ impl ExprPolicy for TagPolicy {
 
     fn leaf(value: String, _quoted: bool) -> Result<Self::Expr, AppError> {
         validate_tag_name(&value)
-            .map_err(|violation| invalid_tag_name_error(value.clone(), "query", violation))?;
+            .map_err(|violation| invalid_tag_name_error(value.clone(), violation))?;
         Ok(TagExpr::Tag(value))
     }
 }

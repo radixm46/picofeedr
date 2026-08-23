@@ -28,10 +28,43 @@
 - `retryable: bool`
 - `details: object|null`
 
+## Fatal Error Code Responsibilities
+
+`error.code` は flat な集合だが、入力の所属と失敗の性質に応じて最も具体的なコードを選ぶ。
+`INVALID_QUERY` は `list` の query surface に限定し、`mark` の ID や tag は query として扱わない。
+
+| Code                  | Responsibility                                                                   | Default exit code |
+| --------------------- | -------------------------------------------------------------------------------- | ----------------: |
+| `USAGE_ERROR`         | argv の構文・引数・option の組み合わせが有効な command invocation を構成できない | 2                 |
+| `INVALID_INPUT`       | 有効な invocation に渡された非 query 入力が契約に違反する                        | 1                 |
+| `INVALID_QUERY`       | `list` の query、cursor、limit、query tag literal の構文・意味が不正             | 1                 |
+| `CONFIG_ERROR`        | 設定ファイルまたは設定値の decode・validation が不正                             | 1                 |
+| `ENTRY_NOT_FOUND`     | 指定された entry などのリソースを解決できない                                    | 1                 |
+| `IO_ERROR`            | read/write などの I/O 操作自体に失敗する                                         | 1                 |
+| `DB_LOCKED`           | SQLite が busy/locked で retry 可能                                              | 1                 |
+| `DB_ERROR`            | retry 不能な SQLite エラー                                                       | 1                 |
+| `INTERNAL`            | 想定外の内部状態・invariant 違反                                                 | 1                 |
+| `SERIALIZATION_ERROR` | JSON などの serialization に失敗する                                             | 1                 |
+
+clap が返す help/version 以外の parse error は `USAGE_ERROR` として扱う。
+`help` と `version` は exit code 0、stdout の `BrokenPipe` も exit code 0 とする。
+
 ## Structured `details`
 
 現行実装では次の `error.code` で機械可読な `details` shape を持つ。  
 それ以外のコードでは `details = null` を許容する。
+
+### `USAGE_ERROR`
+
+clap の parse error では `details = null` とする。
+
+### `INVALID_INPUT`
+
+mark の tag 名が不正な場合は、`INVALID_QUERY` と同じ details shape を使うが、`field` は常に `"tag"` とする。
+
+```json
+{ "kind": "invalid_tag_name", "field": "tag", "value": "<tag_name>", "hint": "<hint>" }
+```
 
 ### `INVALID_QUERY`
 
@@ -74,11 +107,11 @@
 ```
 
 ```json
-{ "kind": "invalid_tag_name", "field": "<query|tag>", "value": "<tag_name>", "hint": "<remove_surrounding_whitespace|remove_reserved_comma|remove_control_characters|shorten_tag_name>" }
+{ "kind": "invalid_tag_name", "field": "query", "value": "<tag_name>", "hint": "<remove_surrounding_whitespace|remove_reserved_comma|remove_control_characters|shorten_tag_name>" }
 ```
 
-`field = "query"` は検索クエリの tag リテラル、`field = "tag"` は `mark tag`
-の入力を表す。
+`field = "query"` は `list` の検索クエリに含まれる tag リテラルを表す。
+`mark tag` の入力は `INVALID_INPUT` とし、`INVALID_QUERY` には分類しない。
 
 ### `ENTRY_NOT_FOUND`
 
@@ -100,7 +133,9 @@
 
 ## Exit Code Rules
 
-- 致命エラーは exit code != 0
+- `USAGE_ERROR` は exit code 2
+- それ以外の致命エラーは exit code 1
+- help/version は exit code 0
 - `sync --check` は `result.valid = false` のとき `status = "warning"` かつ exit code 1
 - `sync` は blocking な `feeds.yaml` validation error があるとき `CONFIG_ERROR` で失敗する
 - `sync` の fetch / parse 失敗は致命ではなく、exit code 0 のまま `result.errors` に積む

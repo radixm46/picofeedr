@@ -8,7 +8,7 @@ use picofeedr::cli::{Cli, Command, OutputFormat};
 use picofeedr::config;
 use picofeedr::config::feeds::ConfigCheckReport;
 use picofeedr::entry::{EntryDetail, EntryListResponse};
-use picofeedr::error::AppError;
+use picofeedr::error::{AppError, ErrorCode};
 use picofeedr::feed::FeedListResponse;
 use picofeedr::response::{Envelope, MarkResponse, TagListResponse, VersionResponse};
 use picofeedr::status::StatusResponse;
@@ -216,7 +216,7 @@ fn handle_cli_parse_error(args: &[OsString], error: clap::Error) -> ExitCode {
         _ => {
             match output {
                 OutputFormat::Json => {
-                    let app_error = AppError::config(error.to_string());
+                    let app_error = AppError::usage(error.to_string());
                     if let Err(write_error) = write_fatal_output(output, &app_error) {
                         if is_broken_pipe_error(&write_error) {
                             return ExitCode::SUCCESS;
@@ -228,7 +228,7 @@ fn handle_cli_parse_error(args: &[OsString], error: clap::Error) -> ExitCode {
                     eprintln!("{error}");
                 }
             }
-            ExitCode::from(1)
+            ExitCode::from(2)
         }
     }
 }
@@ -248,7 +248,13 @@ fn write_fatal_output(output: OutputFormat, error: &AppError) -> io::Result<()> 
 fn handle_app_failure(debug: bool, output: OutputFormat, error: AppError) -> ExitCode {
     maybe_print_diagnostics(debug, &error);
     match write_fatal_output(output, &error) {
-        Ok(()) => ExitCode::from(1),
+        Ok(()) => {
+            if error.code() == ErrorCode::UsageError {
+                ExitCode::from(2)
+            } else {
+                ExitCode::from(1)
+            }
+        }
         Err(write_error) => handle_output_error(debug, write_error),
     }
 }

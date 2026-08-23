@@ -40,7 +40,8 @@
   - 出力形式は `--output json|plain`（または設定）で切り替える
 - `--output json`（機械可読）
   - 成功：exit code 0 + JSON（共通envelope）
-  - 致命：exit code != 0 + JSON（共通envelopeの `error`）
+  - usage error：exit code 2 + JSON（`error.code = "USAGE_ERROR"`）
+  - その他の致命：exit code 1 + JSON（共通envelopeの `error`）
   - パイプ先が早期終了して `stdout` が `BrokenPipe` になった場合は、致命扱いにせず exit code 0 で終了する
   - `--debug` の詳細は **標準エラー（stderr）** に寄せる（通常は出さない）
 - `--output plain`（対話向け）
@@ -69,7 +70,7 @@ picofeedr sync --check              # 同期設定の静的妥当性検証（DB�
 ```
 
 `mark read|unread|tag` は1件以上のID、または単独の `-` を受け付ける。
-`-` 指定時は標準入力をUTF-8の空白区切りトークンとして読み、先頭に1個だけあるUTF-8 BOMを除去する。連続する空白と先頭・末尾の空白は無視する（space/tab/改行等、CRLF可）。1行1IDを推奨するが、同一行のspace/tab区切りも受け付ける。`-` と明示IDの混在、`-` の複数指定、stdin解決後のID 0件は `CONFIG_ERROR` とする。
+`-` 指定時は標準入力をUTF-8の空白区切りトークンとして読み、先頭に1個だけあるUTF-8 BOMを除去する。連続する空白と先頭・末尾の空白は無視する（space/tab/改行等、CRLF可）。1行1IDを推奨するが、同一行のspace/tab区切りも受け付ける。`-` と明示IDの混在、`-` の複数指定、ID引数の欠落は `USAGE_ERROR`（exit code 2）とする。stdin解決後のID 0件、16 MiB超過、不正UTF-8は `INVALID_INPUT`（exit code 1）、stdinの読み取り失敗は `IO_ERROR` とする。形式不正を含む未登録IDは `ENTRY_NOT_FOUND` とする。
 
 **共通フラグ：**
 

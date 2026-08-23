@@ -41,6 +41,13 @@ fn apply_mark_command(
         MarkCommand::Tag { add, remove, .. } => {
             let add_tags = parse_tag_csv(add.as_deref());
             let remove_tags = parse_tag_csv(remove.as_deref());
+            if (add.is_some() && add_tags.is_empty())
+                || (remove.is_some() && remove_tags.is_empty())
+            {
+                return Err(AppError::invalid_input(
+                    "mark tag input did not contain any tags",
+                ));
+            }
             entry::mark_entries(store, entry_ids, &add_tags, &remove_tags)
         }
     }
@@ -54,10 +61,10 @@ fn resolve_entry_ids(command: &MarkCommand) -> Result<Vec<String>, AppError> {
     };
     let stdin_count = ids.iter().filter(|id| id.as_str() == "-").count();
     if stdin_count > 1 {
-        return Err(AppError::config("mark stdin '-' cannot be repeated"));
+        return Err(AppError::usage("mark stdin '-' cannot be repeated"));
     }
     if stdin_count == 1 && ids.len() > 1 {
-        return Err(AppError::config(
+        return Err(AppError::usage(
             "mark stdin '-' cannot be combined with entry ids",
         ));
     }
@@ -71,17 +78,19 @@ fn resolve_entry_ids(command: &MarkCommand) -> Result<Vec<String>, AppError> {
         .read_to_end(&mut input)
         .map_err(|error| AppError::io_with_source("failed to read entry ids from stdin", error))?;
     if input.len() > MAX_STDIN_BYTES {
-        return Err(AppError::config("stdin exceeds 16 MiB limit"));
+        return Err(AppError::invalid_input("stdin exceeds 16 MiB limit"));
     }
     let input = String::from_utf8(input)
-        .map_err(|error| AppError::io_with_source("stdin is not valid UTF-8", error))?;
+        .map_err(|error| AppError::invalid_input_with_source("stdin is not valid UTF-8", error))?;
     let input = input.strip_prefix('\u{feff}').unwrap_or(input.as_str());
     let entry_ids = input
         .split_whitespace()
         .map(str::to_owned)
         .collect::<Vec<_>>();
     if entry_ids.is_empty() {
-        return Err(AppError::config("stdin did not contain any entry ids"));
+        return Err(AppError::invalid_input(
+            "stdin did not contain any entry ids",
+        ));
     }
     Ok(entry_ids)
 }

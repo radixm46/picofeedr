@@ -28,7 +28,9 @@
 - `status = "error"` のとき `result = null` かつ `error != null` を必須とする
 - `status in {"ok","warning"}` のとき `result != null` かつ `error = null` を必須とする
 - `meta` は常に返す
-- 致命失敗は exit code != 0
+- `USAGE_ERROR` は exit code 2
+- それ以外の致命失敗は exit code 1
+- help/version は exit code 0
 - `BrokenPipe` は下流終了として扱い、exit code 0 で終了する
 
 ## Command Payloads
@@ -114,8 +116,12 @@ Blocking `feeds.yaml` validation errors fail the command with `status = "error"`
 ```
 
 `mark read`, `mark unread`, `mark tag` のID引数は1件以上の明示ID、または単独の `-` とする。
-`-` は標準入力をUTF-8の空白区切りトークンとして読み、先頭に1個だけあるUTF-8 BOMを除去する。連続する空白と先頭・末尾の空白は無視する（space/tab/改行等、CRLF可）。1行1IDを推奨するが、同一行のspace/tab区切りも受け付ける。stdinのraw bytesは16 MiBまで（上限ちょうどは許可）とし、超過、`-` と明示IDの混在、`-` の複数指定、stdin解決後のID 0件はDBを開く前に `CONFIG_ERROR` とする。
-stdinの読み取り失敗または不正UTF-8は `IO_ERROR` とする。形式不正を含む未登録IDは `ENTRY_NOT_FOUND` とし、更新は全件transactionで行う。
+`-` は標準入力をUTF-8の空白区切りトークンとして読み、先頭に1個だけあるUTF-8 BOMを除去する。連続する空白と先頭・末尾の空白は無視する（space/tab/改行等、CRLF可）。1行1IDを推奨するが、同一行のspace/tab区切りも受け付ける。stdinのraw bytesは16 MiBまで（上限ちょうどは許可）とする。
+`-` と明示IDの混在、`-` の複数指定、ID引数の欠落は `USAGE_ERROR`（exit code 2）とする。
+stdin解決後のID 0件、raw bytes の16 MiB超過、不正UTF-8は `INVALID_INPUT`（exit code 1）とする。
+stdinの読み取り失敗は `IO_ERROR` とする。形式不正を含む未登録IDは `ENTRY_NOT_FOUND` とし、更新は全件transactionで行う。
+`mark tag` は `--add` または `--remove` の少なくとも一方を必要とし、どちらもない場合は `USAGE_ERROR` とする。
+指定した tag option の値が正規化後に0件になる場合、および tag 名が不正な場合は `INVALID_INPUT` とする。
 
 ### `tags`
 

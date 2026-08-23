@@ -1,6 +1,6 @@
 //! CLI argument definitions.
 
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{ArgGroup, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
 const LIST_QUERY_LONG_HELP: &str = "\
@@ -164,6 +164,12 @@ pub enum MarkCommand {
         ids: Vec<String>,
     },
     /// Add/remove custom tags.
+    #[command(group(
+        ArgGroup::new("tag-operation")
+            .required(true)
+            .multiple(true)
+            .args(["add", "remove"]),
+    ))]
     Tag {
         /// Entry ids.
         #[arg(required = true, num_args = 1..)]

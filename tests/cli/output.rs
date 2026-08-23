@@ -48,7 +48,7 @@ fn parse_error_with_output_json_arg_is_enveloped() {
         .stdout
         .clone();
 
-    assert_error_envelope(&output, "CONFIG_ERROR", false);
+    assert_error_envelope(&output, "USAGE_ERROR", false);
 }
 
 #[test]
@@ -61,7 +61,7 @@ fn parse_error_with_short_output_json_arg_is_enveloped() {
         .stdout
         .clone();
 
-    assert_error_envelope(&output, "CONFIG_ERROR", false);
+    assert_error_envelope(&output, "USAGE_ERROR", false);
 }
 
 #[test]
@@ -75,7 +75,7 @@ fn parse_error_with_invalid_output_value_stays_plain() {
         .get_output()
         .clone();
 
-    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(output.status.code(), Some(2));
     assert!(output.stdout.is_empty());
     let stderr = String::from_utf8(output.stderr).expect("utf8");
     assert!(stderr.contains("invalid value 'bogus'"));
