@@ -59,13 +59,17 @@ picofeedr status                    # DB状態メタデータ
 picofeedr list [--query <q>] [--sort <order>] [--limit <n>] [--cursor <token>] [--id]
                                     # エントリ一覧（sort/paging は doc/spec/pagination.md 参照）
 picofeedr view <entry_id>           # エントリ詳細
-picofeedr mark <operation> <ids>    # 状態更新（read|unread|tag --add/--remove）
+picofeedr mark <operation> <ids>... # 状態更新（read|unread|tag --add/--remove）
+                                    # ids は単独の `-` で stdin（UTF-8、空白区切り、1行1ID推奨）も可
 picofeedr tags                      # タグ一覧
 picofeedr feeds [--id]              # フィード一覧
 picofeedr version                   # バージョン情報
 picofeedr sync --check              # 同期設定の静的妥当性検証（DB非依存）
 
 ```
+
+`mark read|unread|tag` は1件以上のID、または単独の `-` を受け付ける。
+`-` 指定時は標準入力をUTF-8の空白区切りトークンとして読み、先頭に1個だけあるUTF-8 BOMを除去する。連続する空白と先頭・末尾の空白は無視する（space/tab/改行等、CRLF可）。1行1IDを推奨するが、同一行のspace/tab区切りも受け付ける。`-` と明示IDの混在、`-` の複数指定、stdin解決後のID 0件は `CONFIG_ERROR` とする。
 
 **共通フラグ：**
 

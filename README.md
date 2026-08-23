@@ -65,16 +65,17 @@ picofeedr list --query unread
 | `sync --check`                         | Validate config (no DB required) |
 | `list [-q, --query <q>]`               | List entries (see options below) |
 | `view <id>`                            | View entry details               |
-| `mark read <ids>`                      | Mark as read                     |
-| `mark unread <ids>`                    | Mark as unread                   |
-| `mark tag <ids> [-a, --add <tags>]`    | Add tags (comma-separated)       |
-| `mark tag <ids> [-r, --remove <tags>]` | Remove tags (comma-separated)    |
+| `mark read <ids> or -`                 | Mark as read                     |
+| `mark unread <ids> or -`               | Mark as unread                   |
+| `mark tag <ids> or - [--add/--remove]` | Add/remove tags                  |
 | `tags`                                 | List tags                        |
 | `feeds [-i, --id]`                     | List feeds                       |
 | `status`                               | Show DB status metadata          |
 | `version`                              | Print version information        |
 
 When `manage_unread = false`, automatic unread-tag assignment is disabled, but `unread` queries and `mark read` / `mark unread` still work as aliases for `unread_tag`.
+
+`mark read`, `mark unread`, and `mark tag` accept one or more entry IDs, or a single `-` to read whitespace-separated IDs from UTF-8 stdin (one ID per line is recommended; space/tab-separated IDs are also accepted). A single leading UTF-8 BOM is ignored. Consecutive and surrounding whitespace is skipped, and CRLF is accepted. Raw stdin is limited to 16 MiB (the exact limit is accepted); exceeding it is a `CONFIG_ERROR`. `-` cannot be combined with IDs or repeated. Empty or whitespace-only stdin is a `CONFIG_ERROR`; stdin read errors and invalid UTF-8 are `IO_ERROR`.
 
 ### Query Syntax
 

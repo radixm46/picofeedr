@@ -154,18 +154,19 @@ pub enum MarkCommand {
     /// Mark entries as read (remove unread tag).
     Read {
         /// Entry ids.
-        #[arg(allow_hyphen_values = true)]
+        #[arg(required = true, num_args = 1.., allow_hyphen_values = true)]
         ids: Vec<String>,
     },
     /// Mark entries as unread (add unread tag).
     Unread {
         /// Entry ids.
-        #[arg(allow_hyphen_values = true)]
+        #[arg(required = true, num_args = 1.., allow_hyphen_values = true)]
         ids: Vec<String>,
     },
     /// Add/remove custom tags.
     Tag {
         /// Entry ids.
+        #[arg(required = true, num_args = 1..)]
         ids: Vec<String>,
         /// Tags to add (comma-separated).
         #[arg(short = 'a', long)]

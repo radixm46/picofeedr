@@ -51,6 +51,9 @@ picofeedr --output json list --query "unread tag:security" | jq '.result.items[]
 picofeedr --output json view <entry_id>
 picofeedr --output json mark read <entry_id>
 
+# 複数エントリを stdin からまとめて既読にする
+printf '%s\n' <entry_id_1> <entry_id_2> | picofeedr --output json mark read -
+
 # 注：本文（content）が無い/取得しない運用の場合は、
 # EntryDetail の `link` を外部ブラウザ等で開く。
 ```

@@ -296,6 +296,335 @@ fn mark_updates_tags_with_short_add_remove_aliases() {
 }
 
 #[test]
+fn mark_unread_accepts_entry_ids_from_stdin() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+    sync_fixture_ok(&paths);
+
+    let entry_ids = entry_ids_by_title(&paths.db_path, &["First Entry", "Second Entry"]);
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("mark")
+        .arg("read")
+        .args(&entry_ids)
+        .assert()
+        .success();
+
+    let stdin = format!("{}\n{}\n", entry_ids[0], entry_ids[1]);
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("mark")
+        .arg("unread")
+        .arg("-")
+        .write_stdin(stdin)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let data = extract_result(&output, "ok");
+    assert_eq!(data["updated_entry_count"], 2);
+    assert_eq!(
+        list_query_json(&paths.config_path, &paths.db_path, "unread")["total_count"],
+        2
+    );
+}
+
+#[test]
+fn mark_tag_accepts_entry_ids_from_stdin() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+    sync_fixture_ok(&paths);
+
+    let entry_ids = entry_ids_by_title(&paths.db_path, &["First Entry", "Second Entry"]);
+    let stdin = format!("{}\n{}\n", entry_ids[0], entry_ids[1]);
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("mark")
+        .arg("tag")
+        .arg("-")
+        .arg("--add")
+        .arg("stdin-tag")
+        .write_stdin(stdin)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let data = extract_result(&output, "ok");
+    assert_eq!(data["updated_entry_count"], 2);
+    assert_eq!(
+        list_query_json(&paths.config_path, &paths.db_path, "tag:stdin-tag")["total_count"],
+        2
+    );
+}
+
+#[test]
+fn mark_read_accepts_whitespace_separated_stdin_ids_and_deduplicates() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+    sync_fixture_ok(&paths);
+
+    let entry_ids = entry_ids_by_title(&paths.db_path, &["First Entry", "Second Entry"]);
+    let stdin = format!(
+        "\u{feff}\r\n  {}\t{}\u{000b}{}  \r\n{}\n{}\r\n\t\n",
+        entry_ids[0], entry_ids[0], entry_ids[1], entry_ids[1], entry_ids[1]
+    );
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("mark")
+        .arg("read")
+        .arg("-")
+        .write_stdin(stdin)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let data = extract_result(&output, "ok");
+    assert_eq!(data["updated_entry_count"], 2);
+    assert_eq!(
+        list_query_json(&paths.config_path, &paths.db_path, "unread")["total_count"],
+        0
+    );
+}
+
+#[test]
+fn mark_accepts_stdin_at_16_mib_limit() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+    sync_fixture_ok(&paths);
+
+    let entry_id = entry_id_by_title(&paths.db_path, "First Entry");
+    let max_stdin_bytes = 16 * 1024 * 1024;
+    let mut stdin = format!("{entry_id}\n");
+    stdin.push_str(&" ".repeat(max_stdin_bytes - stdin.len()));
+    assert_eq!(stdin.len(), max_stdin_bytes);
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("mark")
+        .arg("read")
+        .arg("-")
+        .write_stdin(stdin)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let data = extract_result(&output, "ok");
+    assert_eq!(data["updated_entry_count"], 1);
+    assert_eq!(
+        list_query_json(&paths.config_path, &paths.db_path, "unread")["total_count"],
+        1
+    );
+}
+
+#[test]
+fn mark_rejects_second_leading_stdin_bom_as_missing_entry() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+    sync_fixture_ok(&paths);
+
+    let entry_id = entry_id_by_title(&paths.db_path, "First Entry");
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("mark")
+        .arg("read")
+        .arg("-")
+        .write_stdin(format!("\u{feff}\u{feff}{entry_id}\n"))
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    assert_error_envelope(&output, "ENTRY_NOT_FOUND", false);
+}
+
+#[test]
+fn mark_rejects_empty_or_mixed_stdin_selection_before_opening_db() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+    let storage_root = temp.path().join("storage-file");
+    fs::write(&storage_root, "not a directory").expect("write storage root file");
+
+    for (args, stdin, expected_message) in [
+        (
+            vec!["mark", "read", "-"],
+            "",
+            "stdin did not contain any entry ids",
+        ),
+        (
+            vec!["mark", "read", "-", "explicit-id"],
+            "",
+            "mark stdin '-' cannot be combined with entry ids",
+        ),
+        (
+            vec!["mark", "read", "-", "-"],
+            "",
+            "mark stdin '-' cannot be repeated",
+        ),
+        (
+            vec!["mark", "read", "-", "-", "explicit-id"],
+            "",
+            "mark stdin '-' cannot be repeated",
+        ),
+        (
+            vec!["mark", "read", "-"],
+            "\u{feff}",
+            "stdin did not contain any entry ids",
+        ),
+        (
+            vec!["mark", "read", "-"],
+            "\u{000b}",
+            "stdin did not contain any entry ids",
+        ),
+    ] {
+        let output = picofeedr_cmd_json()
+            .arg("--config")
+            .arg(&paths.config_path)
+            .arg("--storage-root")
+            .arg(&storage_root)
+            .args(args)
+            .write_stdin(stdin)
+            .assert()
+            .failure()
+            .get_output()
+            .stdout
+            .clone();
+
+        let error = extract_error_payload(&output);
+        assert_eq!(error["code"], "CONFIG_ERROR");
+        assert_eq!(error["message"], expected_message);
+    }
+}
+
+#[test]
+fn mark_rejects_stdin_over_16_mib_before_opening_db() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+    let storage_root = temp.path().join("storage-file");
+    fs::write(&storage_root, "not a directory").expect("write storage root file");
+    let stdin = vec![b'x'; 16 * 1024 * 1024 + 1];
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(&storage_root)
+        .arg("mark")
+        .arg("read")
+        .arg("-")
+        .write_stdin(stdin)
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    let error = extract_error_payload(&output);
+    assert_eq!(error["code"], "CONFIG_ERROR");
+    assert_eq!(error["message"], "stdin exceeds 16 MiB limit");
+}
+
+#[test]
+fn mark_rejects_invalid_utf8_from_stdin() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+    let storage_root = temp.path().join("storage-file");
+    fs::write(&storage_root, "not a directory").expect("write storage root file");
+
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(&storage_root)
+        .arg("mark")
+        .arg("read")
+        .arg("-")
+        .write_stdin(vec![0xff, 0xfe])
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    assert_error_envelope(&output, "IO_ERROR", false);
+}
+
+#[test]
+fn mark_read_rolls_back_when_stdin_contains_a_missing_entry() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+    sync_fixture_ok(&paths);
+
+    let entry_id = entry_id_by_title(&paths.db_path, "First Entry");
+    let output = picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("mark")
+        .arg("read")
+        .arg("-")
+        .write_stdin(format!("{entry_id}\nmissing-entry-id\n"))
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    assert_error_envelope(&output, "ENTRY_NOT_FOUND", false);
+    assert_eq!(
+        list_query_json(&paths.config_path, &paths.db_path, "unread")["total_count"],
+        2
+    );
+}
+
+#[test]
+fn mark_requires_entry_ids() {
+    for args in [
+        vec!["mark", "read"],
+        vec!["mark", "unread"],
+        vec!["mark", "tag", "--add", "foo"],
+    ] {
+        let output = picofeedr_cmd_json()
+            .args(args)
+            .assert()
+            .failure()
+            .get_output()
+            .stdout
+            .clone();
+
+        let error = extract_error_payload(&output);
+        assert_eq!(error["code"], "CONFIG_ERROR");
+    }
+}
+
+#[test]
 fn mark_tag_rejects_tag_over_64_unicode_characters() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);

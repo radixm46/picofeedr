@@ -113,6 +113,10 @@ Blocking `feeds.yaml` validation errors fail the command with `status = "error"`
 { "updated_entry_count": <int> }
 ```
 
+`mark read`, `mark unread`, `mark tag` のID引数は1件以上の明示ID、または単独の `-` とする。
+`-` は標準入力をUTF-8の空白区切りトークンとして読み、先頭に1個だけあるUTF-8 BOMを除去する。連続する空白と先頭・末尾の空白は無視する（space/tab/改行等、CRLF可）。1行1IDを推奨するが、同一行のspace/tab区切りも受け付ける。stdinのraw bytesは16 MiBまで（上限ちょうどは許可）とし、超過、`-` と明示IDの混在、`-` の複数指定、stdin解決後のID 0件はDBを開く前に `CONFIG_ERROR` とする。
+stdinの読み取り失敗または不正UTF-8は `IO_ERROR` とする。形式不正を含む未登録IDは `ENTRY_NOT_FOUND` とし、更新は全件transactionで行う。
+
 ### `tags`
 
 ```json
