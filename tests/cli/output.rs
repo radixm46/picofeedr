@@ -37,24 +37,24 @@ fn broken_pipe_emits_debug_diagnostic() {
 }
 
 #[test]
-fn parse_error_with_output_equals_json_is_enveloped() {
-    let output = cargo_bin_cmd!("picofeedr")
-        .arg("--output=json")
-        .arg("unknown")
-        .assert()
-        .failure()
-        .get_output()
-        .stdout
-        .clone();
-    assert_error_envelope(&output, "CONFIG_ERROR", false);
-}
-
-#[test]
 fn parse_error_with_output_json_arg_is_enveloped() {
     let output = cargo_bin_cmd!("picofeedr")
         .arg("--output")
         .arg("json")
         .arg("--bad-flag")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    assert_error_envelope(&output, "CONFIG_ERROR", false);
+}
+
+#[test]
+fn parse_error_with_short_output_json_arg_is_enveloped() {
+    let output = cargo_bin_cmd!("picofeedr")
+        .args(["-o", "json", "unknown"])
         .assert()
         .failure()
         .get_output()

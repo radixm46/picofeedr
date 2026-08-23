@@ -125,6 +125,33 @@ fn feeds_plain_with_id_appends_feed_id_column() {
 }
 
 #[test]
+fn feeds_short_id_matches_long_id() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+    sync_fixture_ok(&paths);
+
+    let run = |id_flag: &str, output_flag: &str| {
+        let mut command = cargo_bin_cmd!("picofeedr");
+        command
+            .arg(output_flag)
+            .arg("plain")
+            .arg("--config")
+            .arg(&paths.config_path)
+            .arg("--storage-root")
+            .arg(db_root(&paths.db_path))
+            .arg("feeds")
+            .arg(id_flag);
+        command.assert().success().get_output().clone()
+    };
+
+    let long = run("--id", "--output");
+    let short = run("-i", "-o");
+
+    assert_eq!(short.stdout, long.stdout);
+    assert_eq!(short.stderr, long.stderr);
+}
+
+#[test]
 fn status_returns_default_metadata() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_fixture_files(&temp);

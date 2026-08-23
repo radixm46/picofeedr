@@ -227,7 +227,7 @@ fn view_fs_content_invalid_reference_returns_internal_error() {
 }
 
 #[test]
-fn mark_updates_tags() {
+fn mark_updates_tags_with_short_add_remove_aliases() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
 
@@ -281,9 +281,9 @@ fn mark_updates_tags() {
         .arg("mark")
         .arg("tag")
         .arg(entry_ids[0].clone())
-        .arg("--add")
+        .arg("-a")
         .arg("foo,bar")
-        .arg("--remove")
+        .arg("-r")
         .arg("tech")
         .assert()
         .success();

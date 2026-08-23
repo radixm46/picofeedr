@@ -59,20 +59,20 @@ picofeedr list --query unread
 
 ## Commands
 
-| Command                          | Description                      |
-| -------------------------------- | -------------------------------- |
-| `sync`                           | Sync feeds                       |
-| `sync --check`                   | Validate config (no DB required) |
-| `list [--query <q>]`             | List entries (see options below) |
-| `view <id>`                      | View entry details               |
-| `mark read <ids>`                | Mark as read                     |
-| `mark unread <ids>`              | Mark as unread                   |
-| `mark tag <ids> --add <tags>`    | Add tags (comma-separated)       |
-| `mark tag <ids> --remove <tags>` | Remove tags (comma-separated)    |
-| `tags`                           | List tags                        |
-| `feeds [--id]`                   | List feeds                       |
-| `status`                         | Show DB status metadata          |
-| `version`                        | Print version information        |
+| Command                                | Description                      |
+| -------------------------------------- | -------------------------------- |
+| `sync`                                 | Sync feeds                       |
+| `sync --check`                         | Validate config (no DB required) |
+| `list [-q, --query <q>]`               | List entries (see options below) |
+| `view <id>`                            | View entry details               |
+| `mark read <ids>`                      | Mark as read                     |
+| `mark unread <ids>`                    | Mark as unread                   |
+| `mark tag <ids> [-a, --add <tags>]`    | Add tags (comma-separated)       |
+| `mark tag <ids> [-r, --remove <tags>]` | Remove tags (comma-separated)    |
+| `tags`                                 | List tags                        |
+| `feeds [-i, --id]`                     | List feeds                       |
+| `status`                               | Show DB status metadata          |
+| `version`                              | Print version information        |
 
 When `manage_unread = false`, automatic unread-tag assignment is disabled, but `unread` queries and `mark read` / `mark unread` still work as aliases for `unread_tag`.
 
@@ -101,11 +101,12 @@ Supported terms:
 ### List Options
 
 ```
---sort <order>   Sort order: first-seen-desc (default) | first-seen-asc |
-                 date-desc | date-asc
---limit <n>      Number of entries per page (default: query.default_limit)
+-q, --query <q>     Query string for filters and title word search
+-s, --sort <order>  Sort order: first-seen-desc (default) | first-seen-asc |
+                    date-desc | date-asc
+-l, --limit <n>     Number of entries per page (default: query.default_limit)
 --cursor <token> Pagination cursor from the previous page
---id             Append entry id as the last column in plain output
+-i, --id         Append entry id as the last column in plain output
 ```
 
 ### Common Flags
@@ -113,7 +114,7 @@ Supported terms:
 ```
 --config <path>       Path to config.toml
 --storage-root <path> Override storage root directory
---output <json|plain> Output format (default: plain)
+-o, --output <json|plain> Output format (default: plain)
 --debug               Enable debug output on stderr
 ```
 

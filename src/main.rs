@@ -3,7 +3,7 @@
 mod commands;
 mod output;
 
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use picofeedr::cli::{Cli, Command, OutputFormat};
 use picofeedr::config;
 use picofeedr::config::feeds::ConfigCheckReport;
@@ -274,28 +274,12 @@ fn is_broken_pipe_error(error: &io::Error) -> bool {
 
 /// Detects output format from raw CLI args.
 fn detect_output_from_args(args: &[OsString]) -> OutputFormat {
-    let mut iter = args.iter().peekable();
-    while let Some(arg) = iter.next() {
-        let arg_value = arg.to_string_lossy();
-        if arg_value == "--output" {
-            if let Some(value) = iter.peek() {
-                return detect_explicit_output_value(&value.to_string_lossy());
-            }
-            return OutputFormat::Plain;
-        }
-        if let Some(value) = arg_value.strip_prefix("--output=") {
-            return detect_explicit_output_value(value);
-        }
-    }
-    OutputFormat::Plain
-}
-
-fn detect_explicit_output_value(value: &str) -> OutputFormat {
-    if value == "json" {
-        OutputFormat::Json
-    } else {
-        OutputFormat::Plain
-    }
+    Cli::command()
+        .ignore_errors(true)
+        .try_get_matches_from(args)
+        .ok()
+        .and_then(|matches| matches.get_one::<OutputFormat>("output").copied())
+        .unwrap_or(OutputFormat::Plain)
 }
 
 /// Prints error diagnostics to stderr when debug is enabled.

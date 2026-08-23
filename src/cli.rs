@@ -76,7 +76,7 @@ pub struct Cli {
     pub storage_root: Option<PathBuf>,
 
     /// Output format for CLI responses.
-    #[arg(long, value_enum)]
+    #[arg(short = 'o', long, value_enum)]
     pub output: Option<OutputFormat>,
 
     /// Enable debug diagnostics on stderr.
@@ -103,7 +103,7 @@ pub enum Command {
     /// Show feed state recorded in the local database.
     Feeds {
         /// Append feed id as the last column in plain output.
-        #[arg(long, action = clap::ArgAction::SetTrue)]
+        #[arg(short = 'i', long, action = clap::ArgAction::SetTrue)]
         id: bool,
     },
 
@@ -117,19 +117,19 @@ pub enum Command {
     /// List entry summaries.
     List {
         /// Query string for filters and title word search.
-        #[arg(long, long_help = LIST_QUERY_LONG_HELP, allow_hyphen_values = true)]
+        #[arg(short = 'q', long, long_help = LIST_QUERY_LONG_HELP, allow_hyphen_values = true)]
         query: Option<String>,
         /// Sort order.
-        #[arg(long, value_enum)]
+        #[arg(short = 's', long, value_enum)]
         sort: Option<SortOrder>,
         /// Number of items to return.
-        #[arg(long)]
+        #[arg(short = 'l', long)]
         limit: Option<usize>,
         /// Pagination cursor.
         #[arg(long)]
         cursor: Option<String>,
         /// Append entry id as the last column in plain output.
-        #[arg(long, action = clap::ArgAction::SetTrue)]
+        #[arg(short = 'i', long, action = clap::ArgAction::SetTrue)]
         id: bool,
     },
 
@@ -168,10 +168,10 @@ pub enum MarkCommand {
         /// Entry ids.
         ids: Vec<String>,
         /// Tags to add (comma-separated).
-        #[arg(long)]
+        #[arg(short = 'a', long)]
         add: Option<String>,
         /// Tags to remove (comma-separated).
-        #[arg(long)]
+        #[arg(short = 'r', long)]
         remove: Option<String>,
     },
 }

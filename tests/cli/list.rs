@@ -25,6 +25,52 @@ fn list_long_help_includes_query_reference_sections() {
 }
 
 #[test]
+fn list_short_options_match_long_options() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+    sync_fixture_ok(&paths);
+
+    let run = |options: &[&str]| {
+        let mut command = cargo_bin_cmd!("picofeedr");
+        command
+            .arg("--config")
+            .arg(&paths.config_path)
+            .arg("--storage-root")
+            .arg(db_root(&paths.db_path))
+            .args(options);
+        command.assert().success().get_output().clone()
+    };
+
+    let long = run(&[
+        "--output",
+        "plain",
+        "list",
+        "--query",
+        "unread",
+        "--sort",
+        "first_seen_desc",
+        "--limit",
+        "1",
+        "--id",
+    ]);
+    let short = run(&[
+        "-o",
+        "plain",
+        "list",
+        "-q",
+        "unread",
+        "-s",
+        "first_seen_desc",
+        "-l",
+        "1",
+        "-i",
+    ]);
+
+    assert_eq!(short.stdout, long.stdout);
+    assert_eq!(short.stderr, long.stderr);
+}
+
+#[test]
 fn list_plain_outputs_tsv_columns() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
