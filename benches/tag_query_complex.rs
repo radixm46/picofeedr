@@ -9,8 +9,6 @@ use tempfile::TempDir;
 struct BenchFixture {
     _temp: TempDir,
     db_path: std::path::PathBuf,
-    query: EntryQuery,
-    expected_total: i64,
 }
 
 fn build_fixture(entry_count: usize) -> BenchFixture {
@@ -32,7 +30,10 @@ fn build_fixture(entry_count: usize) -> BenchFixture {
     )
     .expect("insert feed");
 
-    let tag_names = ["unread", "news", "later", "junk", "youtube", "github"];
+    let tag_names = [
+        "unread", "rare", "news", "later", "junk", "youtube", "github", "alpha", "beta", "gamma",
+        "delta", "epsilon", "zeta", "eta",
+    ];
     for name in tag_names {
         tx.execute("INSERT INTO tags (name) VALUES (?1)", params![name])
             .expect("insert tag");
@@ -49,7 +50,6 @@ fn build_fixture(entry_count: usize) -> BenchFixture {
         .expect("prepare insert entry_tag");
 
     let base_ts = 1_704_067_200i64;
-    let mut expected_total = 0i64;
     for idx in 0..entry_count {
         let entry_pk = (idx + 1) as i64;
         let ts = base_ts + idx as i64 * 60;
@@ -59,62 +59,123 @@ fn build_fixture(entry_count: usize) -> BenchFixture {
 
         insert_entry
             .execute(params![entry_pk, entry_id, link, title, ts])
-            .expect("insert entry row");
+            .expect("insert entry");
 
-        // unread
+        // Every entry is unread; rare is a 1% posting list for the direct-count path.
         insert_entry_tag
             .execute(params![entry_pk, 1i64])
             .expect("insert unread tag");
-
-        // Apply one exclusion tag to 25% of entries.
-        if idx % 4 == 0 {
-            let excluded_tag_id = 2 + ((idx / 4) % 5) as i64;
+        if idx % 100 == 0 {
             insert_entry_tag
-                .execute(params![entry_pk, excluded_tag_id])
+                .execute(params![entry_pk, 2i64])
                 .expect("insert excluded tag");
-        } else {
-            expected_total += 1;
         }
+
+        // These real posting lists are used by the negative complex benchmark.
+        let broad_tag_id = 3 + (idx % 4) as i64;
+        insert_entry_tag
+            .execute(params![entry_pk, broad_tag_id])
+            .expect("insert broad tag");
+        if idx % 5 == 0 {
+            insert_entry_tag
+                .execute(params![entry_pk, 7i64])
+                .expect("insert github tag");
+        }
+
+        // Each seven-way OR operand has a real posting list.
+        let branch_tag_id = 8 + (idx % 7) as i64;
+        insert_entry_tag
+            .execute(params![entry_pk, branch_tag_id])
+            .expect("insert branch tag");
     }
 
     drop(insert_entry_tag);
     drop(insert_entry);
     tx.commit().expect("commit fixture");
 
-    let query = EntryQuery::parse(
-        Some("tag:unread -tag:news|later|junk|youtube|github after:2024-01-01 before:2025-01-01"),
-        Some("unread"),
-    )
-    .expect("parse query");
-
     BenchFixture {
         _temp: temp,
         db_path,
-        query,
-        expected_total,
     }
 }
 
-fn bench_complex_tag_query(c: &mut Criterion) {
-    let mut group = c.benchmark_group("tag_query_complex");
-    for &size in &[10_000usize, 50_000usize, 100_000usize] {
-        let fixture = build_fixture(size);
-        let store = SqliteStore::open(&fixture.db_path).expect("open query store");
+fn bench_tag_queries(c: &mut Criterion) {
+    let fixture = build_fixture(100_000);
+    let store = SqliteStore::open(&fixture.db_path).expect("open query store");
 
-        let baseline = list_entries(&store, &fixture.query, SortOrder::DateDesc, 100, None)
-            .expect("baseline query");
-        assert_eq!(baseline.total_count, fixture.expected_total);
-
-        group.bench_with_input(BenchmarkId::from_parameter(size), &size, |b, _| {
+    let simple_cases = [
+        ("single_tag_broad", "tag:unread", 100_000),
+        ("single_tag_rare", "tag:rare", 1_000),
+        ("single_tag_zero", "tag:doesnotexist", 0),
+        ("single_tag_with_title", "tag:unread Entry 99999", 1),
+    ];
+    let mut simple_group = c.benchmark_group("tag_query_simple");
+    for (name, raw_query, expected_total) in simple_cases {
+        let query = EntryQuery::parse(Some(raw_query), Some("unread")).expect("parse query");
+        let baseline =
+            list_entries(&store, &query, SortOrder::DateDesc, 100, None).expect("baseline query");
+        assert_eq!(baseline.total_count, expected_total);
+        simple_group.bench_with_input(BenchmarkId::from_parameter(name), &query, |b, query| {
             b.iter(|| {
-                let result = list_entries(&store, &fixture.query, SortOrder::DateDesc, 100, None)
+                let result = list_entries(&store, query, SortOrder::DateDesc, 100, None)
                     .expect("query result");
                 criterion::black_box(result.total_count)
             });
         });
     }
-    group.finish();
+    simple_group.finish();
+
+    let complex_cases = [
+        ("negative_real_tags", "tag:unread -tag:news", 75_000),
+        (
+            "seven_real_tags_or",
+            "tag:alpha|beta|gamma|delta|epsilon|zeta|eta",
+            100_000,
+        ),
+        (
+            "nested_real_tags",
+            "tag:(unread&(alpha|beta)) -tag:delta",
+            28_572,
+        ),
+    ];
+    let mut complex_group = c.benchmark_group("tag_query_complex");
+    for (name, raw_query, expected_total) in complex_cases {
+        let query = EntryQuery::parse(Some(raw_query), Some("unread")).expect("parse query");
+        let baseline =
+            list_entries(&store, &query, SortOrder::DateDesc, 100, None).expect("baseline query");
+        assert_eq!(baseline.total_count, expected_total);
+        complex_group.bench_with_input(BenchmarkId::from_parameter(name), &query, |b, query| {
+            b.iter(|| {
+                let result = list_entries(&store, query, SortOrder::DateDesc, 100, None)
+                    .expect("query result");
+                criterion::black_box(result.total_count)
+            });
+        });
+    }
+    complex_group.finish();
+
+    let mut scaling_group = c.benchmark_group("tag_query_size_scaling");
+    for entry_count in [10_000, 50_000, 100_000] {
+        let fixture = build_fixture(entry_count);
+        let store = SqliteStore::open(&fixture.db_path).expect("open query store");
+        let query = EntryQuery::parse(Some("tag:unread"), Some("unread")).expect("parse query");
+        let baseline =
+            list_entries(&store, &query, SortOrder::DateDesc, 100, None).expect("baseline query");
+        assert_eq!(baseline.total_count, entry_count as i64);
+        scaling_group.bench_with_input(
+            BenchmarkId::from_parameter(entry_count),
+            &query,
+            |b, query| {
+                b.iter(|| {
+                    let result = list_entries(&store, query, SortOrder::DateDesc, 100, None)
+                        .expect("query result");
+                    criterion::black_box(result.total_count)
+                });
+            },
+        );
+    }
+    scaling_group.finish();
 }
 
-criterion_group!(benches, bench_complex_tag_query);
+criterion_group!(benches, bench_tag_queries);
 criterion_main!(benches);
