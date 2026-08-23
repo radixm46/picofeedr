@@ -61,15 +61,19 @@ pub fn list_entries(
         let decoded_cursor = cursor
             .map(|raw| decode_cursor(raw, sort, &query_hash))
             .transpose()?;
-        let (items, feeds, next_page_token) = fetch_entries_complex(
-            &entry_repo,
-            &universe_sort_pairs,
-            &matched_entry_pks,
-            sort,
-            limit,
-            decoded_cursor.as_ref(),
-            &query_hash,
-        )?;
+        let (items, feeds, next_page_token) = if total_count == 0 {
+            (Vec::new(), Vec::new(), None)
+        } else {
+            fetch_entries_complex(
+                &entry_repo,
+                &universe_sort_pairs,
+                &matched_entry_pks,
+                sort,
+                limit,
+                decoded_cursor.as_ref(),
+                &query_hash,
+            )?
+        };
         return Ok(EntryListResponse {
             total_count,
             items,
@@ -96,8 +100,11 @@ pub fn list_entries(
         tag_filter.as_ref(),
         decoded_cursor.as_ref(),
     )?;
-    let (items, feeds, next_page_token) =
-        fetch_entries(&entry_repo, &page_filters, sort, limit, &query_hash)?;
+    let (items, feeds, next_page_token) = if total_count == 0 {
+        (Vec::new(), Vec::new(), None)
+    } else {
+        fetch_entries(&entry_repo, &page_filters, sort, limit, &query_hash)?
+    };
     Ok(EntryListResponse {
         total_count,
         items,

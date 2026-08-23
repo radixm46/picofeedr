@@ -950,6 +950,20 @@ fn list_rejects_invalid_cursor_format_without_echoing_raw_in_json_error() {
 }
 
 #[test]
+fn list_rejects_invalid_cursor_for_zero_result_simple_and_complex_queries() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+    for query in ["tag:doesnotexist", "tag:doesnotexist -tag:news"] {
+        assert_invalid_cursor(
+            &paths,
+            "not-a-cursor",
+            "cursor_json_decode_failed",
+            Some(query),
+        );
+    }
+}
+
+#[test]
 fn list_rejects_base64_invalid_cursor_without_echoing_raw_in_json_error() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
