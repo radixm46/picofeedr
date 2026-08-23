@@ -328,6 +328,14 @@ impl<'a> EntryReadRepo<'a> {
         Ok(total)
     }
 
+    /// Counts entries associated with one tag without scanning entry rows.
+    pub(crate) fn count_entries_by_tag(&self, tag_id: i64) -> Result<i64, AppError> {
+        let total: i64 = self
+            .conn
+            .query_row(q::COUNT_ENTRIES_BY_TAG_ID, [tag_id], |row| row.get(0))?;
+        Ok(total)
+    }
+
     /// Fetches one list page with the provided filters and sort.
     pub(crate) fn fetch_entries(
         &self,

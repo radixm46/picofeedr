@@ -1111,6 +1111,30 @@ fn list_tag_or_with_missing_tag_keeps_existing_matches() {
 }
 
 #[test]
+fn list_tag_only_preserves_items_and_order() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+    picofeedr_cmd_json()
+        .arg("--config")
+        .arg(&paths.config_path)
+        .arg("--storage-root")
+        .arg(db_root(&paths.db_path))
+        .arg("sync")
+        .assert()
+        .success();
+
+    let data = list_query_json(&paths.config_path, &paths.db_path, "tag:tech");
+    assert_eq!(data["total_count"], 2);
+    let titles = data["items"]
+        .as_array()
+        .expect("items array")
+        .iter()
+        .map(|item| item["title"].as_str().expect("title"))
+        .collect::<Vec<_>>();
+    assert_eq!(titles, ["Second Entry", "First Entry"]);
+}
+
+#[test]
 fn list_tag_not_missing_tag_matches_all_when_combined() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);

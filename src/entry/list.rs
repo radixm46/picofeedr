@@ -89,8 +89,16 @@ pub fn list_entries(
         .tag_expr
         .as_ref()
         .map(|expr| build_tag_filter(expr, &resolved_tag_ids));
-    let count_filters = build_list_filters(query, &feed_id_predicate, tag_filter.as_ref(), None)?;
-    let total_count = entry_repo.count_entries(&count_filters, repo_sort)?;
+    let total_count = if let Some(tag) = tag_only_single_positive_tag(query) {
+        match resolved_tag_ids.get(tag) {
+            Some(tag_id) => entry_repo.count_entries_by_tag(*tag_id)?,
+            None => 0,
+        }
+    } else {
+        let count_filters =
+            build_list_filters(query, &feed_id_predicate, tag_filter.as_ref(), None)?;
+        entry_repo.count_entries(&count_filters, repo_sort)?
+    };
     let decoded_cursor = cursor
         .map(|raw| decode_cursor(raw, sort, &query_hash))
         .transpose()?;
@@ -317,6 +325,33 @@ fn build_list_filters(
         filters.push(tag_filter.clone());
     }
     Ok(filters)
+}
+
+fn tag_only_single_positive_tag(query: &EntryQuery) -> Option<&str> {
+    let EntryQuery {
+        tag_expr,
+        feed,
+        title_terms,
+        negated_title_terms,
+        term_groups,
+        negated_term_groups,
+        after,
+        before,
+    } = query;
+    if feed.is_some()
+        || !title_terms.is_empty()
+        || !negated_title_terms.is_empty()
+        || !term_groups.is_empty()
+        || !negated_term_groups.is_empty()
+        || after.is_some()
+        || before.is_some()
+    {
+        return None;
+    }
+    match tag_expr.as_ref()? {
+        TagExpr::Tag(tag) => Some(tag),
+        TagExpr::Not(_) | TagExpr::And(_) | TagExpr::Or(_) => None,
+    }
 }
 
 fn build_term_filter(expr: &TermExpr) -> EntryListFilter {

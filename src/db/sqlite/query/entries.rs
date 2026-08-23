@@ -181,6 +181,9 @@ pub(crate) fn count_entries(where_sql: &str) -> String {
     format!("SELECT COUNT(1) FROM entries e {where_sql}")
 }
 
+/// SQL that counts entries associated with one tag.
+pub(crate) const COUNT_ENTRIES_BY_TAG_ID: &str = "SELECT COUNT(1) FROM entry_tags WHERE tag_id = ?";
+
 /// Builds SQL that fetches entry list rows with sort key.
 pub(crate) fn fetch_entries(where_sql: &str, key_expr: &str, order_clause: &str) -> String {
     format!(
