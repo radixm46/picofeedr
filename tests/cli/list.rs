@@ -74,20 +74,12 @@ fn list_short_options_match_long_options() {
 fn list_plain_outputs_tsv_columns() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
 
-    let output = picofeedr_cmd_plain()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_plain(&paths.config_path, &paths.db_path)
         .arg("list")
         .arg("--sort")
         .arg("first_seen_desc")
@@ -108,19 +100,11 @@ fn list_plain_outputs_tsv_columns() {
 fn list_plain_with_id_appends_entry_id_column() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
-    let output = picofeedr_cmd_plain()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_plain(&paths.config_path, &paths.db_path)
         .arg("list")
         .arg("--sort")
         .arg("first_seen_desc")
@@ -141,19 +125,11 @@ fn list_plain_with_id_appends_entry_id_column() {
 fn list_plain_writes_next_page_token_to_stderr() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
-    let output = picofeedr_cmd_plain()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_plain(&paths.config_path, &paths.db_path)
         .arg("list")
         .arg("--sort")
         .arg("first_seen_desc")
@@ -171,11 +147,7 @@ fn list_plain_writes_next_page_token_to_stderr() {
 fn list_returns_paginated_results() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
@@ -213,11 +185,7 @@ fn list_returns_paginated_results() {
 fn list_pagination_preserves_sort_order_for_simple_and_complex_paths() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
@@ -263,12 +231,8 @@ fn list_pagination_preserves_sort_order_for_simple_and_complex_paths() {
     );
 
     let list_page = |sort: &str, query: Option<&str>, cursor: Option<&str>| {
-        let mut command = picofeedr_cmd_json();
+        let mut command = fixture_cmd_json(&paths.config_path, &paths.db_path);
         command
-            .arg("--config")
-            .arg(&paths.config_path)
-            .arg("--storage-root")
-            .arg(db_root(&paths.db_path))
             .arg("list")
             .arg("--sort")
             .arg(sort)
@@ -326,11 +290,7 @@ fn list_pagination_preserves_sort_order_for_simple_and_complex_paths() {
 fn list_snapshot_matches_status_metadata() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
@@ -347,11 +307,7 @@ fn list_json_uses_unread_tag_alias_when_management_is_disabled() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_synced_fixture_with_unread_management_disabled(&temp);
 
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("list")
         .arg("--query")
         .arg("unread tag:tech")
@@ -371,11 +327,7 @@ fn list_plain_uses_unread_tag_alias_when_management_is_disabled() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_synced_fixture_with_unread_management_disabled(&temp);
 
-    let output = picofeedr_cmd_plain()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_plain(&paths.config_path, &paths.db_path)
         .arg("list")
         .arg("--query")
         .arg("unread")
@@ -393,11 +345,7 @@ fn list_plain_uses_unread_tag_alias_when_management_is_disabled() {
 fn list_filters_by_tag_expression() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
@@ -409,11 +357,7 @@ fn list_filters_by_tag_expression() {
 fn list_accepts_minus_tag_expression_alias() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
@@ -425,11 +369,7 @@ fn list_accepts_minus_tag_expression_alias() {
 fn list_filters_by_feed() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
@@ -449,19 +389,11 @@ fn list_filters_by_feed() {
 fn list_filter_by_missing_feed_id_returns_entry_not_found() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("list")
         .arg("--query")
         .arg("feed:missing-feed-id")
@@ -477,11 +409,7 @@ fn list_filter_by_missing_feed_id_returns_entry_not_found() {
 fn list_filters_by_bare_title_term() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
@@ -493,20 +421,12 @@ fn list_filters_by_bare_title_term() {
 fn list_rejects_title_prefix_with_quote_hint() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
 
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("list")
         .arg("--query")
         .arg("title:\"First\"")
@@ -526,11 +446,7 @@ fn list_rejects_title_prefix_with_quote_hint() {
 fn list_title_term_treats_like_metacharacters_as_literals() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_title_literal_fixture(&temp);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
@@ -553,11 +469,7 @@ fn list_title_term_treats_like_metacharacters_as_literals() {
 fn list_filters_by_title_terms_with_implicit_and_and_negation() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
@@ -580,20 +492,12 @@ fn list_filters_by_title_terms_with_implicit_and_and_negation() {
 fn list_accepts_hyphen_started_query_value_after_query_flag() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
 
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("list")
         .arg("--query")
         .arg("-Second")
@@ -614,11 +518,7 @@ fn list_accepts_hyphen_started_query_value_after_query_flag() {
 fn list_filters_by_title_term_groups() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_term_group_fixture(&temp);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
@@ -645,21 +545,13 @@ fn list_filters_by_title_term_groups() {
 fn list_rejects_operator_characters_inside_unquoted_bare_terms() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_term_group_fixture(&temp);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
 
     for raw in ["a|b", "a&b", "!foo", "-a|b", "-a&b", "-!foo"] {
-        let output = picofeedr_cmd_json()
-            .arg("--config")
-            .arg(&paths.config_path)
-            .arg("--storage-root")
-            .arg(db_root(&paths.db_path))
+        let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
             .arg("list")
             .arg("--query")
             .arg(raw)
@@ -689,11 +581,7 @@ fn list_rejects_operator_characters_inside_unquoted_bare_terms() {
 fn list_negated_title_group_matches_null_title_entries() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
@@ -714,11 +602,7 @@ fn list_negated_title_group_matches_null_title_entries() {
 fn list_filters_by_date_range() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
@@ -730,11 +614,7 @@ fn list_filters_by_date_range() {
 fn list_filters_by_relative_date_range() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
@@ -746,19 +626,11 @@ fn list_filters_by_relative_date_range() {
 fn list_rejects_invalid_relative_date_filter() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("list")
         .arg("--query")
         .arg("after:1好")
@@ -773,13 +645,8 @@ fn list_rejects_invalid_relative_date_filter() {
 
 fn assert_invalid_cursor(paths: &SyncFixturePaths, raw: &str, hint: &str, query: Option<&str>) {
     sync_fixture_ok(paths);
-    let mut command = picofeedr_cmd_json();
-    command
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
-        .arg("list");
+    let mut command = fixture_cmd_json(&paths.config_path, &paths.db_path);
+    command.arg("list");
     if let Some(query) = query {
         command.arg("--query").arg(query);
     }
@@ -809,19 +676,11 @@ fn assert_invalid_cursor(paths: &SyncFixturePaths, raw: &str, hint: &str, query:
 fn list_rejects_mismatched_cursor_without_echoing_raw_in_json_error() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("list")
         .arg("--query")
         .arg("unread")
@@ -843,19 +702,11 @@ fn list_rejects_mismatched_cursor_without_echoing_raw_in_json_error() {
 fn list_rejects_cursor_when_title_terms_change() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("list")
         .arg("--query")
         .arg("Entry")
@@ -872,11 +723,7 @@ fn list_rejects_cursor_when_title_terms_change() {
         .as_str()
         .expect("cursor")
         .to_string();
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("list")
         .arg("--query")
         .arg("First")
@@ -895,19 +742,11 @@ fn list_rejects_cursor_when_title_terms_change() {
 fn list_rejects_cursor_when_title_term_group_changes() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_term_group_fixture(&temp);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("list")
         .arg("--query=(alpha|アルファ)")
         .arg("--sort")
@@ -923,11 +762,7 @@ fn list_rejects_cursor_when_title_term_group_changes() {
         .as_str()
         .expect("cursor")
         .to_string();
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("list")
         .arg("--query=(beta|ベータ)")
         .arg("--cursor")
@@ -1001,19 +836,11 @@ fn list_rejects_cursor_over_byte_limit_even_when_character_count_is_lower() {
 fn list_uses_config_default_limit_when_limit_omitted() {
     let temp = TempDir::new().expect("tempdir");
     let paths = SyncFixtureBuilder::new(&temp).query_limits(1, 5).build_db();
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("list")
         .arg("--query")
         .arg("unread")
@@ -1035,19 +862,11 @@ fn list_uses_config_default_limit_when_limit_omitted() {
 fn list_rejects_limit_over_max_limit() {
     let temp = TempDir::new().expect("tempdir");
     let paths = SyncFixtureBuilder::new(&temp).query_limits(1, 5).build_db();
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("list")
         .arg("--query")
         .arg("unread")
@@ -1066,19 +885,11 @@ fn list_rejects_limit_over_max_limit() {
 fn list_rejects_zero_limit() {
     let temp = TempDir::new().expect("tempdir");
     let paths = SyncFixtureBuilder::new(&temp).query_limits(1, 5).build_db();
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("list")
         .arg("--query")
         .arg("unread")
@@ -1097,11 +908,7 @@ fn list_rejects_zero_limit() {
 fn list_tag_or_with_missing_tag_keeps_existing_matches() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
@@ -1114,11 +921,7 @@ fn list_tag_or_with_missing_tag_keeps_existing_matches() {
 fn list_tag_only_preserves_items_and_order() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
@@ -1138,11 +941,7 @@ fn list_tag_only_preserves_items_and_order() {
 fn list_tag_not_missing_tag_matches_all_when_combined() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
@@ -1159,11 +958,7 @@ fn list_tag_not_missing_tag_matches_all_when_combined() {
 fn list_tag_only_missing_tag_returns_zero() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
@@ -1175,11 +970,7 @@ fn list_tag_only_missing_tag_returns_zero() {
 fn list_tag_and_with_missing_tag_returns_zero() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
@@ -1191,11 +982,7 @@ fn list_tag_and_with_missing_tag_returns_zero() {
 fn list_complex_not_path_excludes_tagged_entries() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
@@ -1207,11 +994,7 @@ fn list_complex_not_path_excludes_tagged_entries() {
 fn list_complex_heavy_or_matches_simple_equivalent() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
@@ -1228,11 +1011,7 @@ fn list_complex_heavy_or_matches_simple_equivalent() {
 fn list_complex_path_respects_date_window_filters() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
@@ -1248,11 +1027,7 @@ fn list_complex_path_respects_date_window_filters() {
 fn list_complex_path_cursor_pagination_is_stable() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
@@ -1268,11 +1043,7 @@ fn list_complex_path_cursor_pagination_is_stable() {
 fn list_complex_large_match_set_does_not_hit_sql_variable_limit() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();

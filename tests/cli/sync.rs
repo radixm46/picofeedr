@@ -116,11 +116,7 @@ fn sync_ingests_entries_and_tags() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
 
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success()
@@ -205,11 +201,7 @@ fn sync_persists_entry_metadata_as_meta_json() {
     )
     .expect("write feed");
 
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&config_path)
-        .arg("--storage-root")
-        .arg(db_root(db_path.to_str().expect("db path")))
+    fixture_cmd_json(&config_path, &db_path)
         .arg("sync")
         .assert()
         .success();
@@ -264,11 +256,7 @@ fn sync_plain_shows_feed_level_progress_and_final_summary() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
 
-    let output = picofeedr_cmd_plain()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_plain(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success()
@@ -290,11 +278,7 @@ fn sync_plain_reports_skipped_feeds_without_fetching_or_reconciling_them() {
     let temp = TempDir::new().expect("tempdir");
     let fixture = write_skipped_feed_sync_fixture(&temp);
 
-    let output = picofeedr_cmd_plain()
-        .arg("--config")
-        .arg(&fixture.config_path)
-        .arg("--storage-root")
-        .arg(db_root(fixture.db_path.to_str().expect("db path")))
+    let output = fixture_cmd_plain(&fixture.config_path, &fixture.db_path)
         .arg("sync")
         .assert()
         .success()
@@ -344,11 +328,7 @@ fn sync_plain_feed_ok_index_counts_completed_feeds() {
     fs::write(&feed_a, sample_feed_xml("entry-a", "Entry A")).expect("write feed a");
     fs::write(&feed_b, sample_feed_xml("entry-b", "Entry B")).expect("write feed b");
 
-    let output = picofeedr_cmd_plain()
-        .arg("--config")
-        .arg(&config_path)
-        .arg("--storage-root")
-        .arg(db_root(db_path.to_str().expect("db path")))
+    let output = fixture_cmd_plain(&config_path, &db_path)
         .arg("sync")
         .assert()
         .success()
@@ -367,11 +347,7 @@ fn sync_json_reports_skipped_feeds_without_fetching_or_reconciling_them() {
     let temp = TempDir::new().expect("tempdir");
     let fixture = write_skipped_feed_sync_fixture(&temp);
 
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&fixture.config_path)
-        .arg("--storage-root")
-        .arg(db_root(fixture.db_path.to_str().expect("db path")))
+    let output = fixture_cmd_json(&fixture.config_path, &fixture.db_path)
         .arg("sync")
         .assert()
         .success()
@@ -394,11 +370,7 @@ fn sync_plain_summary_uses_single_log_line() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
 
-    let output = picofeedr_cmd_plain()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_plain(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success()
@@ -452,11 +424,7 @@ fn sync_ingests_entries_from_gopher_feed() {
     );
     fs::write(&config_path, config).expect("write config");
 
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(config_path.display().to_string())
-        .arg("--storage-root")
-        .arg(db_root(db_path.to_str().expect("db path")))
+    let output = fixture_cmd_json(&config_path, &db_path)
         .arg("sync")
         .assert()
         .success()
@@ -491,11 +459,7 @@ fn sync_reports_parse_error_for_gopher_directory_listing() {
     );
     fs::write(&config_path, config).expect("write config");
 
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(config_path.display().to_string())
-        .arg("--storage-root")
-        .arg(db_root(db_path.to_str().expect("db path")))
+    let output = fixture_cmd_json(&config_path, &db_path)
         .arg("sync")
         .assert()
         .success()
@@ -531,11 +495,7 @@ auto_tags:
     );
     fs::write(temp.path().join("feeds.yaml"), feeds).expect("rewrite feeds");
 
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
@@ -574,11 +534,7 @@ fn subgroup_auto_tags_apply_only_to_descendants() {
     );
     fs::write(&feeds_path, feeds).expect("write feeds");
 
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(config_path.display().to_string())
-        .arg("--storage-root")
-        .arg(db_root(db_path.to_str().expect("db path")))
+    fixture_cmd_json(&config_path, &db_path)
         .arg("sync")
         .assert()
         .success();
@@ -618,11 +574,7 @@ fn parent_and_child_auto_tags_are_both_applied() {
     );
     fs::write(&feeds_path, feeds).expect("write feeds");
 
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(config_path.display().to_string())
-        .arg("--storage-root")
-        .arg(db_root(db_path.to_str().expect("db path")))
+    fixture_cmd_json(&config_path, &db_path)
         .arg("sync")
         .assert()
         .success();
@@ -673,11 +625,7 @@ fn sibling_group_not_affected_by_subgroup_auto_tags() {
     );
     fs::write(&feeds_path, feeds).expect("write feeds");
 
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(config_path.display().to_string())
-        .arg("--storage-root")
-        .arg(db_root(db_path.to_str().expect("db path")))
+    fixture_cmd_json(&config_path, &db_path)
         .arg("sync")
         .assert()
         .success();
@@ -717,11 +665,7 @@ fn duplicate_tags_from_multiple_matching_rules_are_deduped() {
     );
     fs::write(&feeds_path, feeds).expect("write feeds");
 
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(config_path.display().to_string())
-        .arg("--storage-root")
-        .arg(db_root(db_path.to_str().expect("db path")))
+    fixture_cmd_json(&config_path, &db_path)
         .arg("sync")
         .assert()
         .success();
@@ -746,11 +690,7 @@ fn sync_check_reports_invalid_nested_auto_tag_rule_path() {
 "#;
     fs::write(&paths.feeds_path, feeds).expect("rewrite feeds");
 
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .arg("--check")
         .assert()
@@ -773,11 +713,7 @@ fn sync_writes_content_to_fs_store() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files_fs(&temp);
 
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
@@ -856,11 +792,7 @@ fn sync_creates_missing_storage_root_for_override() {
 fn sync_reports_partial_failed() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_failure_fixture_files(&temp);
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success()
@@ -875,11 +807,7 @@ fn sync_reports_partial_failed() {
 fn sync_plain_reports_partial_failed_with_feed_error_lines() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_failure_fixture_files(&temp);
-    let output = picofeedr_cmd_plain()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_plain(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success()
@@ -897,11 +825,7 @@ fn sync_plain_reports_error_details_as_log_lines() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_failure_fixture_files(&temp);
 
-    let output = picofeedr_cmd_plain()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_plain(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success()
@@ -923,11 +847,7 @@ fn sync_plain_reports_error_details_as_log_lines() {
 fn sync_reports_failed_when_all_feeds_fail() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_all_failed_fixture_files(&temp);
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success()
@@ -942,11 +862,7 @@ fn sync_reports_failed_when_all_feeds_fail() {
 fn sync_plain_reports_failed_with_feed_error_lines() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_all_failed_fixture_files(&temp);
-    let output = picofeedr_cmd_plain()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_plain(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success()
@@ -978,11 +894,7 @@ fn sync_http_404_fetch_failed_is_not_retryable() {
     );
     fs::write(&config_path, config).expect("write config");
 
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(config_path.display().to_string())
-        .arg("--storage-root")
-        .arg(db_root(db_path.to_str().expect("db path")))
+    let output = fixture_cmd_json(&config_path, &db_path)
         .arg("sync")
         .assert()
         .success()
@@ -1015,11 +927,7 @@ fn sync_plain_http_404_error_output_is_not_redundant() {
     );
     fs::write(&config_path, config).expect("write config");
 
-    let output = picofeedr_cmd_plain()
-        .arg("--config")
-        .arg(config_path.display().to_string())
-        .arg("--storage-root")
-        .arg(db_root(db_path.to_str().expect("db path")))
+    let output = fixture_cmd_plain(&config_path, &db_path)
         .arg("sync")
         .assert()
         .success()
@@ -1055,11 +963,7 @@ fn sync_rejects_oversized_feed_body() {
     );
     fs::write(&config_path, config).expect("write config");
 
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(config_path.display().to_string())
-        .arg("--storage-root")
-        .arg(db_root(db_path.to_str().expect("db path")))
+    let output = fixture_cmd_json(&config_path, &db_path)
         .arg("sync")
         .assert()
         .success()

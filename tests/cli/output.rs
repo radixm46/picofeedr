@@ -198,11 +198,7 @@ fn db_locked_returns_retry_true() {
     let paths = write_fixture_files(&temp);
     let _lock = acquire_exclusive_db_lock(&paths.db_path);
 
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("tags")
         .assert()
         .failure()

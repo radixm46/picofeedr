@@ -20,44 +20,26 @@ struct FatalEnvelopeInputs {
 }
 
 fn sync_check_json_cmd(config_path: &str, db_path: &str) -> assert_cmd::Command {
-    let mut cmd = picofeedr_cmd_json();
-    cmd.arg("--config")
-        .arg(config_path)
-        .arg("--storage-root")
-        .arg(db_root(db_path))
-        .arg("sync")
-        .arg("--check");
+    let mut cmd = fixture_cmd_json(config_path, db_path);
+    cmd.arg("sync").arg("--check");
     cmd
 }
 
 fn sync_check_plain_cmd(config_path: &str, db_path: &str) -> assert_cmd::Command {
-    let mut cmd = picofeedr_cmd_plain();
-    cmd.arg("--config")
-        .arg(config_path)
-        .arg("--storage-root")
-        .arg(db_root(db_path))
-        .arg("sync")
-        .arg("--check");
+    let mut cmd = fixture_cmd_plain(config_path, db_path);
+    cmd.arg("sync").arg("--check");
     cmd
 }
 
 fn feeds_json_cmd(config_path: &str, db_path: &str) -> assert_cmd::Command {
-    let mut cmd = picofeedr_cmd_json();
-    cmd.arg("--config")
-        .arg(config_path)
-        .arg("--storage-root")
-        .arg(db_root(db_path))
-        .arg("feeds");
+    let mut cmd = fixture_cmd_json(config_path, db_path);
+    cmd.arg("feeds");
     cmd
 }
 
 fn sync_json_cmd(config_path: &str, db_path: &str) -> assert_cmd::Command {
-    let mut cmd = picofeedr_cmd_json();
-    cmd.arg("--config")
-        .arg(config_path)
-        .arg("--storage-root")
-        .arg(db_root(db_path))
-        .arg("sync");
+    let mut cmd = fixture_cmd_json(config_path, db_path);
+    cmd.arg("sync");
     cmd
 }
 
@@ -678,11 +660,7 @@ fn feeds_check_is_rejected() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_fixture_files(&temp);
 
-    let stderr = picofeedr_cmd_plain()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let stderr = fixture_cmd_plain(&paths.config_path, &paths.db_path)
         .arg("feeds")
         .arg("--check")
         .assert()
@@ -1021,17 +999,16 @@ fn config_error_includes_details_for_missing_feeds_yaml() {
     let temp = TempDir::new().expect("tempdir");
     let inputs = fatal_case_missing_feeds_yaml(&temp);
 
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&inputs.config_path)
-        .arg("--storage-root")
-        .arg(db_root(inputs.db_path.as_deref().expect("db path")))
-        .args(&inputs.command_args)
-        .assert()
-        .failure()
-        .get_output()
-        .stdout
-        .clone();
+    let output = fixture_cmd_json(
+        &inputs.config_path,
+        inputs.db_path.as_deref().expect("db path"),
+    )
+    .args(&inputs.command_args)
+    .assert()
+    .failure()
+    .get_output()
+    .stdout
+    .clone();
 
     let details = extract_error_details(&output);
     assert_eq!(details["hint"], "failed_to_read_feeds_yaml");
@@ -1099,20 +1076,12 @@ fn unread_token_respects_config_unread_tag() {
         .unread_tag("fresh")
         .build_db();
 
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
 
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("list")
         .arg("--query")
         .arg("unread")
@@ -1145,20 +1114,12 @@ fn unread_tag_is_trimmed_before_use() {
         .unread_tag(" fresh ")
         .build_db();
 
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
 
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("list")
         .arg("--query")
         .arg("unread")
@@ -1201,11 +1162,7 @@ fn tags_command_does_not_create_empty_tag_when_unread_management_is_disabled() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_synced_fixture_with_unread_management_disabled(&temp);
 
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("tags")
         .assert()
         .success()
@@ -1230,11 +1187,7 @@ fn blank_unread_tag_is_rejected_even_when_unread_management_is_disabled() {
         .unread_tag("")
         .build_db();
 
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("tags")
         .assert()
         .failure()
@@ -1254,11 +1207,7 @@ fn reserved_comma_in_unread_tag_is_rejected() {
         .unread_tag("fresh,unread")
         .build_db();
 
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("tags")
         .assert()
         .failure()
@@ -1278,11 +1227,7 @@ fn overlong_unread_tag_is_rejected() {
     let tag = "技".repeat(65);
     let paths = SyncFixtureBuilder::new(&temp).unread_tag(&tag).build_db();
 
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("tags")
         .assert()
         .failure()
@@ -1301,11 +1246,7 @@ fn fatal_config_rejects_zero_default_limit() {
     let temp = TempDir::new().expect("tempdir");
     let paths = SyncFixtureBuilder::new(&temp).query_limits(0, 5).build_db();
 
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("list")
         .arg("--query")
         .arg("unread")
@@ -1324,11 +1265,7 @@ fn fatal_config_rejects_zero_max_limit() {
     let temp = TempDir::new().expect("tempdir");
     let paths = SyncFixtureBuilder::new(&temp).query_limits(1, 0).build_db();
 
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("list")
         .arg("--query")
         .arg("unread")
@@ -1347,11 +1284,7 @@ fn fatal_config_rejects_default_limit_over_max_limit() {
     let temp = TempDir::new().expect("tempdir");
     let paths = SyncFixtureBuilder::new(&temp).query_limits(6, 5).build_db();
 
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("list")
         .arg("--query")
         .arg("unread")

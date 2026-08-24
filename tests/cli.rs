@@ -50,13 +50,33 @@ fn picofeedr_cmd_plain() -> assert_cmd::Command {
     cmd
 }
 
+fn fixture_cmd_json(
+    config_path: impl AsRef<Path>,
+    db_path: impl AsRef<Path>,
+) -> assert_cmd::Command {
+    let mut cmd = picofeedr_cmd_json();
+    cmd.arg("--config")
+        .arg(config_path.as_ref())
+        .arg("--storage-root")
+        .arg(db_root(db_path));
+    cmd
+}
+
+fn fixture_cmd_plain(
+    config_path: impl AsRef<Path>,
+    db_path: impl AsRef<Path>,
+) -> assert_cmd::Command {
+    let mut cmd = picofeedr_cmd_plain();
+    cmd.arg("--config")
+        .arg(config_path.as_ref())
+        .arg("--storage-root")
+        .arg(db_root(db_path));
+    cmd
+}
+
 /// Runs a successful sync for fixture paths.
 fn sync_fixture_ok(paths: &SyncFixturePaths) {
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
@@ -93,11 +113,7 @@ root_dir = "{}"
 
 /// Runs `list` in JSON mode and returns its `data` object.
 fn list_query_json(config_path: &str, db_path: &str, query: &str) -> serde_json::Value {
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(config_path)
-        .arg("--storage-root")
-        .arg(db_root(db_path))
+    let output = fixture_cmd_json(config_path, db_path)
         .arg("list")
         .arg(format!("--query={query}"))
         .arg("--sort")
@@ -114,11 +130,7 @@ fn list_query_json(config_path: &str, db_path: &str, query: &str) -> serde_json:
 
 /// Runs `status` in JSON mode and returns its `data` object.
 fn status_json(config_path: &str, db_path: &str) -> serde_json::Value {
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(config_path)
-        .arg("--storage-root")
-        .arg(db_root(db_path))
+    let output = fixture_cmd_json(config_path, db_path)
         .arg("status")
         .assert()
         .success()
@@ -163,8 +175,9 @@ fn entry_ids_by_title(db_path: &str, titles: &[&str]) -> Vec<String> {
 }
 
 /// Resolves root_dir from a db path.
-fn db_root(db_path: &str) -> String {
-    Path::new(db_path)
+fn db_root(db_path: impl AsRef<Path>) -> String {
+    db_path
+        .as_ref()
         .parent()
         .expect("db path should include a parent directory")
         .display()

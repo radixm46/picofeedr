@@ -6,22 +6,14 @@ fn view_plain_is_human_readable() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
 
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
 
     let entry_id = entry_id_by_title(&paths.db_path, "First Entry");
 
-    let output = picofeedr_cmd_plain()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_plain(&paths.config_path, &paths.db_path)
         .arg("view")
         .arg(entry_id.clone())
         .assert()
@@ -38,22 +30,14 @@ fn view_plain_renders_kv_metadata_and_human_timestamps() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
 
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
 
     let entry_id = entry_id_by_title(&paths.db_path, "First Entry");
 
-    let output = picofeedr_cmd_plain()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_plain(&paths.config_path, &paths.db_path)
         .arg("view")
         .arg(entry_id)
         .assert()
@@ -79,11 +63,7 @@ fn view_returns_entry_detail() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
 
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
@@ -122,11 +102,7 @@ fn view_returns_entry_detail() {
     .expect("insert second enclosure");
     drop(conn);
 
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("view")
         .arg(entry_id.clone())
         .assert()
@@ -155,20 +131,12 @@ fn view_missing_entry_returns_details() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
 
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
 
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("view")
         .arg("missing-entry-id")
         .assert()
@@ -189,11 +157,7 @@ fn view_fs_content_invalid_reference_returns_internal_error() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files_fs(&temp);
 
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
@@ -209,11 +173,7 @@ fn view_fs_content_invalid_reference_returns_internal_error() {
     .expect("update entry content reference");
     drop(conn);
 
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("view")
         .arg(entry_id)
         .assert()
@@ -231,11 +191,7 @@ fn mark_updates_tags_with_short_add_remove_aliases() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
 
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
@@ -244,11 +200,7 @@ fn mark_updates_tags_with_short_add_remove_aliases() {
     let entry_ids = collect_item_ids(&unread_data);
     assert_eq!(entry_ids.len(), 2);
 
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("mark")
         .arg("read")
         .arg(entry_ids[0].clone())
@@ -259,11 +211,7 @@ fn mark_updates_tags_with_short_add_remove_aliases() {
     let unread_after_read = list_query_json(&paths.config_path, &paths.db_path, "unread");
     assert_eq!(unread_after_read["total_count"], 0);
 
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("mark")
         .arg("unread")
         .arg(entry_ids[0].clone())
@@ -273,11 +221,7 @@ fn mark_updates_tags_with_short_add_remove_aliases() {
     let unread_after_unread = list_query_json(&paths.config_path, &paths.db_path, "unread");
     assert_eq!(unread_after_unread["total_count"], 1);
 
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("mark")
         .arg("tag")
         .arg(entry_ids[0].clone())
@@ -302,11 +246,7 @@ fn mark_unread_accepts_entry_ids_from_stdin() {
     sync_fixture_ok(&paths);
 
     let entry_ids = entry_ids_by_title(&paths.db_path, &["First Entry", "Second Entry"]);
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("mark")
         .arg("read")
         .args(&entry_ids)
@@ -314,11 +254,7 @@ fn mark_unread_accepts_entry_ids_from_stdin() {
         .success();
 
     let stdin = format!("{}\n{}\n", entry_ids[0], entry_ids[1]);
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("mark")
         .arg("unread")
         .arg("-")
@@ -345,11 +281,7 @@ fn mark_tag_accepts_entry_ids_from_stdin() {
 
     let entry_ids = entry_ids_by_title(&paths.db_path, &["First Entry", "Second Entry"]);
     let stdin = format!("{}\n{}\n", entry_ids[0], entry_ids[1]);
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("mark")
         .arg("tag")
         .arg("-")
@@ -381,11 +313,7 @@ fn mark_read_accepts_whitespace_separated_stdin_ids_and_deduplicates() {
         "\u{feff}\r\n  {}\t{}\u{000b}{}  \r\n{}\n{}\r\n\t\n",
         entry_ids[0], entry_ids[0], entry_ids[1], entry_ids[1], entry_ids[1]
     );
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("mark")
         .arg("read")
         .arg("-")
@@ -416,11 +344,7 @@ fn mark_accepts_stdin_at_16_mib_limit() {
     stdin.push_str(&" ".repeat(max_stdin_bytes - stdin.len()));
     assert_eq!(stdin.len(), max_stdin_bytes);
 
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("mark")
         .arg("read")
         .arg("-")
@@ -446,11 +370,7 @@ fn mark_rejects_second_leading_stdin_bom_as_missing_entry() {
     sync_fixture_ok(&paths);
 
     let entry_id = entry_id_by_title(&paths.db_path, "First Entry");
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("mark")
         .arg("read")
         .arg("-")
@@ -594,11 +514,7 @@ fn mark_read_rolls_back_when_stdin_contains_a_missing_entry() {
     sync_fixture_ok(&paths);
 
     let entry_id = entry_id_by_title(&paths.db_path, "First Entry");
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("mark")
         .arg("read")
         .arg("-")
@@ -656,11 +572,7 @@ fn mark_tag_rejects_empty_tag_csv() {
     sync_fixture_ok(&paths);
     let entry_id = entry_id_by_title(&paths.db_path, "First Entry");
 
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .args(["mark", "tag"])
         .arg(entry_id)
         .args(["--add", ","])
@@ -678,22 +590,14 @@ fn mark_tag_rejects_tag_over_64_unicode_characters() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
 
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
 
     let entry_id = entry_id_by_title(&paths.db_path, "First Entry");
     let tag = "技".repeat(65);
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("mark")
         .arg("tag")
         .arg(entry_id)
@@ -719,21 +623,13 @@ fn mark_tag_accepts_unicode_tag_names() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
 
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
 
     let entry_id = entry_id_by_title(&paths.db_path, "First Entry");
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("mark")
         .arg("tag")
         .arg(entry_id)
@@ -757,11 +653,7 @@ fn mark_read_fails_when_any_entry_is_missing() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
 
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
@@ -771,11 +663,7 @@ fn mark_read_fails_when_any_entry_is_missing() {
     assert_eq!(entry_ids.len(), 2);
     assert_eq!(unread_data["total_count"], 2);
 
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("mark")
         .arg("read")
         .arg(entry_ids[0].clone())
@@ -800,11 +688,7 @@ fn mark_unread_fails_when_any_entry_is_missing() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
 
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
@@ -812,11 +696,7 @@ fn mark_unread_fails_when_any_entry_is_missing() {
     let entry_ids = entry_ids_by_title(&paths.db_path, &["First Entry", "Second Entry"]);
     assert_eq!(entry_ids.len(), 2);
 
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("mark")
         .arg("read")
         .arg(entry_ids[0].clone())
@@ -826,11 +706,7 @@ fn mark_unread_fails_when_any_entry_is_missing() {
     let unread_after_read = list_query_json(&paths.config_path, &paths.db_path, "unread");
     assert_eq!(unread_after_read["total_count"], 0);
 
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("mark")
         .arg("unread")
         .arg(entry_ids[0].clone())
@@ -855,11 +731,7 @@ fn mark_tag_add_fails_when_any_entry_is_missing() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
 
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
@@ -869,11 +741,7 @@ fn mark_tag_add_fails_when_any_entry_is_missing() {
     let foo_before = list_query_json(&paths.config_path, &paths.db_path, "tag:foo");
     assert_eq!(foo_before["total_count"], 0);
 
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("mark")
         .arg("tag")
         .arg(entry_ids[0].clone())
@@ -900,11 +768,7 @@ fn mark_tag_remove_fails_when_any_entry_is_missing() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
 
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
@@ -914,11 +778,7 @@ fn mark_tag_remove_fails_when_any_entry_is_missing() {
     let tech_before = list_query_json(&paths.config_path, &paths.db_path, "tag:tech");
     assert_eq!(tech_before["total_count"], 2);
 
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("mark")
         .arg("tag")
         .arg(entry_ids[0].clone())
@@ -948,11 +808,7 @@ fn mark_read_uses_unread_tag_alias_when_unread_management_is_disabled() {
     let entry_ids = entry_ids_by_title(&paths.db_path, &["First Entry", "Second Entry"]);
     assert_eq!(entry_ids.len(), 2);
 
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("mark")
         .arg("read")
         .arg(entry_ids[0].clone())
@@ -974,11 +830,7 @@ fn mark_unread_uses_unread_tag_alias_when_unread_management_is_disabled() {
     let entry_ids = entry_ids_by_title(&paths.db_path, &["First Entry", "Second Entry"]);
     assert_eq!(entry_ids.len(), 2);
 
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("mark")
         .arg("unread")
         .arg(entry_ids[0].clone())

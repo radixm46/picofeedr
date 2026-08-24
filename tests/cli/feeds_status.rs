@@ -7,11 +7,7 @@ fn feeds_reads_db_rows_without_validating_feeds_yaml() {
     sync_fixture_ok(&paths);
     fs::write(temp.path().join("feeds.yaml"), "picofeedr: [").expect("break feeds yaml");
 
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("feeds")
         .assert()
         .success()
@@ -41,11 +37,7 @@ fn tags_command_returns_tag_dictionary() {
     let paths = write_sync_fixture_files(&temp);
     sync_fixture_ok(&paths);
 
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("tags")
         .assert()
         .success()
@@ -71,11 +63,7 @@ fn feeds_plain_outputs_tsv_columns() {
     let paths = write_sync_fixture_files(&temp);
     sync_fixture_ok(&paths);
 
-    let output = picofeedr_cmd_plain()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_plain(&paths.config_path, &paths.db_path)
         .arg("feeds")
         .assert()
         .success()
@@ -103,11 +91,7 @@ fn feeds_plain_with_id_appends_feed_id_column() {
     let paths = write_sync_fixture_files(&temp);
     sync_fixture_ok(&paths);
 
-    let output = picofeedr_cmd_plain()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_plain(&paths.config_path, &paths.db_path)
         .arg("feeds")
         .arg("--id")
         .assert()
@@ -170,11 +154,7 @@ fn status_does_not_track_feeds_read_revision() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_fixture_files(&temp);
 
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("feeds")
         .assert()
         .success();
@@ -189,11 +169,7 @@ fn status_tracks_revision_and_sync_metadata() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
 
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
@@ -205,11 +181,7 @@ fn status_tracks_revision_and_sync_metadata() {
     assert_eq!(after_sync["last_sync_status"], "completed");
 
     let entry_id = entry_id_by_title(&paths.db_path, "First Entry");
-    let output = picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("view")
         .arg(entry_id.clone())
         .assert()
@@ -223,11 +195,7 @@ fn status_tracks_revision_and_sync_metadata() {
     assert_eq!(after_reads["revision"], after_sync["revision"]);
     assert_eq!(after_reads["last_write_at"], after_sync["last_write_at"]);
 
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("mark")
         .arg("read")
         .arg(entry_id.clone())
@@ -244,20 +212,12 @@ fn status_plain_renders_human_readable_local_timestamps() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
 
-    picofeedr_cmd_json()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("sync")
         .assert()
         .success();
 
-    let output = picofeedr_cmd_plain()
-        .arg("--config")
-        .arg(&paths.config_path)
-        .arg("--storage-root")
-        .arg(db_root(&paths.db_path))
+    let output = fixture_cmd_plain(&paths.config_path, &paths.db_path)
         .arg("status")
         .assert()
         .success()
