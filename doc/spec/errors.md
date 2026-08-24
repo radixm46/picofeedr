@@ -2,15 +2,11 @@
 
 ## Scope
 
-この文書は `--output json` における致命エラー契約と、`sync` の非致命エラー契約を定義する。
+この文書は `--output json` における致命エラーの意味・コード責務と、`sync` の非致命エラー契約を定義する。
 
 ## Fatal Error Envelope
 
-致命失敗時の JSON は次の shape を持つ。
-
-```json
-{ "status": "error", "result": null, "error": { "code": "DB_LOCKED", "message": "database is locked", "retryable": true, "details": { "sqlite_code": "DatabaseBusy", "retry_after_ms": 200 } }, "meta": { "api_version": "<string>", "db_schema_version": <int>, "generated_at": <epoch> } }
-```
+致命失敗時の JSON shape は、[`schemas/fatal-error.response.schema.json`](../../schemas/fatal-error.response.schema.json) を参照する。
 
 ### Rules
 
@@ -18,15 +14,6 @@
 - `result` は必ず `null`
 - `error` は必須
 - 致命失敗は exit code != 0
-
-## Error Object
-
-`error` オブジェクトの必須フィールドは次の4つ。
-
-- `code: string`
-- `message: string`
-- `retryable: bool`
-- `details: object|null`
 
 ## Fatal Error Code Responsibilities
 
@@ -143,12 +130,9 @@ mark の tag 名が不正な場合は、`INVALID_QUERY` と同じ details shape 
 
 ## Non-Fatal Sync Errors
 
-`picofeedr sync` の `result.errors` 配列では、少なくとも次のコードを使う。
-
-- `FETCH_FAILED`
-- `PARSE_FAILED`
+`picofeedr sync` の `result.errors` の shape と `code` の集合は、[`schemas/sync.response.schema.json`](../../schemas/sync.response.schema.json) を参照する。
 
 ## References
 
-- envelope 全体は `doc/spec/cli.md` を参照する
+- CLI のコマンド別意味と plain 出力の形式は `doc/spec/cli.md` を参照する
 - 命名規約は `doc/spec/api-naming.md` を参照する

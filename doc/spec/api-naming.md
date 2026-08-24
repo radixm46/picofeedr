@@ -4,15 +4,9 @@
 
 この文書は `--output json` の命名とスキーマ規約を定義する。
 未リリース前提のため、v1で曖昧な旧キーは互換なしで廃止する。
+具体的な response structure は、[CLI output schema 一覧](cli.md#json-output)を参照する。
 
-## Reserved Envelope Keys
-
-JSONレスポンスのトップレベル予約キーは以下の4つのみ。
-
-- `status`
-- `result`
-- `error`
-- `meta`
+## Response Status
 
 `status` は応答判定の単一軸。
 
@@ -44,23 +38,12 @@ JSONレスポンスのトップレベル予約キーは以下の4つのみ。
 
 ## Error Rules
 
-`error` オブジェクトは以下を必須にする。
-
-- `code: string`（SCREAMING_SNAKE_CASE）
-- `message: string`
-- `retryable: bool`
-- `details: object|null`
-
-`details` は段階導入とし、`error.code` ごとに shape を拡張していく。  
-現時点の厳密shapeは `doc/spec/errors.md` を正本とする。
+`code` は SCREAMING_SNAKE_CASE とし、`details` は段階導入として `error.code` ごとに shape を拡張していく。
+エラーコードの責務と、スキーマに表現できない code-specific な `details` の意味は `doc/spec/errors.md` を参照する。
 
 ## Meta Rules
 
-`meta` は常に返す。固定キーは以下のとおり。
-
-- `api_version: string`
-- `db_schema_version: integer`
-- `generated_at: integer`（epoch seconds）
+`meta` は常に返す。
 
 ## Banned / Deprecated Names
 

@@ -32,7 +32,7 @@
 ```bash
 # 初回
 picofeedr --output json list --query unread --sort first_seen_desc --limit 100
-# → {"status": "ok", "result": {"total_count": 342, "items": [...], "next_page_token": "eyJ...", "revision": 1284, "last_write_at": 1705420900, "last_sync_at": 1705420900}, "error": null, "meta": {...}}
+# → 返された next_page_token を次の要求の --cursor にそのまま渡す
 
 # 2ページ目
 picofeedr --output json list --query unread --sort first_seen_desc --limit 100 --cursor "eyJ..."

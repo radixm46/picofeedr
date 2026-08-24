@@ -2,25 +2,27 @@
 
 ## Scope
 
-この文書は、`picofeedr` の CLI 出力契約を定義する。  
-対象は `--output json` の envelope と、各コマンドの payload shape、`--output plain` の形式契約。
+この文書は、`picofeedr` の CLI 出力契約のうち、生成済み JSON Schema への参照、スキーマに表現できない意味、`--output plain` の形式契約を説明する。
 
 ## Output Modes
 
 - `--output json`: 機械可読契約
 - `--output plain`: 人間向け表示
 
-## JSON Envelope
+## JSON Output
 
-`--output json` のとき、stdout は常に次の envelope で返す。
+`--output json` の envelope と各コマンドの payload shape は、次のスキーマを参照する。スキーマは `cargo run --bin schemas` で再生成する。
 
-```json
-// success / warning
-{ "status": "ok|warning", "result": <payload>, "error": null, "meta": { "api_version": "<string>", "db_schema_version": <int>, "generated_at": <epoch> } }
-
-// fatal
-{ "status": "error", "result": null, "error": { "code": "<CODE>", "message": "<string>", "retryable": <bool>, "details": <object|null> }, "meta": { "api_version": "<string>", "db_schema_version": <int>, "generated_at": <epoch> } }
-```
+- `version`: [`schemas/version.response.schema.json`](../../schemas/version.response.schema.json)
+- `feeds`: [`schemas/feeds.response.schema.json`](../../schemas/feeds.response.schema.json)
+- `sync --check`: [`schemas/sync-check.response.schema.json`](../../schemas/sync-check.response.schema.json)
+- `sync`: [`schemas/sync.response.schema.json`](../../schemas/sync.response.schema.json)
+- `status`: [`schemas/status.response.schema.json`](../../schemas/status.response.schema.json)
+- `list`: [`schemas/list.response.schema.json`](../../schemas/list.response.schema.json)
+- `view`: [`schemas/view.response.schema.json`](../../schemas/view.response.schema.json)
+- `mark`: [`schemas/mark.response.schema.json`](../../schemas/mark.response.schema.json)
+- `tags`: [`schemas/tags.response.schema.json`](../../schemas/tags.response.schema.json)
+- fatal errors: [`schemas/fatal-error.response.schema.json`](../../schemas/fatal-error.response.schema.json)
 
 ### Envelope Rules
 
@@ -37,83 +39,32 @@
 
 ### `version`
 
-```json
-{ "api_version": "<string>", "db_schema_version": <int>, "build": "<string>" }
-```
-
 - `db_schema_version` はこの binary の current schema version を返す
 
 ### `feeds`
-
-```json
-{ "feeds": [{ "feed_id": "<string>", "url": "<string>", "title": "<string|null>", "site_url": "<string|null>", "author": "<string|null>" }] }
-```
 
 `feeds` はローカル DB に記録済みの feed catalog 状態のみを返す。
 `feeds.yaml` の load、validation、DB への feed 登録は行わない。
 
 ### `sync --check`
 
-```json
-{ "valid": <bool>, "errors": [ValidationIssue...], "warnings": [ValidationIssue...], "checked_feeds": <int>, "skipped_feeds": <int> }
-```
-
 `result.valid = false` のときは `status = "warning"` かつ exit code 1。
 
 ### `sync`
 
-```json
-{ "status": "completed|partial_failed|failed", "fetched_feed_count": <int>, "skipped_feed_count": <int>, "failed_feed_count": <int>, "new_entry_count": <int>, "duration_ms": <int>, "errors": [SyncError...] }
-```
-
 Blocking `feeds.yaml` validation errors fail the command with `status = "error"` and
 `error.code = "CONFIG_ERROR"` before any fetch starts.
 
-`SyncError` の shape:
-
-```json
-{ "feed_url": "<url>", "code": "FETCH_FAILED|PARSE_FAILED", "message": "<string>", "retryable": <bool> }
-```
-
 ### `status`
-
-```json
-{ "revision": <int>, "last_write_at": <epoch|null>, "db_schema_version": <int>, "api_version": "<string>", "last_sync_at": <epoch|null>, "last_sync_status": "completed|partial_failed|failed|null" }
-```
 
 - `db_schema_version` は実 DB の current schema version を返す
 
-### `list`
-
-```json
-{ "total_count": <int>, "items": [EntrySummary...], "feeds": [FeedSummary...], "next_page_token": "<token|null>", "revision": <int>, "last_write_at": <epoch|null>, "last_sync_at": <epoch|null> }
-```
-
-`EntrySummary` の最低契約:
-
-```json
-{ "entry_id": "<string>", "feed_id": "<string>", "title": "<string|null>", "link": "<string|null>", "published_at": "<epoch|null>", "first_seen_at": "<epoch>", "tags": ["..."] }
-```
-
-`FeedSummary` の shape:
-
-```json
-{ "feed_id": "<string>", "title": "<string|null>" }
-```
-
 ### `view`
-
-`result` は `EntryDetail`。  
-最低でも `entry_id`, `feed_title`, `title`, `link` を含む。
 
 `storage=db` の `content` が欠落している場合、および `storage=fs` の `ref` が欠落または不正な場合は `INTERNAL` エラーとする。妥当な `ref` に対応するファイルが欠落している場合は本文なしとして返す。
 `storage=none` の場合は本文なし (`content: null`) として返す。
 
 ### `mark`
-
-```json
-{ "updated_entry_count": <int> }
-```
 
 `mark read`, `mark unread`, `mark tag` のID引数は1件以上の明示ID、または単独の `-` とする。
 `-` は標準入力をUTF-8の空白区切りトークンとして読み、先頭に1個だけあるUTF-8 BOMを除去する。連続する空白と先頭・末尾の空白は無視する（space/tab/改行等、CRLF可）。1行1IDを推奨するが、同一行のspace/tab区切りも受け付ける。stdinのraw bytesは16 MiBまで（上限ちょうどは許可）とする。
@@ -122,12 +73,6 @@ stdin解決後のID 0件、raw bytes の16 MiB超過、不正UTF-8は `INVALID_I
 stdinの読み取り失敗は `IO_ERROR` とする。形式不正を含む未登録IDは `ENTRY_NOT_FOUND` とし、更新は全件transactionで行う。
 `mark tag` は `--add` または `--remove` の少なくとも一方を必要とし、どちらもない場合は `USAGE_ERROR` とする。
 指定した tag option の値が正規化後に0件になる場合、および tag 名が不正な場合は `INVALID_INPUT` とする。
-
-### `tags`
-
-```json
-{ "tags": ["<tag>", "..."] }
-```
 
 ## Plain Output Contract
 
