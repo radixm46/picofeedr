@@ -179,6 +179,12 @@ fn parse_gopher_url(input: &str) -> Result<GopherRequest, FetchError> {
         (parse_item_type(item)?, selector)
     };
     let selector = percent_decode(selector_encoded)?;
+    if selector.iter().any(|b| matches!(b, 0 | b'\r' | b'\n')) {
+        return Err(FetchError {
+            message: "Invalid Gopher URL: selector must not contain NUL, CR, or LF".to_string(),
+            retryable: false,
+        });
+    }
     Ok(GopherRequest {
         host: host.to_string(),
         port: url.port().unwrap_or(70),
@@ -312,6 +318,24 @@ mod tests {
         let error = parse_gopher_url("gopher://example.com/8session").expect_err("error");
         assert!(!error.retryable);
         assert_eq!(error.message, "Unsupported Gopher item type");
+    }
+
+    #[test]
+    fn parse_gopher_url_rejects_decoded_control_octets_in_selector() {
+        for url in [
+            "gopher://example.com/0a%00b",
+            "gopher://example.com/0a%0Db",
+            "gopher://example.com/0a%0db",
+            "gopher://example.com/0a%0Ab",
+            "gopher://example.com/0a%0D%0Ab",
+        ] {
+            let error = parse_gopher_url(url).expect_err(url);
+            assert!(!error.retryable, "{url}");
+            assert_eq!(
+                error.message, "Invalid Gopher URL: selector must not contain NUL, CR, or LF",
+                "{url}"
+            );
+        }
     }
 
     fn wait_for_server(done_rx: Receiver<()>, label: &str) {
