@@ -8,7 +8,7 @@ It is built for people who want to keep feed data on their own machine and work 
 - **Local-first**: Network access only during `sync`. All reading and state updates happen locally via SQLite
 - **Tag-centric design**: All state including unread is managed through tags, with unread tracking optionally disabled via config
 - **Config-driven**: Feed definitions and auto-tagging rules managed in a single `feeds.yaml`
-- **Multiple protocols**: Supports HTTP, HTTPS, Gopher, and local files (`file://`)
+- **Multiple protocols**: Fetches feeds over HTTP, HTTPS, Gopher (RSS/Atom documents only), and local files (`file://`)
 - **CLI-based**: Works standalone or as a backend for other tools (e.g., Emacs)
 - **Machine-readable output**: `--output json` provides JSON Schema-compliant output
 

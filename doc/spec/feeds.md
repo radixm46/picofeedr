@@ -149,6 +149,7 @@ when blocking errors are present.
 - feed entries with `skip: true` are not fetched or ingested during sync
 - `http://`, `https://`, `gopher://`, and `file://` source URLs are fetchable
 - `gopher://` sources are fetched as raw feed documents and parsed by the same RSS/Atom parser used for HTTP/file sources
+- a `gopher://` URL whose percent-decoded selector contains NUL, CR, or LF is rejected with `FETCH_FAILED` (`retryable: false`)
 - URLs removed from `feeds.yaml` are not fetched
 - historical DB rows may remain after a feed URL is removed from `feeds.yaml`
 
