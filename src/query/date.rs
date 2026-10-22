@@ -166,6 +166,31 @@ mod tests {
     }
 
     #[test]
+    fn parse_relative_days_and_weeks_resolve_to_local_midnight_of_earlier_date() {
+        // 2026-02-26 12:00 JST
+        let now = fixed_now_utc();
+
+        assert_eq!(
+            parse_date_or_relative_to_epoch("7d", now, fixed_jst()).expect("epoch"),
+            local_midnight_epoch(2026, Month::February, 19, fixed_jst())
+        );
+        assert_eq!(
+            parse_date_or_relative_to_epoch("2w", now, fixed_jst()).expect("epoch"),
+            local_midnight_epoch(2026, Month::February, 12, fixed_jst())
+        );
+    }
+
+    #[test]
+    fn parse_relative_days_crosses_month_boundary() {
+        let march_3 = local_midnight_epoch(2026, Month::March, 3, fixed_jst());
+
+        assert_eq!(
+            parse_date_or_relative_to_epoch("7d", march_3, fixed_jst()).expect("epoch"),
+            local_midnight_epoch(2026, Month::February, 24, fixed_jst())
+        );
+    }
+
+    #[test]
     fn rejects_non_ascii_relative_date_suffixes() {
         for value in ["1好", "好", "1🍣"] {
             let error =
