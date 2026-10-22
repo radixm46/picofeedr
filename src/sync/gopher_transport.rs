@@ -392,6 +392,22 @@ mod tests {
     }
 
     #[test]
+    fn fetch_gopher_bytes_accepts_text_response_terminated_by_eof() {
+        let (url, server) = spawn_gopher_server(|mut stream| {
+            let request = read_request_line(&mut stream);
+            assert_eq!(request, b"feed.xml\r\n");
+            stream
+                .write_all(b"<rss></rss>\r\n")
+                .expect("write response");
+        });
+
+        let bytes = fetch_gopher_bytes(&url, &test_sync_config()).expect("fetch");
+        wait_for_server(server, "Gopher server");
+
+        assert_eq!(bytes, b"<rss></rss>\r\n");
+    }
+
+    #[test]
     fn fetch_gopher_bytes_reads_binary_response_until_eof() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
         let addr = listener.local_addr().expect("local addr");
