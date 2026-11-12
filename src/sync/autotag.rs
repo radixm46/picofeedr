@@ -26,9 +26,9 @@ pub(crate) fn compile_auto_tags(rules: &[AutoTagRule]) -> Result<Vec<CompiledRul
         };
         let contains = rule
             .title_contains
-            .clone()
+            .as_deref()
             .unwrap_or_default()
-            .into_iter()
+            .iter()
             .map(|value| value.to_lowercase())
             .collect();
         compiled.push(CompiledRule {
@@ -68,28 +68,58 @@ mod tests {
 
     #[test]
     fn title_regex_matching_is_case_sensitive_by_default() {
-        let rules = compile_auto_tags(&[AutoTagRule {
-            title_regex: Some("steam".to_string()),
-            title_contains: None,
-            add_tags: vec!["regex".to_string()],
-            priority: None,
-        }])
-        .expect("compile rules");
+        for title_contains in [None, Some(vec![])] {
+            let rules = compile_auto_tags(&[AutoTagRule {
+                title_regex: Some("steam".to_string()),
+                title_contains,
+                add_tags: vec!["regex".to_string()],
+                priority: None,
+            }])
+            .expect("compile rules");
 
-        assert_eq!(match_auto_tags("steam weekly", &rules), vec!["regex"]);
-        assert!(match_auto_tags("Steam Weekly", &rules).is_empty());
+            assert_eq!(match_auto_tags("steam weekly", &rules), vec!["regex"]);
+            assert!(match_auto_tags("Steam Weekly", &rules).is_empty());
+        }
+    }
+
+    #[test]
+    fn empty_contains_list_matches_nothing_but_empty_literal_matches_any_title() {
+        for (contains, expected) in [(vec![], vec![]), (vec![String::new()], vec!["contains"])] {
+            let rules = compile_auto_tags(&[AutoTagRule {
+                title_regex: None,
+                title_contains: Some(contains),
+                add_tags: vec!["contains".to_string()],
+                priority: None,
+            }])
+            .expect("compile rules");
+            assert_eq!(match_auto_tags("Any title", &rules), expected);
+        }
     }
 
     #[test]
     fn title_contains_matching_is_case_insensitive() {
-        let rules = compile_auto_tags(&[AutoTagRule {
-            title_regex: None,
-            title_contains: Some(vec!["Steam".to_string()]),
-            add_tags: vec!["contains".to_string()],
-            priority: None,
-        }])
-        .expect("compile rules");
+        for (filter, title) in [
+            ("Steam", "sTEAM weekly"),
+            ("İ", "i\u{307} weekly"),
+            ("i\u{307}", "İ weekly"),
+        ] {
+            let rules = compile_auto_tags(&[AutoTagRule {
+                title_regex: None,
+                title_contains: Some(vec![filter.to_string()]),
+                add_tags: vec!["contains".to_string()],
+                priority: None,
+            }])
+            .expect("compile rules");
 
-        assert_eq!(match_auto_tags("steam weekly", &rules), vec!["contains"]);
+            assert_eq!(
+                match_auto_tags(title, &rules),
+                vec!["contains"],
+                "{filter:?}, {title:?}"
+            );
+            assert!(
+                match_auto_tags("unrelated", &rules).is_empty(),
+                "{filter:?}"
+            );
+        }
     }
 }
