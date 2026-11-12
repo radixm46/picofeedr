@@ -154,8 +154,16 @@ fn list_returns_paginated_results() {
     let data = list_query_json(&paths.config_path, &paths.db_path, "unread tag:tech");
     assert_eq!(data["total_count"], 2);
 
+    let conn = Connection::open(&paths.db_path).expect("open database");
+    let expected_entry_id: String = conn
+        .query_row(
+            "SELECT entry_id FROM entries WHERE title = ?1",
+            ["Second Entry"],
+            |row| row.get(0),
+        )
+        .expect("find second entry");
     let item = &data["items"][0];
-    assert!(!item["entry_id"].as_str().expect("entry id").is_empty());
+    assert_eq!(item["entry_id"], expected_entry_id);
     assert_eq!(item["title"], "Second Entry");
     assert_eq!(item["link"], "https://example.com/2");
     assert_eq!(item["published_at"], 1704153600);
@@ -171,6 +179,30 @@ fn list_returns_paginated_results() {
     let feed = &feeds[0];
     assert_eq!(feed["feed_id"], item["feed_id"]);
     assert_eq!(feed["title"], "Example Feed");
+}
+
+#[test]
+fn list_preserves_empty_and_multiple_tags_on_entries_from_the_same_feed() {
+    let temp = TempDir::new().expect("tempdir");
+    let paths = write_sync_fixture_files(&temp);
+    sync_fixture_ok(&paths);
+    let entry_id = entry_id_by_title(&paths.config_path, &paths.db_path, "First Entry");
+    fixture_cmd_json(&paths.config_path, &paths.db_path)
+        .args(["mark", "tag", &entry_id, "--remove", "hot,tech,unread"])
+        .assert()
+        .success();
+
+    for query in ["", "-tag:missing"] {
+        let data = list_query_json(&paths.config_path, &paths.db_path, query);
+        let items = data["items"].as_array().expect("items array");
+        assert_eq!(data["total_count"], 2);
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0]["title"], "Second Entry");
+        assert_eq!(items[0]["tags"], serde_json::json!(["tech", "unread"]));
+        assert_eq!(items[1]["title"], "First Entry");
+        assert_eq!(items[1]["tags"], serde_json::json!([]));
+        assert_eq!(items[0]["feed_id"], items[1]["feed_id"]);
+    }
 }
 
 #[test]
@@ -999,25 +1031,6 @@ fn list_complex_not_path_excludes_tagged_entries() {
 }
 
 #[test]
-fn list_complex_heavy_or_matches_simple_equivalent() {
-    let temp = TempDir::new().expect("tempdir");
-    let paths = write_sync_fixture_files(&temp);
-    fixture_cmd_json(&paths.config_path, &paths.db_path)
-        .arg("sync")
-        .assert()
-        .success();
-    let simple = list_query_json(&paths.config_path, &paths.db_path, "tag:tech|doesnotexist");
-    let complex = list_query_json(
-        &paths.config_path,
-        &paths.db_path,
-        "tag:tech|doesnotexist|m1|m2|m3|m4|m5",
-    );
-    assert_eq!(complex["total_count"], simple["total_count"]);
-    assert_eq!(collect_item_ids(&complex), collect_item_ids(&simple));
-    assert_titles(complex, &["First Entry", "Second Entry"]);
-}
-
-#[test]
 fn list_complex_path_respects_date_window_filters() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
@@ -1123,6 +1136,10 @@ fn assert_titles(data: serde_json::Value, expected: &[&str]) {
         .map(|title| title.to_string())
         .collect::<std::collections::BTreeSet<_>>();
     assert_eq!(actual, expected);
+    assert_eq!(
+        data["items"].as_array().expect("items array").len(),
+        expected.len()
+    );
     assert_eq!(data["total_count"], expected.len() as i64);
 }
 

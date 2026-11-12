@@ -418,11 +418,11 @@ fn fetch_entries(
         rows.truncate(limit);
         sort_keys.truncate(limit);
     }
-    let ids: Vec<i64> = rows.iter().map(|row| row.entry_pk).collect();
+    let last_id = rows.last().map(|row| row.entry_pk);
     let (items, feeds) = finalize_rows(entry_repo, rows)?;
     let next_page_token = if has_next {
-        match (ids.last(), sort_keys.last()) {
-            (Some(id), Some(key)) => Some(encode_cursor_with_query(*key, *id, sort, query_hash)?),
+        match (last_id, sort_keys.last()) {
+            (Some(id), Some(key)) => Some(encode_cursor_with_query(*key, id, sort, query_hash)?),
             _ => None,
         }
     } else {
@@ -504,7 +504,7 @@ fn finalize_rows(
     rows: Vec<EntryListRow>,
 ) -> Result<(Vec<EntrySummary>, Vec<FeedSummary>), AppError> {
     let ids: Vec<i64> = rows.iter().map(|row| row.entry_pk).collect();
-    let tags = entry_repo.load_tags(&ids)?;
+    let mut tags = entry_repo.load_tags(&ids)?;
     let feeds = rows
         .iter()
         .fold(BTreeMap::<String, Option<String>>::new(), |mut map, row| {
@@ -524,7 +524,7 @@ fn finalize_rows(
             link: row.link,
             published_at: row.published_at,
             first_seen_at: row.first_seen_at,
-            tags: tags.get(&row.entry_pk).cloned().unwrap_or_default(),
+            tags: tags.remove(&row.entry_pk).unwrap_or_default(),
         })
         .collect::<Vec<_>>();
     Ok((items, feeds))
@@ -617,30 +617,30 @@ mod tests {
     }
 
     #[test]
-    fn evaluate_tag_expr_set_accepts_pair_universe_without_materializing_ids() {
-        let expr = TagExpr::Or(vec![
-            TagExpr::And(vec![
-                TagExpr::Tag("a".to_string()),
-                TagExpr::Tag("b".to_string()),
-            ]),
-            TagExpr::Not(Box::new(TagExpr::Tag("c".to_string()))),
-        ]);
-        let universe_pairs = vec![(1, 100), (2, 90), (3, 80), (4, 70), (5, 60)];
+    fn evaluate_tag_or_unions_distinct_matches_without_duplicates() {
+        let expr = TagExpr::Or(
+            [
+                "a", "missing1", "b", "missing2", "missing3", "missing4", "missing5",
+            ]
+            .into_iter()
+            .map(|tag| TagExpr::Tag(tag.to_string()))
+            .collect(),
+        );
+        let universe = [(1, 100), (2, 90), (3, 80), (4, 70), (5, 60)];
         let resolved_tag_ids = HashMap::from([
             ("a".to_string(), 10),
             ("b".to_string(), 20),
             ("c".to_string(), 30),
         ]);
-        let tag_entry_pks =
-            HashMap::from([(10, vec![1, 3, 5]), (20, vec![3, 4, 5]), (30, vec![2, 5])]);
+        let tag_entry_pks = HashMap::from([(10, vec![1, 3, 6]), (20, vec![2, 3]), (30, vec![4])]);
 
         let matched = evaluate_tag_expr_set(
             &expr,
-            UniverseView(&universe_pairs),
+            UniverseView(&universe),
             &resolved_tag_ids,
             &tag_entry_pks,
         );
 
-        assert_eq!(matched, vec![1, 3, 4, 5]);
+        assert_eq!(matched, vec![1, 2, 3]);
     }
 }
