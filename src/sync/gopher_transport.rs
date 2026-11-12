@@ -1,10 +1,10 @@
 //! Minimal Gopher transport for fetching feed documents.
 
 use crate::config::SyncConfig;
-use std::io::{BufRead, BufReader, Read, Write};
-use std::net::TcpStream;
+use std::io::{self, BufRead, BufReader, Read, Write};
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use url::Url;
 
 use super::fetch::FetchError;
@@ -44,10 +44,11 @@ pub(super) fn fetch_gopher_bytes(url: &str, sync: &SyncConfig) -> Result<Vec<u8>
 
 fn fetch_once(request: &GopherRequest, sync: &SyncConfig) -> Result<Vec<u8>, FetchError> {
     let addr = format!("{}:{}", request.host, request.port);
-    let mut stream = TcpStream::connect(&addr).map_err(|error| FetchError {
-        message: format!("Failed to connect to Gopher server: {error}"),
-        retryable: true,
-    })?;
+    let mut stream = connect_with_timeout(addr.as_str(), Duration::from_secs(sync.timeout_secs))
+        .map_err(|error| FetchError {
+            message: format!("Failed to connect to Gopher server: {error}"),
+            retryable: true,
+        })?;
     let timeout = Some(Duration::from_secs(sync.timeout_secs));
     stream
         .set_read_timeout(timeout)
@@ -77,6 +78,41 @@ fn fetch_once(request: &GopherRequest, sync: &SyncConfig) -> Result<Vec<u8>, Fet
         }
         GopherItemType::Binary => read_binary_response(stream, sync.max_feed_bytes),
     }
+}
+
+fn connect_with_timeout(addr: impl ToSocketAddrs, timeout: Duration) -> io::Result<TcpStream> {
+    let addresses = addr.to_socket_addrs()?;
+    // std DNS resolution is blocking and is not covered by this connection budget.
+    let started = Instant::now();
+    connect_with_budget(
+        addresses,
+        timeout,
+        || started.elapsed(),
+        TcpStream::connect_timeout,
+    )
+}
+
+fn connect_with_budget<T>(
+    addresses: impl IntoIterator<Item = SocketAddr>,
+    timeout: Duration,
+    mut elapsed: impl FnMut() -> Duration,
+    mut connect: impl FnMut(&SocketAddr, Duration) -> io::Result<T>,
+) -> io::Result<T> {
+    let mut last_error = io::Error::new(io::ErrorKind::InvalidInput, "No Gopher server addresses");
+    for address in addresses {
+        let remaining = timeout.saturating_sub(elapsed());
+        if remaining.is_zero() {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "Gopher connection timed out",
+            ));
+        }
+        match connect(&address, remaining) {
+            Ok(stream) => return Ok(stream),
+            Err(error) => last_error = error,
+        }
+    }
+    Err(last_error)
 }
 
 fn read_text_response(stream: impl Read, max_feed_bytes: usize) -> Result<Vec<u8>, FetchError> {
@@ -254,11 +290,12 @@ fn decode_hex(value: u8) -> Result<u8, FetchError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        GopherItemType, GopherRequest, fetch_gopher_bytes, parse_gopher_url, read_text_response,
+        GopherItemType, GopherRequest, connect_with_budget, fetch_gopher_bytes, parse_gopher_url,
+        read_text_response,
     };
     use crate::config::SyncConfig;
-    use std::io::{Read, Write};
-    use std::net::TcpListener;
+    use std::io::{self, Read, Write};
+    use std::net::{SocketAddr, TcpListener};
     use std::sync::mpsc::{self, Receiver};
     use std::thread;
     use std::time::Duration;
@@ -517,6 +554,78 @@ mod tests {
     }
 
     #[test]
+    fn connect_with_budget_passes_remaining_time_to_later_addresses() {
+        let addresses = [
+            SocketAddr::from(([127, 0, 0, 1], 70)),
+            SocketAddr::from(([127, 0, 0, 2], 70)),
+        ];
+        let mut elapsed = [Duration::ZERO, Duration::from_millis(7)].into_iter();
+        let mut attempts = Vec::new();
+        let connected = connect_with_budget(
+            addresses,
+            Duration::from_millis(10),
+            || elapsed.next().expect("elapsed time per attempt"),
+            |address, remaining| {
+                attempts.push((*address, remaining));
+                if *address == addresses[0] {
+                    Err(io::Error::new(
+                        io::ErrorKind::ConnectionRefused,
+                        "first address failed",
+                    ))
+                } else {
+                    Ok(*address)
+                }
+            },
+        )
+        .expect("connect to second address");
+        assert_eq!(connected, addresses[1]);
+        assert_eq!(
+            attempts,
+            [
+                (addresses[0], Duration::from_millis(10)),
+                (addresses[1], Duration::from_millis(3)),
+            ]
+        );
+    }
+
+    #[test]
+    fn connect_with_budget_stops_before_an_attempt_after_expiration() {
+        let addresses = [
+            SocketAddr::from(([127, 0, 0, 1], 70)),
+            SocketAddr::from(([127, 0, 0, 2], 70)),
+            SocketAddr::from(([127, 0, 0, 3], 70)),
+        ];
+        let mut elapsed = [
+            Duration::ZERO,
+            Duration::from_millis(7),
+            Duration::from_millis(10),
+        ]
+        .into_iter();
+        let mut attempts = Vec::new();
+        let error = connect_with_budget::<()>(
+            addresses,
+            Duration::from_millis(10),
+            || elapsed.next().expect("elapsed time per attempt"),
+            |address, remaining| {
+                attempts.push((*address, remaining));
+                Err(io::Error::new(
+                    io::ErrorKind::ConnectionRefused,
+                    "address failed",
+                ))
+            },
+        )
+        .expect_err("shared budget exhausted");
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        assert_eq!(
+            attempts,
+            [
+                (addresses[0], Duration::from_millis(10)),
+                (addresses[1], Duration::from_millis(3)),
+            ]
+        );
+    }
+
+    #[test]
     fn fetch_gopher_bytes_rejects_oversize_before_newline_or_peer_close() {
         let (release_tx, release_rx) = mpsc::channel();
         let (url, server) = spawn_gopher_server(move |mut stream| {
@@ -533,6 +642,19 @@ mod tests {
         let error = result.expect_err("oversized response");
         assert!(!error.retryable);
         assert_eq!(error.message, "Feed body exceeds max_feed_bytes");
+    }
+
+    #[test]
+    fn connect_with_budget_rejects_zero_budget_without_connecting() {
+        let address = SocketAddr::from(([127, 0, 0, 1], 70));
+        let error = connect_with_budget::<()>(
+            [address],
+            Duration::ZERO,
+            || Duration::ZERO,
+            |_, _| panic!("must not connect without a time budget"),
+        )
+        .expect_err("zero connection budget");
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
     }
 
     #[test]

@@ -97,6 +97,10 @@ DBパスは `storage.root_dir/db.sqlite`、ファイル保存先は `storage.roo
 
 `sync.parallel` に 0 または 65 以上を指定した場合は設定エラーとする。
 
+Gopher の `sync.timeout` は秒単位で、各試行の接続先アドレス全体で共有する接続時間の上限と、
+接続後の個々の読み書きの待機時間に適用する。
+DNS 名前解決にかかる時間はこの上限に含まれず、取得全体の締切を保証するものではない。
+
 ### `[query]`
 
 - `default_limit: integer`
