@@ -251,10 +251,7 @@ pub(crate) enum WorkerResult {
     /// Feed processing started.
     Started { ctx: FeedContext },
     /// Parsed feed result.
-    Ok {
-        ctx: FeedContext,
-        result: SyncResult,
-    },
+    Ok(SyncResult),
     /// Non-fatal sync error for a feed.
     Error { ctx: FeedContext, error: SyncError },
 }

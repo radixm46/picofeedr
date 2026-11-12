@@ -71,7 +71,8 @@ where
                     progress(SyncProgressEvent::FeedStart { url: ctx.url });
                 }
             }
-            WorkerResult::Ok { ctx, result } => {
+            WorkerResult::Ok(result) => {
+                let url = result.ctx.url.clone();
                 completed_feeds += 1;
                 let entries = result.entries.len();
                 match on_result(result) {
@@ -80,7 +81,7 @@ where
                             progress(SyncProgressEvent::FeedOk {
                                 index: completed_feeds,
                                 total_feeds: targets.len(),
-                                url: ctx.url,
+                                url,
                                 entries,
                             });
                         }
@@ -88,7 +89,7 @@ where
                     Err(error) => {
                         if let Some(progress) = on_progress.as_mut() {
                             progress(SyncProgressEvent::FeedError {
-                                url: ctx.url,
+                                url,
                                 code: error.code,
                                 retryable: error.retryable,
                             });
@@ -169,15 +170,11 @@ fn fetch_and_parse(target: &SyncTarget, config: &AppConfig, agent: &ureq::Agent)
         .iter()
         .map(|entry| normalize_entry(entry, target, config, &feed.feed_type))
         .collect();
-    let ctx = target.ctx.clone();
-    WorkerResult::Ok {
-        ctx: ctx.clone(),
-        result: SyncResult {
-            ctx,
-            feed_metadata,
-            entries,
-        },
-    }
+    WorkerResult::Ok(SyncResult {
+        ctx: target.ctx.clone(),
+        feed_metadata,
+        entries,
+    })
 }
 
 fn extract_feed_metadata(feed: &feed_rs::model::Feed) -> FeedMetadata {
