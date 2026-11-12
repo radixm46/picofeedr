@@ -383,12 +383,13 @@ fn write_validation_issue_lines(output: &mut String, kind: &str, issues: &[Valid
 }
 
 /// Prints JSON to stdout.
-pub(crate) fn print_json<T: serde::Serialize>(value: &T) -> io::Result<()> {
-    let json = serde_json::to_string(value).expect("serialize CLI response");
+pub(crate) fn print_json<T: serde::Serialize>(value: &T) -> Result<(), RunFailure> {
+    let json = serde_json::to_string(value)?;
     let stdout = io::stdout();
     let mut writer = io::BufWriter::new(stdout.lock());
     writeln!(writer, "{json}")?;
-    writer.flush()
+    writer.flush()?;
+    Ok(())
 }
 
 /// Formats tags for plain output.
@@ -419,9 +420,13 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "serialize CLI response")]
-    fn serialization_failure_is_exposed_as_panic() {
-        print_json(&FailingSerialize).expect("write JSON");
+    fn serialization_failure_is_returned_as_error() {
+        let error = print_json(&FailingSerialize).expect_err("serialization should fail");
+        let crate::RunFailure::App(error) = error else {
+            panic!("serialization failure must remain an application error");
+        };
+        assert_eq!(error.code().as_str(), "SERIALIZATION_ERROR");
+        assert_eq!(error.message(), "expected serialization failure");
     }
 
     #[test]

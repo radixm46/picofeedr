@@ -236,7 +236,12 @@ fn handle_cli_parse_error(args: &[OsString], error: clap::Error) -> ExitCode {
 /// Writes a fatal error payload for the selected output format.
 fn write_fatal_output(output: OutputFormat, error: &AppError) -> io::Result<()> {
     match output {
-        OutputFormat::Json => output::print_json(&Envelope::<()>::fatal(error)),
+        OutputFormat::Json => {
+            output::print_json(&Envelope::<()>::fatal(error)).map_err(|error| match error {
+                RunFailure::Io(error) => error,
+                RunFailure::App(error) => io::Error::other(error),
+            })
+        }
         OutputFormat::Plain => {
             eprintln!("{error}");
             Ok(())
