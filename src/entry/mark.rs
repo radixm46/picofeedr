@@ -27,8 +27,10 @@ pub fn mark_entries(
     }
     let tx = store.tx()?;
     let tx_entry_repo = tx.entry_write_repo();
-    tx_entry_repo.ensure_all_entry_ids_exist(&unique_ids)?;
     let entry_pks = tx_entry_repo.find_entry_pks_by_ids(&unique_ids)?;
+    if entry_pks.len() != unique_ids.len() {
+        return Err(AppError::entry_not_found("some entries not found"));
+    }
     let add_ids = tx_entry_repo.ensure_tag_ids(add_tags)?;
     let remove_ids = tx_entry_repo.lookup_tag_ids(remove_tags)?;
     if add_ids.is_empty() && remove_ids.is_empty() {
