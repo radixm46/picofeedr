@@ -79,8 +79,24 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
         return Err(unsupported_schema_version(version));
     }
 
+    if version == schema::CURRENT_SCHEMA_VERSION {
+        let has_meta: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM es_meta WHERE id = 1)",
+            [],
+            |row| row.get(0),
+        )?;
+        if has_meta {
+            return Ok(());
+        }
+    }
+
     conn.execute_batch("BEGIN IMMEDIATE")?;
     let result = (|| {
+        // Another connection may have migrated while we waited for the writer lock.
+        version = read_schema_version(conn)?;
+        if version > schema::CURRENT_SCHEMA_VERSION {
+            return Err(unsupported_schema_version(version));
+        }
         version = apply_migration_steps(
             conn,
             version,
@@ -268,6 +284,59 @@ mod tests {
             .query_row(sync::COUNT_META_ROWS, [], |row| row.get(0))
             .expect("count meta rows");
         assert_eq!(row_count, 1);
+        assert_eq!(
+            read_schema_version(&conn).expect("schema version"),
+            super::current_schema_version()
+        );
+    }
+
+    #[test]
+    fn migrate_current_schema_does_not_wait_for_writer_or_change_meta() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("db.sqlite");
+        let conn = Connection::open(&path).expect("open sqlite");
+        migrate(&conn).expect("initial migration");
+        conn.busy_timeout(std::time::Duration::ZERO)
+            .expect("disable busy timeout");
+        let journal_mode: String = conn
+            .pragma_query_value(None, "journal_mode", |row| row.get(0))
+            .expect("journal mode");
+        assert_eq!(journal_mode, "wal");
+        let original = r#"{"app_id":"picofeedr","created_at":123,"revision":7,"custom":"keep"}"#;
+        conn.execute(sync::UPDATE_META_JSON, [original])
+            .expect("set metadata");
+
+        let writer = Connection::open(&path).expect("open writer");
+        writer
+            .execute_batch("BEGIN IMMEDIATE")
+            .expect("hold writer lock");
+
+        migrate(&conn).expect("current database must not need a writer lock");
+
+        let stored: String = conn
+            .query_row(sync::SELECT_META_JSON, [], |row| row.get(0))
+            .expect("load metadata");
+        assert_eq!(stored, original);
+        writer
+            .execute_batch("ROLLBACK")
+            .expect("release writer lock");
+    }
+
+    #[test]
+    fn migrate_repairs_missing_meta_at_current_schema_version() {
+        let conn = Connection::open_in_memory().expect("in-memory sqlite");
+        migrate(&conn).expect("initial migration");
+        conn.execute("DELETE FROM es_meta", [])
+            .expect("delete metadata");
+
+        migrate(&conn).expect("repair missing metadata");
+
+        let raw: String = conn
+            .query_row(sync::SELECT_META_JSON, [], |row| row.get(0))
+            .expect("load repaired metadata");
+        let meta: Value = serde_json::from_str(&raw).expect("valid metadata");
+        assert_eq!(meta["app_id"], "picofeedr");
+        assert!(meta["created_at"].as_i64().is_some());
         assert_eq!(
             read_schema_version(&conn).expect("schema version"),
             super::current_schema_version()

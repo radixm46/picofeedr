@@ -140,6 +140,8 @@
 
 - SQLite schema version は `PRAGMA user_version` に保持する
 - 起動時に `user_version` を確認し、必要なら current schema version まで migration を順次適用する
+- スキーマが現行で `es_meta` の初期行も存在する場合、起動時の migration 確認は書き込みロックを取得しない
+- スキーマ更新や欠損した初期メタ行の作成が必要な場合は、書き込みロックを取得して処理する
 - `status.db_schema_version` は実 DB の `user_version` を返す
 - `version.db_schema_version` は CLI がサポートする最新 schema version を返す
 
