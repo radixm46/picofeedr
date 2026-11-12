@@ -157,16 +157,14 @@ fn normalize_variadic<T: BooleanExpr>(items: Vec<T>, is_and: bool) -> T {
         }
     }
 
-    let mut unique = Vec::new();
-    let mut seen = HashSet::new();
-    for item in flat {
-        let canonical = item.canonical();
-        if seen.insert(canonical) {
-            unique.push(item);
-        }
-    }
+    let mut keyed = flat
+        .into_iter()
+        .map(|item| (item.canonical(), item))
+        .collect::<Vec<_>>();
+    keyed.sort_by(|a, b| a.0.cmp(&b.0));
+    keyed.dedup_by(|a, b| a.0 == b.0);
+    let mut unique = keyed.into_iter().map(|(_, item)| item).collect::<Vec<_>>();
     // TODO: If parser constraints ever change, reject or model empty variadic expressions explicitly.
-    unique.sort_by_key(BooleanExpr::canonical);
     if unique.len() == 1 {
         return unique.remove(0);
     }
@@ -259,8 +257,8 @@ pub(super) fn lex_expr(raw: &str) -> Result<Vec<ExprToken>, AppError> {
                 ExprTokenKind::Not
             }
             '"' => {
-                let remaining = chars[index..].iter().map(|(_, ch)| *ch).collect::<Vec<_>>();
-                let (literal, consumed) = read_quoted_literal(&remaining)?;
+                let (literal, consumed) =
+                    read_quoted_literal(chars[index..].iter().map(|(_, ch)| *ch))?;
                 index += consumed;
                 ExprTokenKind::Literal {
                     value: literal,
@@ -307,15 +305,16 @@ pub(super) fn lex_expr(raw: &str) -> Result<Vec<ExprToken>, AppError> {
     Ok(tokens)
 }
 
-/// Reads a quoted literal from a char slice.
-pub(super) fn read_quoted_literal(chars: &[char]) -> Result<(String, usize), AppError> {
-    if chars.first() != Some(&'"') {
+/// Reads a quoted literal, returning the consumed character count (not bytes).
+pub(super) fn read_quoted_literal(
+    chars: impl Iterator<Item = char>,
+) -> Result<(String, usize), AppError> {
+    let mut chars = chars.enumerate();
+    if chars.next() != Some((0, '"')) {
         return Err(AppError::invalid_query("Invalid quoted tag literal"));
     }
-    let mut index = 1usize;
     let mut out = String::new();
-    while index < chars.len() {
-        let ch = chars[index];
+    while let Some((index, ch)) = chars.next() {
         if ch == '"' {
             if out.is_empty() {
                 return Err(AppError::invalid_query("quoted literal must not be empty"));
@@ -323,19 +322,16 @@ pub(super) fn read_quoted_literal(chars: &[char]) -> Result<(String, usize), App
             return Ok((out, index + 1));
         }
         if ch == '\\' {
-            index += 1;
-            if index >= chars.len() {
+            let Some((_, escaped)) = chars.next() else {
                 return Err(invalid_escape_sequence_error("\\"));
-            }
-            match chars[index] {
-                '\\' | '"' => out.push(chars[index]),
+            };
+            match escaped {
+                '\\' | '"' => out.push(escaped),
                 other => return Err(invalid_escape_sequence_error(format!("\\{other}"))),
             }
-            index += 1;
             continue;
         }
         out.push(ch);
-        index += 1;
     }
     Err(AppError::invalid_query("Unclosed quote in query"))
 }
@@ -414,30 +410,24 @@ impl ExprPolicy for TermPolicy {
 }
 
 struct ExprParser<P> {
-    tokens: Vec<ExprToken>,
-    index: usize,
+    tokens: std::iter::Peekable<std::vec::IntoIter<ExprToken>>,
     policy: std::marker::PhantomData<P>,
 }
 
 impl<P: ExprPolicy> ExprParser<P> {
     fn new(tokens: Vec<ExprToken>) -> Self {
         Self {
-            tokens,
-            index: 0,
+            tokens: tokens.into_iter().peekable(),
             policy: std::marker::PhantomData,
         }
     }
 
-    fn peek(&self) -> Option<&ExprToken> {
-        self.tokens.get(self.index)
+    fn peek(&mut self) -> Option<&ExprToken> {
+        self.tokens.peek()
     }
 
     fn next(&mut self) -> Option<ExprToken> {
-        let token = self.tokens.get(self.index).cloned();
-        if token.is_some() {
-            self.index += 1;
-        }
-        token
+        self.tokens.next()
     }
 
     fn parse_or(&mut self, depth: usize) -> Result<P::Expr, AppError> {
@@ -552,8 +542,52 @@ fn normalize_term_expr(expr: TermExpr) -> TermExpr {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_tag_expr;
+    use super::{ExprTokenKind, lex_expr, normalize_tag_expr, read_quoted_literal};
     use crate::query::{EntryQuery, TagExpr};
+
+    #[test]
+    fn quoted_literal_counts_chars_and_stops_at_closing_quote() {
+        let raw = r#""雪\"🌱\\""後""#;
+        assert_eq!(
+            read_quoted_literal(raw.chars()).expect("quoted literal"),
+            ("雪\"🌱\\".to_string(), 8)
+        );
+    }
+
+    #[test]
+    fn lex_multiple_unicode_quotes_preserves_byte_spans_and_whitespace() {
+        let raw = r#"雪 "é\"""🌱\\" 後"#;
+        let tokens = lex_expr(raw).expect("tokens");
+        let expected = [
+            ("雪", false, 0..3, false),
+            ("é\"", true, 4..10, true),
+            ("🌱\\", true, 10..18, false),
+            ("後", false, 19..22, true),
+        ];
+        assert_eq!(tokens.len(), expected.len());
+        for (token, (value, quoted, span, whitespace_before)) in tokens.iter().zip(expected) {
+            assert_eq!(
+                token.kind,
+                ExprTokenKind::Literal {
+                    value: value.to_string(),
+                    quoted,
+                }
+            );
+            assert_eq!(token.span, span);
+            assert_eq!(token.whitespace_before, whitespace_before);
+        }
+    }
+
+    #[test]
+    fn quoted_literal_preserves_dangling_and_unknown_unicode_escape_details() {
+        for (raw, escape) in [("\"雪\\", "\\"), ("\"雪\\🌱\"", "\\🌱")] {
+            let error = read_quoted_literal(raw.chars()).expect_err("invalid escape");
+            assert_eq!(error.message(), "Invalid escape sequence");
+            let details = error.details().expect("escape details");
+            assert_eq!(details["kind"], "invalid_escape_sequence");
+            assert_eq!(details["value"], escape);
+        }
+    }
 
     #[test]
     fn normalize_tag_and_flattens_deduplicates_and_sorts() {
@@ -586,6 +620,31 @@ mod tests {
         let expected = TagExpr::Or(vec![
             TagExpr::Tag("a".to_string()),
             TagExpr::Tag("b".to_string()),
+            TagExpr::Tag("c".to_string()),
+        ]);
+        assert_eq!(normalize_tag_expr(expr), expected);
+    }
+
+    #[test]
+    fn normalize_tag_recursively_normalizes_and_deduplicates_nested_children() {
+        let nested = TagExpr::Or(vec![
+            TagExpr::Tag("b".to_string()),
+            TagExpr::Tag("a".to_string()),
+        ]);
+        let expr = TagExpr::And(vec![
+            TagExpr::Tag("c".to_string()),
+            nested,
+            TagExpr::Or(vec![
+                TagExpr::Tag("a".to_string()),
+                TagExpr::Tag("b".to_string()),
+            ]),
+            TagExpr::Tag("c".to_string()),
+        ]);
+        let expected = TagExpr::And(vec![
+            TagExpr::Or(vec![
+                TagExpr::Tag("a".to_string()),
+                TagExpr::Tag("b".to_string()),
+            ]),
             TagExpr::Tag("c".to_string()),
         ]);
         assert_eq!(normalize_tag_expr(expr), expected);

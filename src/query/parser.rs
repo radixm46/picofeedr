@@ -377,9 +377,9 @@ fn is_bare_operator_token(token: &str) -> bool {
 /// Parses scalar query values with optional quote escaping.
 fn parse_scalar_value(raw: &str) -> Result<String, AppError> {
     if raw.starts_with('"') {
-        let chars = raw.chars().collect::<Vec<_>>();
-        let (literal, consumed) = expr::read_quoted_literal(&chars)?;
-        if consumed != chars.len() {
+        let mut chars = raw.chars();
+        let (literal, _) = expr::read_quoted_literal(&mut chars)?;
+        if chars.next().is_some() {
             return Err(AppError::invalid_query("Invalid quoted value"));
         }
         return Ok(literal);
@@ -429,6 +429,14 @@ mod tests {
     }
 
     #[test]
+    fn parses_multiple_quoted_unicode_terms_and_feed_title() {
+        let query = EntryQuery::parse(Some(r#""雪" "🌱\\" feed:"é\"""#), None)
+            .expect("multiple quoted values");
+        assert_eq!(query.title_terms, vec!["雪", "🌱\\"]);
+        assert_eq!(query.feed, Some(FeedFilter::Title("é\"".to_string())));
+    }
+
+    #[test]
     fn parse_feed_id_query() {
         let query = EntryQuery::parse(Some("feed:123"), Some("unread")).expect("query");
         assert_eq!(query.feed, Some(FeedFilter::Id("123".to_string())));
@@ -454,10 +462,12 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unescaped_quote_inside_scalar_values() {
-        let error = EntryQuery::parse(Some(r#""a"b"c""#), Some("unread")).unwrap_err();
-        assert_eq!(error.code().as_str(), "INVALID_QUERY");
-        assert_eq!(error.message(), "Invalid quoted value");
+    fn rejects_trailing_characters_after_quoted_scalar_values() {
+        for raw in [r#""a"b"c""#, r#""雪"後"#, r#""雪""🌱""#] {
+            let error = EntryQuery::parse(Some(raw), Some("unread")).unwrap_err();
+            assert_eq!(error.code().as_str(), "INVALID_QUERY");
+            assert_eq!(error.message(), "Invalid quoted value");
+        }
     }
 
     #[test]
@@ -475,8 +485,13 @@ mod tests {
 
     #[test]
     fn parses_escaped_backslash_inside_quoted_term() {
-        let query = EntryQuery::parse(Some(r#""C:\\Users""#), Some("unread")).expect("query");
-        assert_eq!(query.title_terms, vec!["C:\\Users".to_string()]);
+        for (raw, expected) in [
+            (r#""C:\\Users""#, "C:\\Users"),
+            (r#""雪\"🌱\\""#, "雪\"🌱\\"),
+        ] {
+            let query = EntryQuery::parse(Some(raw), Some("unread")).expect("query");
+            assert_eq!(query.title_terms, vec![expected.to_string()]);
+        }
     }
 
     #[test]
