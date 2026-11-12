@@ -154,16 +154,8 @@ fn list_returns_paginated_results() {
     let data = list_query_json(&paths.config_path, &paths.db_path, "unread tag:tech");
     assert_eq!(data["total_count"], 2);
 
-    let conn = Connection::open(&paths.db_path).expect("open database");
-    let expected_entry_id: String = conn
-        .query_row(
-            "SELECT entry_id FROM entries WHERE title = ?1",
-            ["Second Entry"],
-            |row| row.get(0),
-        )
-        .expect("find second entry");
     let item = &data["items"][0];
-    assert_eq!(item["entry_id"], expected_entry_id);
+    assert!(!item["entry_id"].as_str().expect("entry id").is_empty());
     assert_eq!(item["title"], "Second Entry");
     assert_eq!(item["link"], "https://example.com/2");
     assert_eq!(item["published_at"], 1704153600);
@@ -223,9 +215,17 @@ fn list_pagination_preserves_sort_order_for_simple_and_complex_paths() {
         ],
     )
     .expect("insert third entry");
+    conn.execute(
+        "INSERT INTO entry_tags (entry_pk, tag_id)
+         SELECT entries.id, tags.id FROM entries, tags
+         WHERE entries.entry_id = 'entry-3' AND tags.name = 'tech'",
+        [],
+    )
+    .expect("tag third entry");
 
     drop(conn);
     let entry_ids = entry_ids_by_title(
+        &paths.config_path,
         &paths.db_path,
         &["First Entry", "Second Entry", "Third Entry"],
     );
@@ -254,7 +254,11 @@ fn list_pagination_preserves_sort_order_for_simple_and_complex_paths() {
         ("first_seen_desc", [0, 2, 1]),
         ("first_seen_asc", [1, 2, 0]),
     ];
-    for query in [None, Some("-tag:missing-pagination-tag")] {
+    for query in [
+        None,
+        Some("-tag:missing-pagination-tag"),
+        Some("tag:tech|doesnotexist|m1|m2|m3|m4|m5"),
+    ] {
         for (sort, expected_order) in sort_cases {
             let expected_ids = expected_order
                 .into_iter()
@@ -350,7 +354,7 @@ fn list_filters_by_tag_expression() {
         .assert()
         .success();
     let data = list_query_json(&paths.config_path, &paths.db_path, "tag:(hot|tech)&!hot");
-    assert_eq!(data["total_count"], 1);
+    assert_single_title(data, "Second Entry");
 }
 
 #[test]
@@ -362,7 +366,7 @@ fn list_accepts_minus_tag_expression_alias() {
         .assert()
         .success();
     let data = list_query_json(&paths.config_path, &paths.db_path, "tag:tech -tag:hot|rust");
-    assert_eq!(data["total_count"], 1);
+    assert_single_title(data, "Second Entry");
 }
 
 #[test]
@@ -607,7 +611,7 @@ fn list_filters_by_date_range() {
         .assert()
         .success();
     let data = list_query_json(&paths.config_path, &paths.db_path, "after:2024-01-02");
-    assert_eq!(data["total_count"], 1);
+    assert_single_title(data, "Second Entry");
 }
 
 #[test]
@@ -915,6 +919,8 @@ fn list_tag_or_with_missing_tag_keeps_existing_matches() {
     let tech = list_query_json(&paths.config_path, &paths.db_path, "tag:tech");
     let or_data = list_query_json(&paths.config_path, &paths.db_path, "tag:tech|doesnotexist");
     assert_eq!(or_data["total_count"], tech["total_count"]);
+    assert_eq!(collect_item_ids(&or_data), collect_item_ids(&tech));
+    assert_titles(or_data, &["First Entry", "Second Entry"]);
 }
 
 #[test]
@@ -952,6 +958,8 @@ fn list_tag_not_missing_tag_matches_all_when_combined() {
         "tag:tech -tag:doesnotexist",
     );
     assert_eq!(not_missing["total_count"], tech["total_count"]);
+    assert_eq!(collect_item_ids(&not_missing), collect_item_ids(&tech));
+    assert_titles(not_missing, &["First Entry", "Second Entry"]);
 }
 
 #[test]
@@ -986,8 +994,8 @@ fn list_complex_not_path_excludes_tagged_entries() {
         .arg("sync")
         .assert()
         .success();
-    let simple = list_query_json(&paths.config_path, &paths.db_path, "tag:tech");
-    assert_eq!(simple["total_count"], 2);
+    let data = list_query_json(&paths.config_path, &paths.db_path, "tag:tech -tag:hot");
+    assert_single_title(data, "Second Entry");
 }
 
 #[test]
@@ -1005,6 +1013,8 @@ fn list_complex_heavy_or_matches_simple_equivalent() {
         "tag:tech|doesnotexist|m1|m2|m3|m4|m5",
     );
     assert_eq!(complex["total_count"], simple["total_count"]);
+    assert_eq!(collect_item_ids(&complex), collect_item_ids(&simple));
+    assert_titles(complex, &["First Entry", "Second Entry"]);
 }
 
 #[test]
@@ -1020,39 +1030,78 @@ fn list_complex_path_respects_date_window_filters() {
         &paths.db_path,
         "tag:tech -tag:news|later|junk|youtube|github after:2024-01-02 before:2024-01-03",
     );
-    assert_eq!(data["total_count"], 1);
-}
-
-#[test]
-fn list_complex_path_cursor_pagination_is_stable() {
-    let temp = TempDir::new().expect("tempdir");
-    let paths = write_sync_fixture_files(&temp);
-    fixture_cmd_json(&paths.config_path, &paths.db_path)
-        .arg("sync")
-        .assert()
-        .success();
-    let data = list_query_json(
-        &paths.config_path,
-        &paths.db_path,
-        "tag:tech|doesnotexist|m1|m2|m3|m4|m5",
-    );
-    assert_eq!(data["total_count"], 2);
+    assert_single_title(data, "Second Entry");
 }
 
 #[test]
 fn list_complex_large_match_set_does_not_hit_sql_variable_limit() {
     let temp = TempDir::new().expect("tempdir");
-    let paths = write_sync_fixture_files(&temp);
-    fixture_cmd_json(&paths.config_path, &paths.db_path)
-        .arg("sync")
+    let compile_option: String = Connection::open_in_memory()
+        .expect("open database")
+        .query_row(
+            "SELECT compile_options FROM pragma_compile_options
+             WHERE compile_options LIKE 'MAX_VARIABLE_NUMBER=%'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("SQLite variable limit");
+    let count = compile_option
+        .strip_prefix("MAX_VARIABLE_NUMBER=")
+        .expect("variable limit prefix")
+        .parse::<usize>()
+        .expect("numeric variable limit")
+        + 1;
+    let paths = SyncFixtureBuilder::new(&temp)
+        .query_limits(count, count)
+        .build_db();
+    sync_fixture_ok(&paths);
+    let conn = Connection::open(&paths.db_path).expect("open database");
+    // Exceed SQLite's variable ceiling, not just the repository's 500-ID chunks.
+    conn.execute(
+        "WITH RECURSIVE numbers(n) AS (
+             SELECT 1 UNION ALL SELECT n + 1 FROM numbers WHERE n < ?1
+         )
+         INSERT INTO entries
+             (entry_id, feed_pk, title, link, published_at, updated_at, first_seen_at)
+         SELECT 'bulk-' || n, (SELECT id FROM feeds LIMIT 1), 'Bulk Entry ' || n,
+                'https://example.com/bulk/' || n, n, n, n FROM numbers",
+        [i64::try_from(count).expect("count fits SQLite integer")],
+    )
+    .expect("insert large match set");
+    conn.execute("INSERT INTO tags (name) VALUES ('bulk')", [])
+        .expect("insert bulk tag");
+    conn.execute(
+        "INSERT INTO entry_tags (entry_pk, tag_id)
+         SELECT entries.id, tags.id FROM entries, tags
+         WHERE entries.entry_id LIKE 'bulk-%' AND tags.name = 'bulk'",
+        [],
+    )
+    .expect("tag large match set");
+    drop(conn);
+
+    let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
+        .args([
+            "list",
+            "--query",
+            "tag:bulk -tag:hot",
+            "--sort",
+            "first_seen_desc",
+            "--limit",
+        ])
+        .arg(count.to_string())
         .assert()
-        .success();
-    let data = list_query_json(
-        &paths.config_path,
-        &paths.db_path,
-        "tag:unread -tag:news|later|junk|YouTube",
-    );
-    assert!(data["total_count"].as_i64().expect("count") >= 2);
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let data = extract_result(&output, "ok");
+    let expected_ids = (1..=count)
+        .rev()
+        .map(|n| format!("bulk-{n}"))
+        .collect::<Vec<_>>();
+    assert_eq!(data["total_count"], count);
+    assert_eq!(collect_item_ids(&data), expected_ids);
+    assert!(data["next_page_token"].is_null());
 }
 
 fn assert_single_title(data: serde_json::Value, expected: &str) {

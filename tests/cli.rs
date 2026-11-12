@@ -155,23 +155,26 @@ fn assert_valid_rfc3339(value: &str) {
         .expect("valid RFC3339 timestamp");
 }
 
-/// Resolves an entry id from the SQLite fixture.
-fn entry_id_by_title(db_path: &str, title: &str) -> String {
-    Connection::open(db_path)
-        .expect("open database")
-        .query_row(
-            "SELECT entry_id FROM entries WHERE title = ?1",
-            [title],
-            |row| row.get(0),
-        )
-        .expect("entry id by title")
-}
-
-fn entry_ids_by_title(db_path: &str, titles: &[&str]) -> Vec<String> {
+/// Resolves entry IDs through the CLI's public list response.
+fn entry_ids_by_title(config_path: &str, db_path: &str, titles: &[&str]) -> Vec<String> {
+    let data = list_query_json(config_path, db_path, "");
+    let items = data["items"].as_array().expect("items array");
     titles
         .iter()
-        .map(|title| entry_id_by_title(db_path, title))
+        .map(|title| {
+            items
+                .iter()
+                .find(|item| item["title"] == *title)
+                .expect("entry with expected title")["entry_id"]
+                .as_str()
+                .expect("entry id")
+                .to_owned()
+        })
         .collect()
+}
+
+fn entry_id_by_title(config_path: &str, db_path: &str, title: &str) -> String {
+    entry_ids_by_title(config_path, db_path, &[title]).remove(0)
 }
 
 /// Resolves root_dir from a db path.
@@ -230,14 +233,15 @@ fn sample_feed_xml(guid: &str, title: &str) -> String {
 /// Runs picofeedr with stdout closed to simulate downstream early exit.
 fn run_with_closed_stdout(args: Vec<String>) -> Output {
     let bin = cargo_bin_cmd!("picofeedr").get_program().to_owned();
-    let mut command = ProcessCommand::new(bin);
-    command
+    let (reader, writer) = std::io::pipe().expect("create stdout pipe");
+    // Close the reader before spawning so even the first write encounters BrokenPipe.
+    drop(reader);
+    ProcessCommand::new(bin)
         .args(args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let mut child = command.spawn().expect("spawn picofeedr");
-    drop(child.stdout.take());
-    child.wait_with_output().expect("wait for picofeedr")
+        .stdout(Stdio::from(writer))
+        .stderr(Stdio::piped())
+        .output()
+        .expect("run picofeedr")
 }
 
 /// Starts a local HTTP server that returns one 404 response.

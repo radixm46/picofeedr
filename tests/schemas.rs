@@ -23,7 +23,20 @@ fn schemas_binary_writes_all_artifacts_under_root_schemas() {
         "version.response.schema.json",
         "view.response.schema.json",
     ] {
-        assert!(schema_dir.join(name).is_file(), "missing {name}");
+        let generated: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(schema_dir.join(name)).expect("read generated schema"),
+        )
+        .expect("parse generated schema");
+        let committed: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("schemas")
+                    .join(name),
+            )
+            .expect("read committed schema"),
+        )
+        .expect("parse committed schema");
+        assert_eq!(generated, committed, "schema drift in {name}");
     }
 
     assert!(!temp.path().join("doc").join("spec").join("schema").exists());

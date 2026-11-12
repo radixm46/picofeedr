@@ -180,7 +180,7 @@ fn status_tracks_revision_and_sync_metadata() {
     assert!(after_sync["last_sync_at"].as_i64().is_some());
     assert_eq!(after_sync["last_sync_status"], "completed");
 
-    let entry_id = entry_id_by_title(&paths.db_path, "First Entry");
+    let entry_id = entry_id_by_title(&paths.config_path, &paths.db_path, "First Entry");
     let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("view")
         .arg(entry_id.clone())

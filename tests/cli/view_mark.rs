@@ -11,7 +11,7 @@ fn view_plain_is_human_readable() {
         .assert()
         .success();
 
-    let entry_id = entry_id_by_title(&paths.db_path, "First Entry");
+    let entry_id = entry_id_by_title(&paths.config_path, &paths.db_path, "First Entry");
 
     let output = fixture_cmd_plain(&paths.config_path, &paths.db_path)
         .arg("view")
@@ -35,7 +35,7 @@ fn view_plain_renders_kv_metadata_and_human_timestamps() {
         .assert()
         .success();
 
-    let entry_id = entry_id_by_title(&paths.db_path, "First Entry");
+    let entry_id = entry_id_by_title(&paths.config_path, &paths.db_path, "First Entry");
 
     let output = fixture_cmd_plain(&paths.config_path, &paths.db_path)
         .arg("view")
@@ -68,7 +68,7 @@ fn view_returns_entry_detail() {
         .assert()
         .success();
 
-    let entry_id = entry_id_by_title(&paths.db_path, "First Entry");
+    let entry_id = entry_id_by_title(&paths.config_path, &paths.db_path, "First Entry");
 
     let conn = Connection::open(&paths.db_path).expect("open database");
     let entry_pk: i64 = conn
@@ -162,7 +162,7 @@ fn view_fs_content_invalid_reference_returns_internal_error() {
         .assert()
         .success();
 
-    let entry_id = entry_id_by_title(&paths.db_path, "First Entry");
+    let entry_id = entry_id_by_title(&paths.config_path, &paths.db_path, "First Entry");
     let conn = Connection::open(&paths.db_path).expect("open database");
     conn.execute(
         "UPDATE entry_contents
@@ -245,7 +245,11 @@ fn mark_unread_accepts_entry_ids_from_stdin() {
     let paths = write_sync_fixture_files(&temp);
     sync_fixture_ok(&paths);
 
-    let entry_ids = entry_ids_by_title(&paths.db_path, &["First Entry", "Second Entry"]);
+    let entry_ids = entry_ids_by_title(
+        &paths.config_path,
+        &paths.db_path,
+        &["First Entry", "Second Entry"],
+    );
     fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("mark")
         .arg("read")
@@ -279,7 +283,11 @@ fn mark_tag_accepts_entry_ids_from_stdin() {
     let paths = write_sync_fixture_files(&temp);
     sync_fixture_ok(&paths);
 
-    let entry_ids = entry_ids_by_title(&paths.db_path, &["First Entry", "Second Entry"]);
+    let entry_ids = entry_ids_by_title(
+        &paths.config_path,
+        &paths.db_path,
+        &["First Entry", "Second Entry"],
+    );
     let stdin = format!("{}\n{}\n", entry_ids[0], entry_ids[1]);
     let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("mark")
@@ -308,7 +316,11 @@ fn mark_read_accepts_whitespace_separated_stdin_ids_and_deduplicates() {
     let paths = write_sync_fixture_files(&temp);
     sync_fixture_ok(&paths);
 
-    let entry_ids = entry_ids_by_title(&paths.db_path, &["First Entry", "Second Entry"]);
+    let entry_ids = entry_ids_by_title(
+        &paths.config_path,
+        &paths.db_path,
+        &["First Entry", "Second Entry"],
+    );
     let stdin = format!(
         "\u{feff}\r\n  {}\t{}\u{000b}{}  \r\n{}\n{}\r\n\t\n",
         entry_ids[0], entry_ids[0], entry_ids[1], entry_ids[1], entry_ids[1]
@@ -338,7 +350,7 @@ fn mark_accepts_stdin_at_16_mib_limit() {
     let paths = write_sync_fixture_files(&temp);
     sync_fixture_ok(&paths);
 
-    let entry_id = entry_id_by_title(&paths.db_path, "First Entry");
+    let entry_id = entry_id_by_title(&paths.config_path, &paths.db_path, "First Entry");
     let max_stdin_bytes = 16 * 1024 * 1024;
     let mut stdin = format!("{entry_id}\n");
     stdin.push_str(&" ".repeat(max_stdin_bytes - stdin.len()));
@@ -369,7 +381,7 @@ fn mark_rejects_second_leading_stdin_bom_as_missing_entry() {
     let paths = write_sync_fixture_files(&temp);
     sync_fixture_ok(&paths);
 
-    let entry_id = entry_id_by_title(&paths.db_path, "First Entry");
+    let entry_id = entry_id_by_title(&paths.config_path, &paths.db_path, "First Entry");
     let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("mark")
         .arg("read")
@@ -513,7 +525,7 @@ fn mark_read_rolls_back_when_stdin_contains_a_missing_entry() {
     let paths = write_sync_fixture_files(&temp);
     sync_fixture_ok(&paths);
 
-    let entry_id = entry_id_by_title(&paths.db_path, "First Entry");
+    let entry_id = entry_id_by_title(&paths.config_path, &paths.db_path, "First Entry");
     let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("mark")
         .arg("read")
@@ -570,7 +582,7 @@ fn mark_tag_rejects_empty_tag_csv() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_sync_fixture_files(&temp);
     sync_fixture_ok(&paths);
-    let entry_id = entry_id_by_title(&paths.db_path, "First Entry");
+    let entry_id = entry_id_by_title(&paths.config_path, &paths.db_path, "First Entry");
 
     let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .args(["mark", "tag"])
@@ -595,7 +607,7 @@ fn mark_tag_rejects_tag_over_64_unicode_characters() {
         .assert()
         .success();
 
-    let entry_id = entry_id_by_title(&paths.db_path, "First Entry");
+    let entry_id = entry_id_by_title(&paths.config_path, &paths.db_path, "First Entry");
     let tag = "技".repeat(65);
     let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("mark")
@@ -628,7 +640,7 @@ fn mark_tag_accepts_unicode_tag_names() {
         .assert()
         .success();
 
-    let entry_id = entry_id_by_title(&paths.db_path, "First Entry");
+    let entry_id = entry_id_by_title(&paths.config_path, &paths.db_path, "First Entry");
     fixture_cmd_json(&paths.config_path, &paths.db_path)
         .arg("mark")
         .arg("tag")
@@ -659,7 +671,11 @@ fn mark_read_fails_when_any_entry_is_missing() {
         .success();
 
     let unread_data = list_query_json(&paths.config_path, &paths.db_path, "unread");
-    let entry_ids = entry_ids_by_title(&paths.db_path, &["First Entry", "Second Entry"]);
+    let entry_ids = entry_ids_by_title(
+        &paths.config_path,
+        &paths.db_path,
+        &["First Entry", "Second Entry"],
+    );
     assert_eq!(entry_ids.len(), 2);
     assert_eq!(unread_data["total_count"], 2);
 
@@ -693,7 +709,11 @@ fn mark_unread_fails_when_any_entry_is_missing() {
         .assert()
         .success();
 
-    let entry_ids = entry_ids_by_title(&paths.db_path, &["First Entry", "Second Entry"]);
+    let entry_ids = entry_ids_by_title(
+        &paths.config_path,
+        &paths.db_path,
+        &["First Entry", "Second Entry"],
+    );
     assert_eq!(entry_ids.len(), 2);
 
     fixture_cmd_json(&paths.config_path, &paths.db_path)
@@ -736,7 +756,11 @@ fn mark_tag_add_fails_when_any_entry_is_missing() {
         .assert()
         .success();
 
-    let entry_ids = entry_ids_by_title(&paths.db_path, &["First Entry", "Second Entry"]);
+    let entry_ids = entry_ids_by_title(
+        &paths.config_path,
+        &paths.db_path,
+        &["First Entry", "Second Entry"],
+    );
     assert_eq!(entry_ids.len(), 2);
     let foo_before = list_query_json(&paths.config_path, &paths.db_path, "tag:foo");
     assert_eq!(foo_before["total_count"], 0);
@@ -773,7 +797,11 @@ fn mark_tag_remove_fails_when_any_entry_is_missing() {
         .assert()
         .success();
 
-    let entry_ids = entry_ids_by_title(&paths.db_path, &["First Entry", "Second Entry"]);
+    let entry_ids = entry_ids_by_title(
+        &paths.config_path,
+        &paths.db_path,
+        &["First Entry", "Second Entry"],
+    );
     assert_eq!(entry_ids.len(), 2);
     let tech_before = list_query_json(&paths.config_path, &paths.db_path, "tag:tech");
     assert_eq!(tech_before["total_count"], 2);
@@ -805,7 +833,11 @@ fn mark_read_uses_unread_tag_alias_when_unread_management_is_disabled() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_synced_fixture_with_unread_management_disabled(&temp);
 
-    let entry_ids = entry_ids_by_title(&paths.db_path, &["First Entry", "Second Entry"]);
+    let entry_ids = entry_ids_by_title(
+        &paths.config_path,
+        &paths.db_path,
+        &["First Entry", "Second Entry"],
+    );
     assert_eq!(entry_ids.len(), 2);
 
     let output = fixture_cmd_json(&paths.config_path, &paths.db_path)
@@ -827,7 +859,11 @@ fn mark_unread_uses_unread_tag_alias_when_unread_management_is_disabled() {
     let temp = TempDir::new().expect("tempdir");
     let paths = write_synced_fixture_with_unread_management_disabled(&temp);
 
-    let entry_ids = entry_ids_by_title(&paths.db_path, &["First Entry", "Second Entry"]);
+    let entry_ids = entry_ids_by_title(
+        &paths.config_path,
+        &paths.db_path,
+        &["First Entry", "Second Entry"],
+    );
     assert_eq!(entry_ids.len(), 2);
 
     let output = fixture_cmd_json(&paths.config_path, &paths.db_path)

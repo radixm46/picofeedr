@@ -556,14 +556,66 @@ mod tests {
     use crate::query::{EntryQuery, TagExpr};
 
     #[test]
+    fn normalize_tag_and_flattens_deduplicates_and_sorts() {
+        let expr = TagExpr::And(vec![
+            TagExpr::Tag("c".to_string()),
+            TagExpr::And(vec![
+                TagExpr::Tag("b".to_string()),
+                TagExpr::Tag("a".to_string()),
+            ]),
+            TagExpr::Tag("b".to_string()),
+        ]);
+        let expected = TagExpr::And(vec![
+            TagExpr::Tag("a".to_string()),
+            TagExpr::Tag("b".to_string()),
+            TagExpr::Tag("c".to_string()),
+        ]);
+        assert_eq!(normalize_tag_expr(expr), expected);
+    }
+
+    #[test]
+    fn normalize_tag_or_flattens_deduplicates_and_sorts() {
+        let expr = TagExpr::Or(vec![
+            TagExpr::Tag("c".to_string()),
+            TagExpr::Or(vec![
+                TagExpr::Tag("b".to_string()),
+                TagExpr::Tag("a".to_string()),
+            ]),
+            TagExpr::Tag("b".to_string()),
+        ]);
+        let expected = TagExpr::Or(vec![
+            TagExpr::Tag("a".to_string()),
+            TagExpr::Tag("b".to_string()),
+            TagExpr::Tag("c".to_string()),
+        ]);
+        assert_eq!(normalize_tag_expr(expr), expected);
+    }
+
+    #[test]
+    fn normalize_tag_deduplicates_to_single_leaf() {
+        for expr in [
+            TagExpr::And(vec![
+                TagExpr::Tag("a".to_string()),
+                TagExpr::Tag("a".to_string()),
+            ]),
+            TagExpr::Or(vec![
+                TagExpr::Tag("a".to_string()),
+                TagExpr::Tag("a".to_string()),
+            ]),
+        ] {
+            assert_eq!(normalize_tag_expr(expr), TagExpr::Tag("a".to_string()));
+        }
+    }
+
+    #[test]
     fn parse_tag_filters() {
         let query =
             EntryQuery::parse(Some("unread tag:tech -tag:misc"), Some("unread")).expect("query");
-        let expected = normalize_tag_expr(TagExpr::And(vec![
-            TagExpr::Tag("unread".to_string()),
-            TagExpr::Tag("tech".to_string()),
+        let expected = TagExpr::And(vec![
             TagExpr::Not(Box::new(TagExpr::Tag("misc".to_string()))),
-        ]));
+            TagExpr::Tag("tech".to_string()),
+            TagExpr::Tag("unread".to_string()),
+        ]);
         assert_eq!(query.tag_expr, Some(expected));
     }
 
@@ -571,13 +623,13 @@ mod tests {
     fn parse_single_token_tag_and_minus_tag_expressions() {
         let query =
             EntryQuery::parse(Some("tag:tech -tag:hot|rust"), Some("unread")).expect("query");
-        let expected = normalize_tag_expr(TagExpr::And(vec![
-            TagExpr::Tag("tech".to_string()),
+        let expected = TagExpr::And(vec![
             TagExpr::Not(Box::new(TagExpr::Or(vec![
                 TagExpr::Tag("hot".to_string()),
                 TagExpr::Tag("rust".to_string()),
             ]))),
-        ]));
+            TagExpr::Tag("tech".to_string()),
+        ]);
         assert_eq!(query.tag_expr, Some(expected));
     }
 
@@ -624,24 +676,24 @@ mod tests {
     #[test]
     fn parse_tag_alias_expression() {
         let query = EntryQuery::parse(Some("tag:A|B|C"), Some("unread")).expect("query");
-        let expected = normalize_tag_expr(TagExpr::Or(vec![
+        let expected = TagExpr::Or(vec![
             TagExpr::Tag("A".to_string()),
             TagExpr::Tag("B".to_string()),
             TagExpr::Tag("C".to_string()),
-        ]));
+        ]);
         assert_eq!(query.tag_expr, Some(expected));
     }
 
     #[test]
     fn parse_tag_parentheses_expression() {
         let query = EntryQuery::parse(Some("tag:A&(B|C)"), Some("unread")).expect("query");
-        let expected = normalize_tag_expr(TagExpr::And(vec![
-            TagExpr::Tag("A".to_string()),
+        let expected = TagExpr::And(vec![
             TagExpr::Or(vec![
                 TagExpr::Tag("B".to_string()),
                 TagExpr::Tag("C".to_string()),
             ]),
-        ]));
+            TagExpr::Tag("A".to_string()),
+        ]);
         assert_eq!(query.tag_expr, Some(expected));
     }
 
@@ -654,13 +706,13 @@ mod tests {
     #[test]
     fn parse_tag_precedence_expression() {
         let query = EntryQuery::parse(Some("tag:!A|B&C"), Some("unread")).expect("query");
-        let expected = normalize_tag_expr(TagExpr::Or(vec![
-            TagExpr::Not(Box::new(TagExpr::Tag("A".to_string()))),
+        let expected = TagExpr::Or(vec![
             TagExpr::And(vec![
                 TagExpr::Tag("B".to_string()),
                 TagExpr::Tag("C".to_string()),
             ]),
-        ]));
+            TagExpr::Not(Box::new(TagExpr::Tag("A".to_string()))),
+        ]);
         assert_eq!(query.tag_expr, Some(expected));
     }
 
@@ -673,10 +725,10 @@ mod tests {
     #[test]
     fn parses_whitespace_separated_tag_primaries_as_implicit_and() {
         let query = EntryQuery::parse(Some("tag:(a b)"), Some("unread")).expect("query");
-        let expected = normalize_tag_expr(TagExpr::And(vec![
+        let expected = TagExpr::And(vec![
             TagExpr::Tag("a".to_string()),
             TagExpr::Tag("b".to_string()),
-        ]));
+        ]);
         assert_eq!(query.tag_expr, Some(expected));
     }
 
@@ -684,41 +736,41 @@ mod tests {
     fn parse_tag_keywords_case_insensitive() {
         let query =
             EntryQuery::parse(Some("tag:( a and b Or not c )"), Some("unread")).expect("query");
-        let expected = normalize_tag_expr(TagExpr::Or(vec![
+        let expected = TagExpr::Or(vec![
             TagExpr::And(vec![
                 TagExpr::Tag("a".to_string()),
                 TagExpr::Tag("b".to_string()),
             ]),
             TagExpr::Not(Box::new(TagExpr::Tag("c".to_string()))),
-        ]));
+        ]);
         assert_eq!(query.tag_expr, Some(expected));
     }
 
     #[test]
     fn absorbs_legacy_minus_tag_into_not() {
         let query = EntryQuery::parse(Some("-tag:C tag:A|B"), Some("unread")).expect("query");
-        let expected = normalize_tag_expr(TagExpr::And(vec![
+        let expected = TagExpr::And(vec![
             TagExpr::Not(Box::new(TagExpr::Tag("C".to_string()))),
             TagExpr::Or(vec![
                 TagExpr::Tag("A".to_string()),
                 TagExpr::Tag("B".to_string()),
             ]),
-        ]));
+        ]);
         assert_eq!(query.tag_expr, Some(expected));
     }
 
     #[test]
     fn parse_minus_tag_expression_alias() {
         let query = EntryQuery::parse(Some("tag:A&B&C -tag:D|E"), Some("unread")).expect("query");
-        let expected = normalize_tag_expr(TagExpr::And(vec![
-            TagExpr::Tag("A".to_string()),
-            TagExpr::Tag("B".to_string()),
-            TagExpr::Tag("C".to_string()),
+        let expected = TagExpr::And(vec![
             TagExpr::Not(Box::new(TagExpr::Or(vec![
                 TagExpr::Tag("D".to_string()),
                 TagExpr::Tag("E".to_string()),
             ]))),
-        ]));
+            TagExpr::Tag("A".to_string()),
+            TagExpr::Tag("B".to_string()),
+            TagExpr::Tag("C".to_string()),
+        ]);
         assert_eq!(query.tag_expr, Some(expected));
     }
 
