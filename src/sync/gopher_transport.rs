@@ -79,12 +79,16 @@ fn fetch_once(request: &GopherRequest, sync: &SyncConfig) -> Result<Vec<u8>, Fet
     }
 }
 
-fn read_text_response(stream: TcpStream, max_feed_bytes: usize) -> Result<Vec<u8>, FetchError> {
+fn read_text_response(stream: impl Read, max_feed_bytes: usize) -> Result<Vec<u8>, FetchError> {
     let mut reader = BufReader::new(stream);
     let mut body = Vec::new();
     loop {
         let mut line = Vec::new();
+        // Allow one stuffed dot plus an oversize byte, or the three-byte terminator.
+        let line_limit = (max_feed_bytes - body.len()).saturating_add(2).max(3);
         let read = reader
+            .by_ref()
+            .take(line_limit as u64)
             .read_until(b'\n', &mut line)
             .map_err(|error| FetchError {
                 message: format!("Failed to read Gopher response: {error}"),
@@ -249,7 +253,9 @@ fn decode_hex(value: u8) -> Result<u8, FetchError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{GopherItemType, GopherRequest, fetch_gopher_bytes, parse_gopher_url};
+    use super::{
+        GopherItemType, GopherRequest, fetch_gopher_bytes, parse_gopher_url, read_text_response,
+    };
     use crate::config::SyncConfig;
     use std::io::{Read, Write};
     use std::net::TcpListener;
@@ -470,6 +476,61 @@ mod tests {
         let error = fetch_gopher_bytes(&url, &sync).expect_err("error");
         wait_for_server(server, "Gopher server");
 
+        assert!(!error.retryable);
+        assert_eq!(error.message, "Feed body exceeds max_feed_bytes");
+    }
+
+    #[test]
+    fn read_text_response_counts_decoded_bytes_at_boundaries() {
+        let cases: &[(&[u8], &[u8])] = &[
+            (b"", b""),
+            (b".", b""),
+            (b".\n", b""),
+            (b".\r\n", b""),
+            (b"a", b"a"),
+            (b"a\n", b"a\n"),
+            (b"a\r\n", b"a\r\n"),
+            (b"..", b"."),
+            (b"..\n", b".\n"),
+            (b"..\r\n", b".\r\n"),
+            (b".\r", b".\r"),
+            (b"...", b".."),
+            (b".x", b".x"),
+            (b"a\n.", b"a\n"),
+            (b"a\n.\n", b"a\n"),
+            (b"a\n.\r\n", b"a\n"),
+            (b"a\n..b", b"a\n.b"),
+            (b"..a\n..b\r\n.\r\nignored", b".a\n.b\r\n"),
+        ];
+        for &(wire, expected) in cases {
+            for limit in 0..=expected.len() + 1 {
+                let result = read_text_response(wire, limit);
+                if limit >= expected.len() {
+                    assert_eq!(result.expect("body within limit"), expected, "{wire:?}");
+                } else {
+                    let error = result.expect_err("oversized body");
+                    assert!(!error.retryable);
+                    assert_eq!(error.message, "Feed body exceeds max_feed_bytes");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fetch_gopher_bytes_rejects_oversize_before_newline_or_peer_close() {
+        let (release_tx, release_rx) = mpsc::channel();
+        let (url, server) = spawn_gopher_server(move |mut stream| {
+            let _ = read_request_line(&mut stream);
+            stream.write_all(b"123456789012").expect("write response");
+            release_rx.recv().expect("release server");
+        });
+        let mut sync = test_sync_config();
+        sync.max_feed_bytes = 8;
+
+        let result = fetch_gopher_bytes(&url, &sync);
+        release_tx.send(()).expect("release server");
+        wait_for_server(server, "Gopher server");
+        let error = result.expect_err("oversized response");
         assert!(!error.retryable);
         assert_eq!(error.message, "Feed body exceeds max_feed_bytes");
     }
