@@ -5,7 +5,7 @@ It is built for people who want to keep feed data on their own machine and work 
 
 ## Features
 
-- **Local-first**: Network access only during `sync`. All reading and state updates happen locally via SQLite
+- **Local-first**: Network access only during `sync`. Reading and state updates stay local
 - **Tag-centric design**: All state including unread is managed through tags, with unread tracking optionally disabled via config
 - **Config-driven**: Feed definitions and auto-tagging rules managed in a single `feeds.yaml`
 - **Multiple protocols**: Fetches feeds over HTTP, HTTPS, Gopher (RSS/Atom documents only), and local files (`file://`)
@@ -75,7 +75,13 @@ picofeedr list --query unread
 
 When `manage_unread = false`, automatic unread-tag assignment is disabled, but `unread` queries and `mark read` / `mark unread` still work as aliases for `unread_tag`.
 
-`mark read`, `mark unread`, and `mark tag` accept one or more entry IDs, or a single `-` to read whitespace-separated IDs from UTF-8 stdin (one ID per line is recommended; space/tab-separated IDs are also accepted). A single leading UTF-8 BOM is ignored. Consecutive and surrounding whitespace is skipped, and CRLF is accepted. Raw stdin is limited to 16 MiB (the exact limit is accepted); exceeding it is an `INVALID_INPUT`. `-` cannot be combined with IDs or repeated; these usage errors, as well as missing IDs, exit with code 2 and use `USAGE_ERROR`. Empty or whitespace-only stdin and invalid UTF-8 are `INVALID_INPUT`; stdin read errors are `IO_ERROR`. `mark tag` requires `--add` or `--remove`, and a tag option that normalizes to no tags is `INVALID_INPUT`.
+`mark read`, `mark unread`, and `mark tag` accept:
+
+- One or more entry IDs as arguments.
+- A single `-` to read whitespace-separated IDs from UTF-8 stdin (one ID per line recommended; maximum 16 MiB).
+
+Do not combine `-` with IDs or repeat it. `mark tag` requires `--add`, `--remove`, or both.
+See [mark input and error rules](doc/spec/cli.md#mark) for details.
 
 ### Query Syntax
 
@@ -121,13 +127,30 @@ Supported terms:
 
 ## Configuration
 
-See `doc/spec/config.md` and `doc/spec/feeds.md` for details.
+See the [configuration specification](doc/spec/config.md) and [feed definition specification](doc/spec/feeds.md) for details.
+
+`storage.content_store` selects how entry bodies are stored:
+
+| Mode           | Body storage                                       |
+| -------------- | -------------------------------------------------- |
+| `db` (default) | SQLite                                             |
+| `fs`           | Hash-addressed files under `storage.root_dir/data` |
+| `none`         | Bodies are not persisted                           |
+
+Entry metadata and tags remain in SQLite in every mode.
+See [storage configuration](doc/spec/config.md#storage) for details.
 
 ### config.toml
 
 `config.toml` is optional. All sections have sensible defaults.
 
 ```toml
+# Whether unread tracking is enabled (default: true)
+# manage_unread = true
+
+# Tag name for unread entries (default: "unread")
+# unread_tag = "unread"
+
 # Storage location (default: ~/.local/share/picofeedr)
 # [storage]
 # root_dir = "~/.local/share/picofeedr"
@@ -136,12 +159,6 @@ See `doc/spec/config.md` and `doc/spec/feeds.md` for details.
 # Feed definitions (default: ~/.config/picofeedr/feeds.yaml)
 # [feeds]
 # source = "~/.config/picofeedr/feeds.yaml"
-
-# Whether unread tracking is enabled (default: true)
-# manage_unread = true
-
-# Tag name for unread entries (default: "unread")
-# unread_tag = "unread"
 
 # Sync behavior
 # [sync]
