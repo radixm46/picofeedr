@@ -74,12 +74,12 @@ fn write_json_response<T: serde::Serialize>(
 fn write_plain_output(result: CommandOutcome) -> io::Result<()> {
     let rendered = format_plain_output(result);
     let stdout = io::stdout();
-    let mut writer = io::BufWriter::new(stdout.lock());
+    let mut writer = stdout.lock();
     writer.write_all(rendered.stdout.as_bytes())?;
     writer.flush()?;
     if !rendered.stderr.is_empty() {
         let stderr = io::stderr();
-        let mut err_writer = io::BufWriter::new(stderr.lock());
+        let mut err_writer = stderr.lock();
         err_writer.write_all(rendered.stderr.as_bytes())?;
         err_writer.flush()?;
     }
@@ -275,8 +275,8 @@ fn format_plain_timestamp(value: Option<i64>) -> String {
         .unwrap_or_else(|| "null".to_string())
 }
 
-fn format_plain_optional_str(value: Option<&str>) -> String {
-    value.unwrap_or("null").to_string()
+fn format_plain_optional_str(value: Option<&str>) -> &str {
+    value.unwrap_or("null")
 }
 
 fn format_log_value(value: &str) -> String {
@@ -404,7 +404,7 @@ mod tests {
     };
     use crate::CommandOutcome;
     use picofeedr::db::FeedRow;
-    use picofeedr::entry::{EntryListResponse, EntrySummary, FeedSummary};
+    use picofeedr::entry::{EntryDetail, EntryListResponse, EntrySummary, FeedSummary};
     use picofeedr::feed::build_feed_list_response;
     use picofeedr::sync::SyncProgressEvent;
 
@@ -427,6 +427,29 @@ mod tests {
         };
         assert_eq!(error.code().as_str(), "SERIALIZATION_ERROR");
         assert_eq!(error.message(), "expected serialization failure");
+    }
+
+    #[test]
+    fn format_plain_view_distinguishes_missing_empty_and_present_metadata() {
+        let rendered = format_plain_output(CommandOutcome::View(EntryDetail {
+            entry_id: "entry-1".to_string(),
+            feed_id: "feed-1".to_string(),
+            title: None,
+            feed_title: Some(String::new()),
+            author: Some("雪".to_string()),
+            link: Some("https://example.com/1".to_string()),
+            published_at: None,
+            first_seen_at: 0,
+            content: None,
+            content_type: None,
+            tags: vec![],
+            enclosures: vec![],
+        }));
+
+        assert!(rendered.stdout.starts_with(
+            "entry_id: entry-1\ntitle: null\nfeed_id: feed-1\nfeed_title: \nauthor: 雪\nlink: https://example.com/1\n"
+        ));
+        assert!(rendered.stderr.is_empty());
     }
 
     #[test]
