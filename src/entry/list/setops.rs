@@ -10,6 +10,19 @@ impl<'a> UniverseView<'a> {
         intersect_pairs_sorted(self.0, right)
     }
 
+    /// Returns PK-ordered pairs for a sorted, unique subset of this universe.
+    pub(super) fn pairs_for_sorted_subset(self, subset: &[i64]) -> Vec<(i64, i64)> {
+        let mut matched = subset.iter().copied().peekable();
+        let mut pairs = Vec::with_capacity(subset.len());
+        for &pair in self.0 {
+            if matched.peek() == Some(&pair.0) {
+                pairs.push(pair);
+                matched.next();
+            }
+        }
+        pairs
+    }
+
     pub(super) fn difference_sorted(self, right: &[i64]) -> Vec<i64> {
         difference_pairs_sorted(self.0, right)
     }
@@ -120,6 +133,26 @@ fn merge_union_sorted(left: &[i64], right: &[i64]) -> Vec<i64> {
 #[cfg(test)]
 mod tests {
     use super::{UniverseView, intersect_sorted, merge_union_sorted};
+
+    #[test]
+    fn pairs_for_sorted_subset_preserves_sort_keys_and_pk_order() {
+        let universe = [(1, 500), (3, 100), (5, 500), (8, 200)];
+        for (subset, expected) in [
+            (&[][..], &[][..]),
+            (&[1][..], &[(1, 500)][..]),
+            (&[8][..], &[(8, 200)][..]),
+            (&[3, 8][..], &[(3, 100), (8, 200)][..]),
+            (&[1, 5][..], &[(1, 500), (5, 500)][..]),
+            (&[1, 3, 5, 8][..], &universe[..]),
+        ] {
+            assert_eq!(
+                UniverseView(&universe).pairs_for_sorted_subset(subset),
+                expected,
+                "{subset:?}"
+            );
+        }
+        assert!(UniverseView(&[]).pairs_for_sorted_subset(&[]).is_empty());
+    }
 
     #[test]
     fn intersect_sorted_returns_common_values_in_order() {

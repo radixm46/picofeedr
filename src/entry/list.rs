@@ -452,11 +452,7 @@ fn fetch_entries_complex(
     cursor: Option<&Cursor>,
     query_hash: &str,
 ) -> Result<EntryListPage, AppError> {
-    let mut sort_pairs = universe_sort_pairs
-        .iter()
-        .copied()
-        .filter(|(entry_id, _)| matched_pks.binary_search(entry_id).is_ok())
-        .collect::<Vec<_>>();
+    let mut sort_pairs = UniverseView(universe_sort_pairs).pairs_for_sorted_subset(matched_pks);
     sort_pairs.sort_unstable_by(|(id_a, key_a), (id_b, key_b)| match sort {
         SortOrder::DateDesc | SortOrder::FirstSeenDesc => {
             key_b.cmp(key_a).then_with(|| id_b.cmp(id_a))
