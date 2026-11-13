@@ -154,25 +154,79 @@ fn bench_tag_queries(c: &mut Criterion) {
     }
     complex_group.finish();
 
+    let query = EntryQuery::parse(Some("tag:unread -tag:news"), Some("unread"))
+        .expect("parse pagination query");
+    let deep_cursor = {
+        let page = list_entries(&store, &query, SortOrder::DateDesc, 50_000, None)
+            .expect("prepare deep cursor");
+        assert_eq!(page.total_count, 75_000);
+        assert_eq!(page.items.len(), 50_000);
+        page.next_page_token.expect("deep cursor")
+    };
+    let mut pagination_group = c.benchmark_group("tag_query_complex_pagination");
+    for (name, cursor, offset) in [
+        ("first", None, 0),
+        ("after_50000", Some(deep_cursor.as_str()), 50_000),
+    ] {
+        let baseline =
+            list_entries(&store, &query, SortOrder::DateDesc, 100, cursor).expect("baseline page");
+        let expected_ids = (0..100_000)
+            .rev()
+            .filter(|idx| idx % 4 != 0)
+            .skip(offset)
+            .take(100)
+            .map(|idx| format!("entry-{idx}"))
+            .collect::<Vec<_>>();
+        let actual_ids = baseline
+            .items
+            .iter()
+            .map(|item| item.entry_id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(baseline.total_count, 75_000);
+        assert_eq!(actual_ids, expected_ids, "{name}");
+        assert!(baseline.next_page_token.is_some());
+        pagination_group.bench_with_input(
+            BenchmarkId::from_parameter(name),
+            &cursor,
+            |b, cursor| {
+                b.iter(|| {
+                    let result = list_entries(&store, &query, SortOrder::DateDesc, 100, *cursor)
+                        .expect("page result");
+                    criterion::black_box(result)
+                });
+            },
+        );
+    }
+    pagination_group.finish();
+
     let mut scaling_group = c.benchmark_group("tag_query_size_scaling");
     for entry_count in [10_000, 50_000, 100_000] {
         let fixture = build_fixture(entry_count);
         let store = SqliteStore::open(&fixture.db_path).expect("open query store");
-        let query = EntryQuery::parse(Some("tag:unread"), Some("unread")).expect("parse query");
-        let baseline =
-            list_entries(&store, &query, SortOrder::DateDesc, 100, None).expect("baseline query");
-        assert_eq!(baseline.total_count, entry_count as i64);
-        scaling_group.bench_with_input(
-            BenchmarkId::from_parameter(entry_count),
-            &query,
-            |b, query| {
-                b.iter(|| {
-                    let result = list_entries(&store, query, SortOrder::DateDesc, 100, None)
-                        .expect("query result");
-                    criterion::black_box(result.total_count)
-                });
-            },
-        );
+        for (name, raw_query, expected_total) in [
+            ("single_tag_broad", "tag:unread", entry_count),
+            (
+                "negative_real_tags",
+                "tag:unread -tag:news",
+                entry_count * 3 / 4,
+            ),
+        ] {
+            let query = EntryQuery::parse(Some(raw_query), Some("unread")).expect("parse query");
+            let baseline = list_entries(&store, &query, SortOrder::DateDesc, 100, None)
+                .expect("baseline query");
+            assert_eq!(baseline.total_count, expected_total as i64);
+            scaling_group.bench_with_input(
+                BenchmarkId::new(name, entry_count),
+                &query,
+                |b, query| {
+                    b.iter(|| {
+                        let result = list_entries(&store, query, SortOrder::DateDesc, 100, None)
+                            .expect("query result");
+                        criterion::black_box(result.total_count)
+                    });
+                },
+            );
+        }
     }
     scaling_group.finish();
 }
