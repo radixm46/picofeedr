@@ -161,6 +161,106 @@ mod tests {
     use std::io::Cursor;
     use std::path::PathBuf;
 
+    fn test_config() -> AppConfig {
+        AppConfig {
+            manage_unread: true,
+            unread_tag: "shared".to_string(),
+            database: DatabaseConfig {
+                path: PathBuf::from("/tmp/db.sqlite"),
+            },
+            feeds: FeedsSourceConfig {
+                source: PathBuf::from("/tmp/feeds.yaml"),
+            },
+            sync: SyncConfig {
+                parallel: 1,
+                timeout_secs: 1,
+                max_feed_bytes: 2 * 1024 * 1024,
+                user_agent: "picofeedr-test".to_string(),
+                retry_count: 0,
+                retry_delay_secs: 0,
+            },
+            storage: StorageConfig {
+                root_dir: PathBuf::from("/tmp"),
+                content_store: ContentStore::None,
+                data_dir: PathBuf::from("/tmp/data"),
+            },
+            query: QueryConfig {
+                default_limit: 100,
+                max_limit: 1000,
+            },
+            cli: CliConfig {
+                output: crate::cli::OutputFormat::Plain,
+            },
+        }
+    }
+
+    fn normalize_rss_entry(xml: &str) -> (Option<i64>, crate::sync::model::PendingEntry) {
+        let feed = feed_rs::parser::parse(Cursor::new(xml)).expect("parse feed");
+        let target = SyncTarget {
+            ctx: FeedContext {
+                feed_id: "feed-1".to_string(),
+                feed_name: None,
+                url: "https://example.com/feed.xml".to_string(),
+            },
+            tags: Vec::new(),
+            auto_tag_rules: Vec::new(),
+        };
+        let config = test_config();
+        let normalized = normalize_entry(&feed.entries[0], &target, &config, &feed.feed_type);
+
+        (
+            feed.updated.map(|value| value.timestamp()),
+            normalized.entry,
+        )
+    }
+
+    #[test]
+    fn normalize_rss_channel_last_build_date_does_not_set_item_dates() {
+        let (channel_updated_at, entry) = normalize_rss_entry(
+            r#"<?xml version="1.0"?>
+<rss version="2.0">
+  <channel>
+    <title>Test feed</title>
+    <link>https://example.com</link>
+    <lastBuildDate>Wed, 01 Jan 2020 01:02:03 GMT</lastBuildDate>
+    <item>
+      <guid isPermaLink="false">stable-guid</guid>
+      <title>Entry</title>
+      <link>https://example.com/entry</link>
+    </item>
+  </channel>
+</rss>"#,
+        );
+
+        assert_eq!(channel_updated_at, Some(1_577_840_523));
+        assert_eq!(entry.published_at, None);
+        assert_eq!(entry.updated_at, None);
+    }
+
+    #[test]
+    fn normalize_rss_item_pub_date_sets_published_and_updated_dates() {
+        let (channel_updated_at, entry) = normalize_rss_entry(
+            r#"<?xml version="1.0"?>
+<rss version="2.0">
+  <channel>
+    <title>Test feed</title>
+    <link>https://example.com</link>
+    <lastBuildDate>Wed, 01 Jan 2020 01:02:03 GMT</lastBuildDate>
+    <item>
+      <guid isPermaLink="false">stable-guid</guid>
+      <title>Entry</title>
+      <link>https://example.com/entry</link>
+      <pubDate>Thu, 02 Jan 2020 03:04:05 GMT</pubDate>
+    </item>
+  </channel>
+</rss>"#,
+        );
+
+        assert_eq!(channel_updated_at, Some(1_577_840_523));
+        assert_eq!(entry.published_at, Some(1_577_934_245));
+        assert_eq!(entry.updated_at, Some(1_577_934_245));
+    }
+
     #[test]
     fn normalize_enclosures_maps_atom_enclosure_links() {
         let feed = feed_rs::parser::parse(Cursor::new(
@@ -305,36 +405,7 @@ mod tests {
             }])
             .expect("compile auto-tag rules"),
         };
-        let config = AppConfig {
-            manage_unread: true,
-            unread_tag: "shared".to_string(),
-            database: DatabaseConfig {
-                path: PathBuf::from("/tmp/db.sqlite"),
-            },
-            feeds: FeedsSourceConfig {
-                source: PathBuf::from("/tmp/feeds.yaml"),
-            },
-            sync: SyncConfig {
-                parallel: 1,
-                timeout_secs: 1,
-                max_feed_bytes: 2 * 1024 * 1024,
-                user_agent: "picofeedr-test".to_string(),
-                retry_count: 0,
-                retry_delay_secs: 0,
-            },
-            storage: StorageConfig {
-                root_dir: PathBuf::from("/tmp"),
-                content_store: ContentStore::None,
-                data_dir: PathBuf::from("/tmp/data"),
-            },
-            query: QueryConfig {
-                default_limit: 100,
-                max_limit: 1000,
-            },
-            cli: CliConfig {
-                output: crate::cli::OutputFormat::Plain,
-            },
-        };
+        let config = test_config();
 
         let mut target_only = target.clone();
         target_only.tags = vec!["target".to_string()];

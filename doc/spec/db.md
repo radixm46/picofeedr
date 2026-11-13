@@ -171,6 +171,9 @@
 ### 5.4 時刻の扱い
 
 - `published_at`/`updated_at` 欠損を許容する（RSSでは pubDate が任意、壊れたフィードも多い）
+- `first_seen_at` はソース上の日付にかかわらず初回観測時に設定し、再同期で上書きしない
+- 記事自身の公開・更新日時がどちらもない場合、`published_at`/`updated_at` は `NULL` とし、実効日付は `first_seen_at` にフォールバックする
+- RSS channel の `lastBuildDate` は item の `published_at`/`updated_at` の代わりに使わない
 - 安定した並び替えや新着判定は `first_seen_at` を併用
 - 「公開日が無いので published_at に受信時刻を代入する」方式は、意味の混線を起こしやすいので採用しない
 
