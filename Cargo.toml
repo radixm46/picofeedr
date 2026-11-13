@@ -27,6 +27,7 @@ time = { version = "0.3", features = ["local-offset", "macros", "parsing"] }
 url = "2"
 
 [dev-dependencies]
+rusqlite = { version = "0.41", features = ["hooks"] }
 assert_cmd = "2"
 tempfile = "3"
 criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }

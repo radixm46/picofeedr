@@ -29,8 +29,20 @@ const SIMPLE_PATH_MAX_NODE_COUNT: usize = 12;
 const SIMPLE_PATH_MAX_DEPTH: usize = 4;
 const SIMPLE_PATH_MAX_OR_FANOUT: usize = 6;
 
-/// Lists entries using tag filters and cursor pagination.
+/// Lists entries using tag filters and cursor pagination on one read snapshot.
 pub fn list_entries(
+    store: &SqliteStore,
+    query: &EntryQuery,
+    sort: SortOrder,
+    limit: usize,
+    cursor: Option<&str>,
+) -> Result<EntryListResponse, AppError> {
+    store.with_read_snapshot(|snapshot| {
+        list_entries_in_snapshot(snapshot, query, sort, limit, cursor)
+    })
+}
+
+fn list_entries_in_snapshot(
     store: &SqliteStore,
     query: &EntryQuery,
     sort: SortOrder,

@@ -119,6 +119,18 @@ impl SqliteStore {
         )?))
     }
 
+    /// Runs related reads on one snapshot and releases it before returning.
+    pub(crate) fn with_read_snapshot<T>(
+        &self,
+        read: impl FnOnce(&Self) -> Result<T, AppError>,
+    ) -> Result<T, AppError> {
+        // Keep immutable read callers; SQLite checks transaction nesting at runtime.
+        let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Deferred)?;
+        let result = read(self)?;
+        tx.commit()?;
+        Ok(result)
+    }
+
     /// Returns a read-only entry repository bound to the store connection.
     pub fn entry_read_repo(&self) -> EntryReadRepo<'_> {
         EntryReadRepo::new(&self.conn)
@@ -212,6 +224,170 @@ mod tests {
             .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
             .expect("foreign_keys pragma");
         assert_eq!(foreign_keys, 1);
+    }
+
+    #[test]
+    fn read_snapshot_stays_consistent_while_another_connection_commits() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("test.sqlite");
+        let reader = SqliteStore::open(&path).expect("open reader");
+        reader.migrate().expect("migrate");
+        reader
+            .conn
+            .execute("INSERT INTO tags (name) VALUES ('before')", [])
+            .expect("insert initial tag");
+        let writer = SqliteStore::open(&path).expect("open writer");
+        reader
+            .conn
+            .busy_timeout(std::time::Duration::ZERO)
+            .expect("reader timeout");
+        writer
+            .conn
+            .busy_timeout(std::time::Duration::ZERO)
+            .expect("writer timeout");
+        writer
+            .conn
+            .execute_batch("BEGIN IMMEDIATE")
+            .expect("hold writer lock");
+
+        reader
+            .with_read_snapshot(|snapshot| {
+                assert_eq!(snapshot.read_system_meta()?.revision, 0);
+                assert_eq!(snapshot.list_tags()?, ["before"]);
+                writer.conn.execute_batch(
+                    "DELETE FROM tags;
+                     INSERT INTO tags (name) VALUES ('after');
+                     UPDATE es_meta SET meta_json = json_set(meta_json, '$.revision', 1);
+                     COMMIT;",
+                )?;
+                assert_eq!(snapshot.list_tags()?, ["before"]);
+                assert_eq!(snapshot.read_system_meta()?.revision, 0);
+                Ok(())
+            })
+            .expect("consistent read without blocking writer");
+
+        assert_eq!(reader.list_tags().expect("read updated tags"), ["after"]);
+        assert_eq!(
+            reader
+                .read_system_meta()
+                .expect("read updated meta")
+                .revision,
+            1
+        );
+    }
+
+    #[test]
+    fn list_response_keeps_one_snapshot_across_a_concurrent_commit() {
+        use crate::cli::SortOrder;
+        use crate::entry::list_entries;
+        use crate::query::EntryQuery;
+        use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+
+        for raw_query in [None, Some("-tag:missing")] {
+            let dir = tempdir().expect("tempdir");
+            let path = dir.path().join("test.sqlite");
+            let mut reader = SqliteStore::open(&path).expect("open reader");
+            reader.migrate().expect("migrate");
+            reader
+                .conn
+                .execute_batch(
+                    "INSERT INTO feeds (id, feed_id, url, title, created_at, updated_at)
+                 VALUES (1, 'feed-1', 'https://example.com/feed', 'Before Feed', 1, 1);
+                 INSERT INTO entries (id, entry_id, feed_pk, title, first_seen_at)
+                 VALUES (1, 'entry-1', 1, 'Before', 1);
+                 INSERT INTO tags (id, name) VALUES (1, 'before'), (2, 'after');
+                 INSERT INTO entry_tags (entry_pk, tag_id) VALUES (1, 1);",
+                )
+                .expect("initial data");
+            let writer = SqliteStore::open(&path).expect("open writer");
+            writer
+                .conn
+                .busy_timeout(std::time::Duration::ZERO)
+                .expect("writer timeout");
+            let committed = Arc::new(AtomicBool::new(false));
+            let hook_committed = Arc::clone(&committed);
+            // Preparing item rows occurs after count/set evaluation, before fetching rows and tags.
+            reader
+                .conn
+                .authorizer(Some(move |context: AuthContext<'_>| {
+                    if matches!(
+                        context.action,
+                        AuthAction::Read {
+                            table_name: "entries",
+                            column_name: "title"
+                        }
+                    ) && !hook_committed.swap(true, Ordering::SeqCst)
+                    {
+                        writer
+                            .conn
+                            .execute_batch(
+                                "BEGIN IMMEDIATE;
+                         UPDATE entries SET title = 'After' WHERE id = 1;
+                         INSERT INTO entries (id, entry_id, feed_pk, title, first_seen_at)
+                         VALUES (2, 'entry-2', 1, 'New', 2);
+                         UPDATE entry_tags SET tag_id = 2 WHERE entry_pk = 1;
+                         UPDATE feeds SET title = 'After Feed' WHERE id = 1;
+                         UPDATE es_meta SET meta_json = json_set(meta_json, '$.revision', 1);
+                         COMMIT;",
+                            )
+                            .expect("concurrent writer commit");
+                    }
+                    Authorization::Allow
+                }))
+                .expect("install read interleaving hook");
+
+            let query = EntryQuery::parse(raw_query, None).expect("query");
+            let before = list_entries(&reader, &query, SortOrder::FirstSeenDesc, 10, None)
+                .expect("list during commit");
+            assert!(
+                committed.load(Ordering::SeqCst),
+                "writer must run during list"
+            );
+            assert_eq!(before.revision, 0);
+            assert_eq!(before.total_count, 1);
+            assert_eq!(before.items.len(), 1);
+            assert_eq!(before.items[0].entry_id, "entry-1");
+            assert_eq!(before.items[0].title.as_deref(), Some("Before"));
+            assert_eq!(before.items[0].tags, ["before"]);
+            assert_eq!(before.feeds[0].title.as_deref(), Some("Before Feed"));
+
+            let after = list_entries(&reader, &query, SortOrder::FirstSeenDesc, 10, None)
+                .expect("list after snapshot release");
+            assert_eq!(after.revision, 1);
+            assert_eq!(after.total_count, 2);
+            assert_eq!(after.items.len(), 2);
+            assert_eq!(after.items[0].entry_id, "entry-2");
+            assert_eq!(after.items[1].title.as_deref(), Some("After"));
+            assert_eq!(after.items[1].tags, ["after"]);
+            assert_eq!(after.feeds[0].title.as_deref(), Some("After Feed"));
+        }
+    }
+
+    #[test]
+    fn read_snapshot_releases_transaction_on_error() {
+        let dir = tempdir().expect("tempdir");
+        let mut store = SqliteStore::open(&dir.path().join("test.sqlite")).expect("open store");
+        store.migrate().expect("migrate");
+
+        let error = store
+            .with_read_snapshot::<()>(|snapshot| {
+                snapshot.read_system_meta()?;
+                Err(crate::error::AppError::invalid_query("invalid cursor"))
+            })
+            .expect_err("read should fail");
+        assert_eq!(error.code().as_str(), "INVALID_QUERY");
+        assert_eq!(error.message(), "invalid cursor");
+        assert_eq!(
+            store
+                .bump_revision(1)
+                .expect("write after failed read")
+                .revision,
+            1
+        );
     }
 
     #[test]

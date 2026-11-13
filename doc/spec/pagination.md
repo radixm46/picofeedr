@@ -5,6 +5,8 @@
 ### A8.1 基本
 
 - `OFFSET` は使わず、カーソル（keyset pagination）を基本とする
+- 1回の `list` に必要なDB読み取りは同一の読み取りスナップショットにそろえ、結果データの取得後、出力処理の前に解放する
+- ページ間ではスナップショットを保持しない。途中のDB更新により、結果集合や `total_count` は変わり得る。返却する `revision` はページ間のスナップショット固定には使用しない
 - `sort` に依存してカーソルを生成する
 - `next_page_token` は不透明文字列（内部は `{\"k\": <sort_key>, \"id\": <entry_pk>, \"sort\": \"<sort>\", \"query_hash\": \"<sha1-hex>\"}` を JSON→base64url）
 - タイブレークは常に `id` を使う（`ORDER BY ..., id ...`）
