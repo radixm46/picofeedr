@@ -156,7 +156,7 @@ fn bench_sync_throughput(c: &mut Criterion) {
                     assert_eq!(summary.failed_feed_count, 0);
                     assert!(summary.errors.is_empty());
                     assert_eq!(summary.new_entry_count, fixture.expected_new_entries);
-                    criterion::black_box(summary.new_entry_count);
+                    std::hint::black_box(summary.new_entry_count);
                 },
                 BatchSize::PerIteration,
             );

@@ -119,7 +119,7 @@ fn bench_tag_queries(c: &mut Criterion) {
             b.iter(|| {
                 let result = list_entries(&store, query, SortOrder::DateDesc, 100, None)
                     .expect("query result");
-                criterion::black_box(result.total_count)
+                std::hint::black_box(result.total_count)
             });
         });
     }
@@ -148,7 +148,7 @@ fn bench_tag_queries(c: &mut Criterion) {
             b.iter(|| {
                 let result = list_entries(&store, query, SortOrder::DateDesc, 100, None)
                     .expect("query result");
-                criterion::black_box(result.total_count)
+                std::hint::black_box(result.total_count)
             });
         });
     }
@@ -192,7 +192,7 @@ fn bench_tag_queries(c: &mut Criterion) {
                 b.iter(|| {
                     let result = list_entries(&store, &query, SortOrder::DateDesc, 100, *cursor)
                         .expect("page result");
-                    criterion::black_box(result)
+                    std::hint::black_box(result)
                 });
             },
         );
@@ -222,7 +222,7 @@ fn bench_tag_queries(c: &mut Criterion) {
                     b.iter(|| {
                         let result = list_entries(&store, query, SortOrder::DateDesc, 100, None)
                             .expect("query result");
-                        criterion::black_box(result.total_count)
+                        std::hint::black_box(result.total_count)
                     });
                 },
             );
