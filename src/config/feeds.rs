@@ -8,10 +8,10 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value as JsonValue;
-use serde_yaml_ng::Value;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
+use yaml_serde::Value;
 
 /// Parsed feeds configuration.
 #[derive(Debug, Clone)]
@@ -38,7 +38,7 @@ impl FeedsConfig {
                 ]),
             )
         })?;
-        let root: Value = serde_yaml_ng::from_str(&content).map_err(|error| {
+        let root: Value = yaml_serde::from_str(&content).map_err(|error| {
             AppError::config_with_details(
                 error.to_string(),
                 error_details([
@@ -325,7 +325,7 @@ fn parse_auto_tags(value: Option<&Value>) -> Result<Vec<AutoTagRule>, AppError> 
     match value {
         None => Ok(Vec::new()),
         Some(value) => {
-            let mut rules: Vec<AutoTagRule> = serde_yaml_ng::from_value(value.clone())?;
+            let mut rules: Vec<AutoTagRule> = yaml_serde::from_value(value.clone())?;
             for rule in &mut rules {
                 for tag in &mut rule.add_tags {
                     *tag = normalize_tag_name(tag);

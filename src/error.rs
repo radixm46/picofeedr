@@ -285,9 +285,9 @@ impl From<toml::de::Error> for AppError {
     }
 }
 
-impl From<serde_yaml_ng::Error> for AppError {
+impl From<yaml_serde::Error> for AppError {
     /// Converts YAML errors into AppError.
-    fn from(error: serde_yaml_ng::Error) -> Self {
+    fn from(error: yaml_serde::Error) -> Self {
         AppError::config_with_source(error.to_string(), error)
     }
 }
